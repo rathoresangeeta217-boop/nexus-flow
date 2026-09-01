@@ -1,0 +1,26 @@
+{
+  "collections": [
+    {
+      "name": "orders",
+      "fields": {
+        "id": "string",
+        "customerName": "string",
+        "companyName": "string",
+        "mobileNumber": "string",
+        "email": "string",
+        "address": "string",
+        "gst": "string",
+        "amount": "string",
+        "status": "string",
+        "items": "number",
+        "createdAt": "timestamp",
+        "quotationFileName": "string",
+        "quotationFileData": "string",
+        "poFileName": "string",
+        "poFileData": "string",
+        "drawingFileName": "string",
+        "drawingFileData": "string"
+      }
+    }
+  ]
+}
