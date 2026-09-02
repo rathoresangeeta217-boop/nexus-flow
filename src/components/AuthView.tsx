@@ -1,8 +1,37 @@
+import { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { signInWithEmailAndPassword } from 'firebase/auth';
+import { auth } from '../lib/firebase';
 import { LogIn, Loader2, Clock } from 'lucide-react';
 
 export function AuthView() {
   const { user, profile, loading, signInWithGoogle, signOut } = useAuth();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [isSigningIn, setIsSigningIn] = useState(false);
+  
+  
+
+  const handleEmailSignIn = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+    setIsSigningIn(true);
+    try {
+      await signInWithEmailAndPassword(auth, email.trim(), password.trim());
+    } catch (err) {
+      console.error(err);
+      if (err.code === 'auth/operation-not-allowed') {
+         setAuthError('Email/Password sign-in is not enabled in Firebase Console.');
+      } else if (err.code === 'auth/invalid-credential') {
+         setAuthError('Invalid credentials. If you haven\'t created the accounts yet, click "Developer: Seed System Accounts" below first!');
+      } else {
+         setAuthError('Invalid email or password.');
+      }
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -42,16 +71,72 @@ export function AuthView() {
             <div className="bg-white w-8 h-8 rounded-lg transform -rotate-6" />
           </div>
         </div>
-        <h1 className="text-2xl font-bold text-slate-900 mb-2">Welcome to Nexus Flow</h1>
+        <h1 className="text-2xl font-bold text-slate-900 mb-2">Welcome to SRK Modular Furniture co.</h1>
         <p className="text-slate-500 mb-8">Sign in to manage orders, inventory, and operations.</p>
         
-        <button
-          onClick={signInWithGoogle}
-          className="w-full flex items-center justify-center gap-3 py-3 bg-white border-2 border-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-50 hover:border-slate-300 transition-colors"
-        >
-          <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-6 h-6" />
-          Sign in with Google
-        </button>
+        
+  <form onSubmit={handleEmailSignIn} className="space-y-4 mb-6 text-left">
+          {authError && (
+            <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm border border-red-100">
+              {authError}
+            </div>
+          )}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
+            <input 
+              type="email" 
+              value={email}
+              onChange={(e) => setEmail(e.target.value.trim())}
+              required
+              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+              placeholder="Enter your email"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
+            <input 
+              type="password" 
+              value={password}
+              onChange={(e) => setPassword(e.target.value.trim())}
+              required
+              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+              placeholder="Enter your password"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={isSigningIn}
+            className="w-full py-3 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {isSigningIn ? <Loader2 className="w-5 h-5 animate-spin" /> : <LogIn className="w-5 h-5" />}
+            Sign In
+          </button>
+        </form>
+
+        <div className="mt-8 pt-6 border-t border-slate-100">
+          <button
+            type="button"
+            onClick={async () => {
+              setAuthError('Seeding users... please wait.');
+              try {
+                const res = await fetch('/api/seed-users', { method: 'POST' });
+                const data = await res.json();
+                if (data.results && data.results.some((r: any) => r.status === 'error' && r.error === 'OPERATION_NOT_ALLOWED')) {
+                  setAuthError('Failed: You must enable "Email/Password" in Firebase Auth Console first!');
+                } else if (data.success) {
+                  setAuthError('Users seeded successfully! You can now log in.');
+                } else {
+                  setAuthError(data.error || 'Unknown error occurred.');
+                }
+              } catch (e: any) {
+                setAuthError(e.message);
+              }
+            }}
+            className="text-xs text-slate-400 hover:text-indigo-600 underline"
+          >
+            Developer: Seed System Accounts
+          </button>
+        </div>
       </div>
     </div>
   );

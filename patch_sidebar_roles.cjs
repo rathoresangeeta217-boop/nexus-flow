@@ -1,45 +1,65 @@
-import { motion } from 'motion/react';
-import { 
-  ShoppingCart, 
-  ShoppingBag, 
-  Factory, 
-  Truck, 
-  CreditCard,
-  Settings,
-  HelpCircle,
-  Hexagon,
-  BarChart3
-} from 'lucide-react';
-import { TabName } from '../types';
-import { cn } from '../lib/utils';
-import { useAuth } from '../contexts/AuthContext';
-import { Users, LogOut } from 'lucide-react';
+const fs = require('fs');
+const file = 'src/components/Sidebar.tsx';
+let content = fs.readFileSync(file, 'utf-8');
 
-const navigation = [
-  { name: 'Orders', icon: ShoppingCart, section: 'Operations' },
-  { name: 'Purchase', icon: ShoppingBag, section: 'Operations' },
-  { name: 'Production', icon: Factory, section: 'Operations' },
-  { name: 'Dispatched', icon: Truck, section: 'Operations' },
-  { name: 'Payments', icon: CreditCard, section: 'Operations' },
-  { name: 'Analytics', icon: BarChart3, section: 'Analytics' },
-] as const;
+const roleFilterLogic = `
+            {navigation.filter(n => {
+              if (n.section !== section) return false;
+              if (profile?.role === 'super_admin') return true;
+              if (profile?.role === 'admin') {
+                return n.name !== 'Analytics';
+              }
+              if (profile?.role === 'sales_executive') {
+                return n.name === 'Orders' || n.name === 'Payments' || n.name === 'Dispatched';
+              }
+              return false; // employee / viewer logic if needed
+            }).map((item) => {
+`;
 
-export function Sidebar({ activeTab, setActiveTab }: { activeTab: TabName, setActiveTab: (tab: TabName) => void }) {
-  const { user, profile, signOut } = useAuth();
-  return (
-    <div className="w-64 bg-slate-900 flex flex-col h-full shrink-0 shadow-xl">
-      <div className="p-6 border-b border-slate-800">
-        <div className="flex items-center gap-3">
-          <div className="font-black text-3xl tracking-tighter" style={{ fontFamily: 'Arial, sans-serif' }}>
-            <span style={{ color: '#dca45a' }}>S</span>
-            <span style={{ color: '#c33b3b' }}>R</span>
-            <span style={{ color: '#dca45a' }}>K</span>
-          </div>
-          <span className="text-white font-bold text-lg tracking-tight uppercase">Modular</span>
-        </div>
-      </div>
-      
-            <nav className="flex-1 p-4 space-y-1 overflow-y-auto custom-scrollbar">
+content = content.replace(
+  "{navigation.filter(n => n.section === section).map((item) => {",
+  roleFilterLogic
+);
+
+content = content.replace(
+  "{section === 'Analytics' && profile?.role === 'admin' && (",
+  "{section === 'Analytics' && profile?.role === 'super_admin' && ("
+);
+
+// We should also hide the 'Analytics' section header if it's empty for sales_executive or admin.
+// Wait, the map over `['Operations', 'Analytics']` renders the section header regardless.
+const sectionMapLogic = `
+      <nav className="flex-1 p-4 space-y-1 overflow-y-auto custom-scrollbar">
+        {['Operations', 'Analytics'].map((section) => {
+          
+          const filteredNav = navigation.filter(n => {
+            if (n.section !== section) return false;
+            if (profile?.role === 'super_admin') return true;
+            if (profile?.role === 'admin') return n.name !== 'Analytics';
+            if (profile?.role === 'sales_executive') {
+              return n.name === 'Orders' || n.name === 'Payments' || n.name === 'Dispatched';
+            }
+            return false;
+          });
+
+          const showUsers = section === 'Analytics' && profile?.role === 'super_admin';
+
+          if (filteredNav.length === 0 && !showUsers) return null;
+
+          return (
+          <div key={section} className="mb-4 first:mt-0 mt-6">
+            <div className="text-slate-500 text-[10px] font-bold uppercase tracking-widest px-3 mb-2">
+              {section}
+            </div>
+            {filteredNav.map((item) => {
+`;
+
+// Replacing everything from `<nav ...>` down to `{filteredNav.map((item) => {`
+// Let's do a more surgical replace.
+
+content = content.replace(
+  /<nav className="flex-1 p-4 space-y-1 overflow-y-auto custom-scrollbar">[\s\S]*?<div className="p-4 bg-slate-950 border-t border-slate-900">/,
+  `      <nav className="flex-1 p-4 space-y-1 overflow-y-auto custom-scrollbar">
         {['Operations', 'Analytics'].map((section) => {
           const filteredNav = navigation.filter(n => {
             if (n.section !== section) return false;
@@ -110,30 +130,7 @@ export function Sidebar({ activeTab, setActiveTab }: { activeTab: TabName, setAc
           );
         })}
       </nav>
-      <div className="p-4 bg-slate-950 border-t border-slate-900">
-        <div className="flex items-center justify-between p-2 rounded-lg bg-slate-800/50 hover:bg-slate-800 transition-colors group cursor-pointer">
-          <div className="flex items-center gap-3 overflow-hidden">
-            <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-white shrink-0 font-bold overflow-hidden">
-              {user?.photoURL ? (
-                <img src={user.photoURL} alt="Profile" className="w-full h-full object-cover" />
-              ) : (
-                profile?.displayName?.charAt(0).toUpperCase() || 'U'
-              )}
-            </div>
-            <div className="overflow-hidden text-left flex-1">
-              <p className="text-xs text-white font-medium truncate">{profile?.displayName}</p>
-              <p className="text-[10px] text-slate-400 truncate capitalize">{profile?.role}</p>
-            </div>
-          </div>
-          <button 
-            onClick={signOut}
-            className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded-md transition-colors"
-            title="Sign Out"
-          >
-            <LogOut className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+      <div className="p-4 bg-slate-950 border-t border-slate-900">`
+);
+
+fs.writeFileSync(file, content);

@@ -32,7 +32,7 @@ export function UsersTab() {
     }
   };
 
-  const handleRoleChange = async (uid: string, newRole: 'admin' | 'employee' | 'viewer') => {
+  const handleRoleChange = async (uid: string, newRole: 'super_admin' | 'admin' | 'sales_executive' | 'employee' | 'viewer') => {
     try {
       await updateUserProfile(uid, { role: newRole });
       fetchUsers();
@@ -41,7 +41,7 @@ export function UsersTab() {
     }
   };
 
-  if (profile?.role !== 'admin') {
+  if (profile?.role !== 'super_admin') {
     return (
       <div className="flex items-center justify-center h-full">
         <p className="text-slate-500">You do not have permission to view this page.</p>
@@ -95,7 +95,9 @@ export function UsersTab() {
                       disabled={user.uid === profile.uid} // Don't let admin change their own role here
                       className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
                     >
+                      <option value="super_admin">Super Admin</option>
                       <option value="admin">Admin</option>
+                      <option value="sales_executive">Sales Executive</option>
                       <option value="employee">Employee</option>
                       <option value="viewer">Viewer</option>
                     </select>

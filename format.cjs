@@ -1,4 +1,7 @@
+const fs = require('fs');
+const file = 'src/App.tsx';
 
+const rewritten = `
 import { useState, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
@@ -81,3 +84,5 @@ export default function App() {
     </div>
   );
 }
+`;
+fs.writeFileSync(file, rewritten);

@@ -2,24 +2,38 @@ const fs = require('fs');
 const file = 'src/App.tsx';
 let content = fs.readFileSync(file, 'utf-8');
 
-content = content.replace(
-  "import { AdminApprovalView } from './components/AdminApprovalView';",
-  "import { AdminApprovalView } from './components/AdminApprovalView';\nimport { useAuth } from './contexts/AuthContext';\nimport { AuthView } from './components/AuthView';\nimport { UsersTab } from './tabs/UsersTab';"
-);
+// The file might be compressed into one line. 
+// We will replace the block from "useEffect(() => {" up to "}, [activeTab]);" with the correct order.
 
-content = content.replace(
-  "export default function App() {",
-  "export default function App() {\n  const { user, profile, loading } = useAuth();"
-);
+const targetRegex = /useEffect\(\(\) => \{[^}]+const params = new URLSearchParams[^}]+qId[^}]+aId[^}]+}, \[\]\);.*?if \(loading\) \{ return null; \}.*?if \(!user \|\| !profile \|\| !profile\.isActive\) \{.*?return <AuthView \/>;.*?\}.*?if \(approvalOrderId\) \{.*?return <AdminApprovalView orderId=\{approvalOrderId\} \/>;.*?\}.*?\/\/ Reset search query when changing tabs.*?useEffect\(\(\) => \{.*?setSearchQuery\(''\);.*?\}, \[activeTab\]\);/;
 
-content = content.replace(
-  "if (approvalOrderId) {",
-  "if (loading) { return null; }\n\n  if (!user || !profile || !profile.isActive) {\n    return <AuthView />;\n  }\n\n  if (approvalOrderId) {"
-);
+const replacement = `  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const qId = params.get('quoteId');
+    const aId = params.get('approveChallan');
+    if (qId) {
+      setQuoteId(qId);
+    }
+    if (aId) {
+      setApprovalOrderId(aId);
+    }
+  }, []);
 
-content = content.replace(
-  "{activeTab === 'Analytics' && <AnalyticsTab />}",
-  "{activeTab === 'Analytics' && <AnalyticsTab />}\n            {activeTab === 'Users' as any && <UsersTab />}"
-);
+  // Reset search query when changing tabs
+  useEffect(() => {
+    setSearchQuery('');
+  }, [activeTab]);
 
+  if (loading) { return null; }
+
+  if (!user || !profile || !profile.isActive) {
+    return <AuthView />;
+  }
+
+  if (approvalOrderId) {
+    return <AdminApprovalView orderId={approvalOrderId} />;
+  }
+`;
+
+content = content.replace(targetRegex, replacement);
 fs.writeFileSync(file, content);
