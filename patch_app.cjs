@@ -2,38 +2,26 @@ const fs = require('fs');
 const file = 'src/App.tsx';
 let content = fs.readFileSync(file, 'utf-8');
 
-// The file might be compressed into one line. 
-// We will replace the block from "useEffect(() => {" up to "}, [activeTab]);" with the correct order.
-
-const targetRegex = /useEffect\(\(\) => \{[^}]+const params = new URLSearchParams[^}]+qId[^}]+aId[^}]+}, \[\]\);.*?if \(loading\) \{ return null; \}.*?if \(!user \|\| !profile \|\| !profile\.isActive\) \{.*?return <AuthView \/>;.*?\}.*?if \(approvalOrderId\) \{.*?return <AdminApprovalView orderId=\{approvalOrderId\} \/>;.*?\}.*?\/\/ Reset search query when changing tabs.*?useEffect\(\(\) => \{.*?setSearchQuery\(''\);.*?\}, \[activeTab\]\);/;
-
-const replacement = `  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const qId = params.get('quoteId');
-    const aId = params.get('approveChallan');
-    if (qId) {
-      setQuoteId(qId);
-    }
-    if (aId) {
-      setApprovalOrderId(aId);
-    }
+content = content.replace(
+  "  useEffect(() => {",
+  `  useEffect(() => {
+    const handleNavigate = (e: CustomEvent) => {
+      const { tab, search } = e.detail;
+      setActiveTab(tab);
+      setTimeout(() => setSearchQuery(search || ''), 10);
+    };
+    window.addEventListener('navigate', handleNavigate as EventListener);
+    return () => window.removeEventListener('navigate', handleNavigate as EventListener);
   }, []);
 
-  // Reset search query when changing tabs
-  useEffect(() => {
-    setSearchQuery('');
-  }, [activeTab]);
+  useEffect(() => {`
+);
 
-  if (loading) { return null; }
+// We need to modify the useEffect that clears search query to not clear it if we just navigated.
+// Actually, if we set the search query *after* the tab change, it should work. The tab change clears it, then our timeout sets it.
+// Let's just remove the effect that clears the search query on tab change, or leave it. 
+// If it's:
+// useEffect(() => { setSearchQuery(''); }, [activeTab]);
+// Then when activeTab changes, it clears it. Then setTimeout runs and sets it to the actual search. That's fine!
 
-  if (!user || !profile || !profile.isActive) {
-    return <AuthView />;
-  }
-
-  if (approvalOrderId) {
-    return <AdminApprovalView orderId={approvalOrderId} />;
-  }
-`;
-
-content = content.replace(targetRegex, replacement);
 fs.writeFileSync(file, content);

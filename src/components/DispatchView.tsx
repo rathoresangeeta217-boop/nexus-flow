@@ -33,6 +33,7 @@ export function DispatchView({ order, onBack }: DispatchViewProps) {
   const [showFarePrompt, setShowFarePrompt] = useState(false);
   const [showPendingReasonPrompt, setShowPendingReasonPrompt] = useState(false);
   const [pendingReason, setPendingReason] = useState("");
+  const [alertMessage, setAlertMessage] = useState<string | null>(null);
   const [showEmployeePrompt, setShowEmployeePrompt] = useState(false);
   const [paymentRecord, setPaymentRecord] = useState<PaymentRecord | null>(null);
 
@@ -232,7 +233,7 @@ export function DispatchView({ order, onBack }: DispatchViewProps) {
     // Check if any product is dispatched
     const anyDispatched = products.some(p => p.isDispatched);
     if (!anyDispatched) {
-      alert('Please select at least one product to dispatch.');
+      setAlertMessage('Please select at least one product to dispatch.');
       return;
     }
     // Set default address from quotation if empty
@@ -312,7 +313,7 @@ Please follow up on pending payments. The Payment Reminder PDF has been download
       }, 1000);
     } else {
       navigator.clipboard.writeText(text);
-      alert('Payment reminder text copied to clipboard! PDF downloaded.');
+      setAlertMessage('Payment reminder text copied to clipboard! PDF downloaded.');
     }
   };
 
@@ -355,7 +356,7 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
       }, 1000);
     } else {
       navigator.clipboard.writeText(text);
-      alert('Driver details text copied to clipboard! PDF downloaded.');
+      setAlertMessage('Driver details text copied to clipboard! PDF downloaded.');
     }
   };
 
@@ -405,12 +406,12 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
     }
     
     if (status === 'Pending') {
-      alert('Challan generation is waiting for admin approval. Please check back later.');
+      setAlertMessage('Challan generation is waiting for admin approval. Please check back later.');
       return;
     }
     
     if (status === 'Rejected') {
-      alert('Challan generation was rejected by admin.');
+      setShowPendingReasonPrompt(true);
       return;
     }
 
@@ -480,7 +481,7 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
       onBack();
     } catch (error) {
       console.error('Failed to schedule dispatch:', error);
-      alert('Failed to save dispatch schedule.');
+      setAlertMessage('Failed to save dispatch schedule.');
     } finally {
       setIsSaving(false);
       setShowDispatchForm(false);
@@ -516,7 +517,7 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
             ...existingFiles,
             ocFileData: base64data
           });
-          alert('Order marked as Dispatched successfully!');
+          setAlertMessage('Order marked as Dispatched successfully!');
           setIsSaving(false);
           setShowOCUpload(false);
         };
@@ -524,10 +525,10 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
         return; // wait for async reader
       }
 
-      alert('Order marked as Dispatched successfully!');
+      setAlertMessage('Order marked as Dispatched successfully!');
     } catch (error) {
       console.error('Failed to mark as dispatched:', error);
-      alert('Failed to update status.');
+      setAlertMessage('Failed to update status.');
     } finally {
       if (!ocDocument) {
         setIsSaving(false);
@@ -556,7 +557,15 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
             Dispatch Order
             <Badge variant="info">{order.id}</Badge>
           </h2>
-          <p className="text-sm text-slate-500 font-medium mt-1">Customer: {order.customer}</p>
+          <div className="flex items-center gap-3 mt-1">
+            <p className="text-sm text-slate-500 font-medium">Customer: {order.customer}</p>
+            <button 
+              onClick={() => window.dispatchEvent(new CustomEvent('navigate', { detail: { tab: 'Payments', search: order.customer } }))}
+              className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2 py-1 rounded transition-colors"
+            >
+              View Payments
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1161,6 +1170,30 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
 
     
       <AnimatePresence>
+        {alertMessage && (
+          <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden"
+            >
+              <div className="p-6 text-center">
+                <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center text-amber-600 mx-auto mb-4">
+                  <FileText className="w-6 h-6" />
+                </div>
+                <h3 className="text-lg font-bold text-slate-800 mb-2">Notice</h3>
+                <p className="text-sm text-slate-600 mb-6">{alertMessage}</p>
+                <button 
+                  onClick={() => setAlertMessage(null)}
+                  className="w-full py-2.5 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors"
+                >
+                  Okay
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
         {showPendingReasonPrompt && (
           <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
             <motion.div 
@@ -1185,7 +1218,9 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
               </div>
               <div className="p-6 overflow-y-auto">
                 <p className="text-sm text-slate-600 mb-4">
-                  The remaining payment for this order is not zero. You must provide a reason for creating a Challan, which will be sent to the admin.
+                  {order.details?.challanApprovalStatus === 'Rejected' 
+                    ? "Your previous challan request was rejected by the admin. Please provide a new reason to resubmit for approval."
+                    : "The remaining payment for this order is not zero. You must provide a reason for creating a Challan, which will be sent to the admin."}
                 </p>
                 <div className="mb-4">
                   <label className="block text-sm font-semibold text-slate-700 mb-2">Reason</label>
@@ -1208,7 +1243,7 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
                 <button
                   onClick={async () => {
                     if (!pendingReason.trim()) {
-                      alert('Please enter a reason.');
+                      setAlertMessage('Please enter a reason.');
                       return;
                     }
                     setIsSaving(true);
@@ -1231,9 +1266,9 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
                       
                       setShowPendingReasonPrompt(false);
                       setPendingReason("");
-                      alert("Approval request sent to Admin. You will be able to generate the Challan once approved.");
+                      setAlertMessage("Approval request sent to Admin. You will be able to generate the Challan once approved.");
                     } catch (e) {
-                      alert("Failed to send approval request.");
+                      setAlertMessage("Failed to send approval request.");
                     } finally {
                       setIsSaving(false);
                     }

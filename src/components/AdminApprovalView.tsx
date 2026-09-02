@@ -39,7 +39,7 @@ export function AdminApprovalView({ orderId }: { orderId: string }) {
       };
       await saveOrder(updatedOrder);
       setOrder(updatedOrder);
-      alert(`Challan creation \${status.toLowerCase()} successfully.`);
+      window.location.href = '/';
     } catch (err) {
       alert('Failed to update status.');
     } finally {

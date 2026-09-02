@@ -23,6 +23,16 @@ export default function App() {
   const [approvalOrderId, setApprovalOrderId] = useState<string | null>(null);
 
   useEffect(() => {
+    const handleNavigate = (e: CustomEvent) => {
+      const { tab, search } = e.detail;
+      setActiveTab(tab);
+      setTimeout(() => setSearchQuery(search || ''), 10);
+    };
+    window.addEventListener('navigate', handleNavigate as EventListener);
+    return () => window.removeEventListener('navigate', handleNavigate as EventListener);
+  }, []);
+
+  useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const qId = params.get('quoteId');
     const aId = params.get('approveChallan');
