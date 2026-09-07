@@ -13,13 +13,14 @@ import {
 import { TabName } from '../types';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
-import { Users, LogOut } from 'lucide-react';
+import { Users, LogOut, Wrench } from 'lucide-react';
 
 const navigation = [
   { name: 'Orders', icon: ShoppingCart, section: 'Operations' },
   { name: 'Purchase', icon: ShoppingBag, section: 'Operations' },
   { name: 'Production', icon: Factory, section: 'Operations' },
   { name: 'Dispatched', icon: Truck, section: 'Operations' },
+  { name: 'Installation', icon: Wrench, section: 'Operations' },
   { name: 'Payments', icon: CreditCard, section: 'Operations' },
   { name: 'Analytics', icon: BarChart3, section: 'Analytics' },
 ] as const;
@@ -43,6 +44,7 @@ export function Sidebar({ activeTab, setActiveTab }: { activeTab: TabName, setAc
         {['Operations', 'Analytics'].map((section) => {
           const filteredNav = navigation.filter(n => {
             if (n.section !== section) return false;
+            if (n.name === 'Installation') return true; // All members
             if (profile?.role === 'super_admin') return true;
             if (profile?.role === 'admin') return n.name !== 'Analytics';
             if (profile?.role === 'sales_executive') {

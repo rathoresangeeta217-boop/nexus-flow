@@ -3,10 +3,20 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import fs from "fs";
 import { GoogleGenAI } from "@google/genai";
+import "dotenv/config";
 
-
-// Fallback if environment variable is missing
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+// Lazy initialization of Gemini client to prevent startup crashes when API key is not yet set
+let aiClient: GoogleGenAI | null = null;
+function getAI(): GoogleGenAI {
+  if (!aiClient) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error("GEMINI_API_KEY is not configured in the environment variables.");
+    }
+    aiClient = new GoogleGenAI({ apiKey });
+  }
+  return aiClient;
+}
 
 
 
@@ -59,6 +69,7 @@ async function callGeminiWithRetry(params, maxRetries = 6) {
       
       contents.push({ role: 'user', parts });
       
+      const ai = getAI();
       const res = await Promise.race([
         ai.models.generateContent({
            model: params.model,
@@ -165,7 +176,7 @@ async function startServer() {
       `;
 
       const response = await callGeminiWithRetry({
-        model: 'gemini-3.6-flash',
+        model: 'gemini-3.8-flash',
         input: [
           { type: 'text', text: prompt },
           {
@@ -226,7 +237,7 @@ async function startServer() {
       For example: "Office Chair", "Wooden Desk", "Conference Table", "Drawer Handle".`;
 
       const response = await callGeminiWithRetry({
-        model: 'gemini-3.6-flash',
+        model: 'gemini-3.8-flash',
         input: [
           { type: 'text', text: prompt },
           {
@@ -397,7 +408,7 @@ async function startServer() {
 4. Return ONLY a JSON object with a single array property "matchingIds" containing the string IDs of the matched items. If no items match, return {"matchingIds": []}. Do not return any other text.` });
 
       const response = await callGeminiWithRetry({
-        model: 'gemini-3.6-flash',
+        model: 'gemini-3.8-flash',
         input: parts
       });
 

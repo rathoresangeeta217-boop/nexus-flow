@@ -1,1 +1,1 @@
-export type TabName = 'Orders' | 'Purchase' | 'Production' | 'Dispatched' | 'Payments' | 'Analytics' | 'Users';
+export type TabName = 'Orders' | 'Purchase' | 'Production' | 'Dispatched' | 'Installation' | 'Payments' | 'Analytics' | 'Users';

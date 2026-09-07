@@ -8,21 +8,23 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   import.meta.url,
 ).toString();
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, X, Save, Package, CheckSquare, Image as ImageIcon, Plus, Trash2, Edit2, FileText, Check, Truck, User, MapPin, Phone } from 'lucide-react';
+import { ArrowLeft, X, Save, Package, CheckSquare, Image as ImageIcon, Plus, Trash2, Edit2, FileText, Check, Truck, User, MapPin, Phone, Wrench, Send, ClipboardList } from 'lucide-react';
 import { Order, OrderProduct, saveOrder } from '../lib/orders';
 import { Product, subscribeToProducts } from '../lib/products';
 import { getProductFile } from '../lib/fileStorage';
 import { Badge } from './Badge';
 import { getOrderFiles, saveOrderFiles } from '../lib/fileStorage';
-import { generateDispatchPDF, generatePaymentReminderPDF } from '../lib/pdfHelper';
+import { generateDispatchPDF, generatePaymentReminderPDF, generateSatisfactionFormPDF } from '../lib/pdfHelper';
 import { getPaymentForOrder, PaymentRecord } from '../lib/payments';
+import { getInstallers, subscribeToInstallers, Installer } from '../lib/installers';
 
 interface DispatchViewProps {
   order: Order;
   onBack: () => void;
+  isInstallationView?: boolean;
 }
 
-export function DispatchView({ order, onBack }: DispatchViewProps) {
+export function DispatchView({ order, onBack, isInstallationView = false }: DispatchViewProps) {
   const [products, setProducts] = useState<OrderProduct[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [quotationFile, setQuotationFile] = useState<string | null>(null);
@@ -36,6 +38,12 @@ export function DispatchView({ order, onBack }: DispatchViewProps) {
   const [alertMessage, setAlertMessage] = useState<string | null>(null);
   const [showEmployeePrompt, setShowEmployeePrompt] = useState(false);
   const [paymentRecord, setPaymentRecord] = useState<PaymentRecord | null>(null);
+  const [installers, setInstallers] = useState<Installer[]>([]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToInstallers(setInstallers);
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     const fetchPayment = async () => {
@@ -60,6 +68,9 @@ export function DispatchView({ order, onBack }: DispatchViewProps) {
   const [logisticCharges, setLogisticCharges] = useState(order.details?.logisticCharges || '');
   const [firstDispatchAmount, setFirstDispatchAmount] = useState(order.details?.firstDispatchAmount || '');
   const [secondDispatchAmount, setSecondDispatchAmount] = useState(order.details?.secondDispatchAmount || '');
+  const [installerName, setInstallerName] = useState(order.details?.installerName || "");
+  const [installationHelpers, setInstallationHelpers] = useState(order.details?.installationHelpers || "");
+  const [installationDate, setInstallationDate] = useState(order.details?.installationDate || "");
   const [placeOfSupply, setPlaceOfSupply] = useState(order.details?.placeOfSupply || '');
   const [reasonForTransport, setReasonForTransport] = useState(order.details?.reasonForTransport || 'Delivery');
 
@@ -79,6 +90,8 @@ export function DispatchView({ order, onBack }: DispatchViewProps) {
   const [matchedImages, setMatchedImages] = useState<Record<string, string>>({});
   const [showOCUpload, setShowOCUpload] = useState(false);
   const [ocDocument, setOcDocument] = useState<File | null>(null);
+  const [showQcUpload, setShowQcUpload] = useState(false);
+  const [qcDocument, setQcDocument] = useState<File | null>(null);
 
   useEffect(() => {
     const unsubscribe = subscribeToProducts((prods) => {
@@ -171,6 +184,30 @@ export function DispatchView({ order, onBack }: DispatchViewProps) {
       } else {
         setDispatchPromptProduct(product);
         setDispatchQty(product.quantity);
+      }
+    }
+  };
+
+  const toggleRequiresInstallation = async (product: OrderProduct, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const updatedProducts = products.map(p => 
+      p.id === product.id ? { ...p, requiresInstallation: !p.requiresInstallation } : p
+    );
+    setProducts(updatedProducts);
+    
+    // Auto-save the product edit to persist this state
+    if (order.id || order.docId) {
+      try {
+        const updatedOrder = {
+          ...order,
+          details: {
+            ...order.details,
+            products: updatedProducts
+          }
+        };
+        await saveOrder(updatedOrder);
+      } catch (e) {
+        console.error('Failed to auto-save installation flag:', e);
       }
     }
   };
@@ -468,7 +505,10 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
           firstDispatchAmount,
           secondDispatchAmount,
           placeOfSupply,
-          reasonForTransport
+          reasonForTransport,
+          installerName,
+          installationHelpers,
+          installationDate
         }
       };
       
@@ -533,6 +573,47 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
       if (!ocDocument) {
         setIsSaving(false);
         setShowOCUpload(false);
+      }
+    }
+  };
+
+  const markReadyForInstallation = async () => {
+    if (!order || !order.docId) return;
+    setIsSaving(true);
+    try {
+      const updatedOrder = {
+        ...order,
+        status: 'Installation Pending'
+      };
+      await saveOrder(updatedOrder);
+      
+      if (qcDocument) {
+        const reader = new FileReader();
+        reader.onloadend = async () => {
+          const base64data = reader.result as string;
+          const existingFiles = await getOrderFiles(order.id || order.docId);
+          await saveOrderFiles(order.id || order.docId, {
+            ...existingFiles,
+            qcFileData: base64data
+          });
+          setAlertMessage('Order moved to Installation successfully!');
+          setIsSaving(false);
+          setShowQcUpload(false);
+          onBack();
+        };
+        reader.readAsDataURL(qcDocument);
+        return; // wait for async reader
+      }
+
+      setAlertMessage('Order moved to Installation successfully!');
+      onBack();
+    } catch (error) {
+      console.error('Failed to move to installation:', error);
+      setAlertMessage('Failed to update status.');
+    } finally {
+      if (!qcDocument) {
+        setIsSaving(false);
+        setShowQcUpload(false);
       }
     }
   };
@@ -602,16 +683,24 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
             </div>
 
             <div className="divide-y divide-slate-100 flex-1 overflow-y-auto">
-              {products.map((product, idx) => (
-                <div key={`${product.id || "k"}-${idx}`} className="flex flex-col sm:flex-row sm:items-center p-4 sm:p-6 hover:bg-slate-50 transition-colors gap-4 group">
-                  <div 
-                    className="flex-shrink-0 pt-1 sm:pt-0 cursor-pointer"
-                    onClick={() => { if (editingId !== product.id) toggleDispatch(product); }}
-                  >
-                    <div className={`w-6 h-6 rounded border flex items-center justify-center transition-colors ${product.isDispatched ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-300 bg-white'}`}>
-                      {product.isDispatched && <CheckSquare className="w-4 h-4" />}
+              {(isInstallationView ? products.filter(p => p.requiresInstallation) : products).map((product, idx) => {
+                const isSavedAsDispatched = order.details?.products?.find((p: any) => p.id === product.id)?.isDispatched;
+                
+                return (
+                <div key={`${product.id || "k"}-${idx}`} className={`flex flex-col sm:flex-row sm:items-center p-4 sm:p-6 hover:bg-slate-50 transition-colors gap-4 group ${isSavedAsDispatched ? 'opacity-75' : ''}`}>
+                  {!isInstallationView && (
+                    <div 
+                      className={`flex-shrink-0 pt-1 sm:pt-0 ${isSavedAsDispatched ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+                      onClick={() => { 
+                        if (isSavedAsDispatched) return;
+                        if (editingId !== product.id) toggleDispatch(product); 
+                      }}
+                    >
+                      <div className={`w-6 h-6 rounded border flex items-center justify-center transition-colors ${product.isDispatched ? (isSavedAsDispatched ? 'bg-indigo-400 border-indigo-400 text-white' : 'bg-indigo-600 border-indigo-600 text-white') : 'border-slate-300 bg-white'}`}>
+                        {product.isDispatched && <CheckSquare className="w-4 h-4" />}
+                      </div>
                     </div>
-                  </div>
+                  )}
                   
                   <div className="flex-shrink-0 w-16 h-16 bg-slate-100 rounded-lg overflow-hidden flex items-center justify-center border border-slate-200 relative group">
                     {editingId === product.id ? (
@@ -702,7 +791,7 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
                         </div>
                       </div>
                     ) : (
-                      <div className="cursor-pointer" onClick={() => startEdit(product)}>
+                      <div className={!isInstallationView ? "cursor-pointer" : ""} onClick={() => { if (!isInstallationView) startEdit(product); }}>
                         <h4 className="text-base font-bold text-slate-800">
                           {product.name || <span className="text-slate-400 italic">Click to select product...</span>}
                         </h4>
@@ -716,16 +805,17 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
                           {product.rate && <span className="bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded font-medium border border-emerald-100">Rate: {product.rate}</span>}
                           {product.isDispatched && product.dispatchedQuantity !== undefined && (
                             <span 
-                              className="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded font-medium ml-2 cursor-pointer hover:bg-indigo-200 transition-colors inline-flex items-center"
+                              className={`bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded font-medium ml-2 ${!isInstallationView ? 'cursor-pointer hover:bg-indigo-200 transition-colors inline-flex items-center' : 'inline-flex items-center'}`}
                               onClick={(e) => {
+                                if (isInstallationView) return;
                                 e.stopPropagation();
                                 setDispatchPromptProduct(product);
                                 setDispatchQty(product.dispatchedQuantity || 1);
                               }}
-                              title="Edit dispatched quantity"
+                              title={!isInstallationView ? "Edit dispatched quantity" : undefined}
                             >
                               Dispatching: {product.dispatchedQuantity}
-                              <Edit2 className="w-3 h-3 ml-1" />
+                              {!isInstallationView && <Edit2 className="w-3 h-3 ml-1" />}
                             </span>
                           )}
                         </div>
@@ -734,18 +824,36 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
                   </div>
                   
                   <div className="flex items-center gap-2">
-                    {editingId === product.id ? (
-                      <button onClick={() => saveEdit(product.id)} className="p-2 text-emerald-600 bg-emerald-50 rounded-lg hover:bg-emerald-100">
-                        <Check className="w-4 h-4" />
-                      </button>
-                    ) : (
-                      <button onClick={() => startEdit(product)} className="p-2 text-slate-400 hover:text-indigo-600 rounded-lg hover:bg-indigo-50 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Edit2 className="w-4 h-4" />
-                      </button>
+                    {!isInstallationView && (
+                      <>
+                        {editingId === product.id ? (
+                          <button onClick={() => saveEdit(product.id)} className="p-2 text-emerald-600 bg-emerald-50 rounded-lg hover:bg-emerald-100">
+                            <Check className="w-4 h-4" />
+                          </button>
+                        ) : (
+                          <button onClick={() => startEdit(product)} className="p-2 text-slate-400 hover:text-indigo-600 rounded-lg hover:bg-indigo-50 opacity-0 group-hover:opacity-100 transition-opacity" title="Edit">
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                        )}
+                        
+                        <button 
+                          onClick={(e) => toggleRequiresInstallation(product, e)} 
+                          className={`p-2 rounded-lg transition-colors flex items-center gap-1 ${
+                            product.requiresInstallation 
+                              ? 'text-amber-600 bg-amber-50 border border-amber-200 opacity-100' 
+                              : 'text-slate-400 hover:text-amber-600 hover:bg-amber-50 opacity-0 group-hover:opacity-100'
+                          }`}
+                          title={product.requiresInstallation ? "Requires Installation (Click to toggle)" : "Mark as Requires Installation"}
+                        >
+                          <Wrench className="w-4 h-4" />
+                          {product.requiresInstallation && <span className="text-xs font-semibold">Install</span>}
+                        </button>
+
+                        <button onClick={() => deleteProduct(product.id)} className="p-2 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 opacity-0 group-hover:opacity-100 transition-opacity" title="Delete">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </>
                     )}
-                    <button onClick={() => deleteProduct(product.id)} className="p-2 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
                     <div className="ml-2">
                       <Badge variant={product.isDispatched ? (product.dispatchedQuantity === product.quantity ? 'success' : 'info') : 'warning'}>
                         {product.isDispatched ? (product.dispatchedQuantity === product.quantity ? 'Ready' : 'Partial') : 'Pending'}
@@ -753,21 +861,78 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
                     </div>
                   </div>
                 </div>
-              ))}
+              )})}
               
-              {products.length === 0 && (
+              {(isInstallationView ? products.filter(p => p.requiresInstallation) : products).length === 0 && (
                 <div className="p-12 text-center text-slate-500">
                   <Package className="w-12 h-12 mx-auto mb-3 text-slate-300" />
-                  <p>No products found for this order.</p>
-                  <button onClick={addProduct} className="mt-4 text-indigo-600 font-medium hover:underline">
-                    Add a product manually
-                  </button>
+                  <p>{isInstallationView ? 'No products flagged for installation.' : 'No products found for this order.'}</p>
+                  {!isInstallationView && (
+                    <button onClick={addProduct} className="mt-4 text-indigo-600 font-medium hover:underline">
+                      Add a product manually
+                    </button>
+                  )}
                 </div>
               )}
             </div>
+
+            {/* Installation Details Section */}
+            {(order.status.includes('Installation') || products.some(p => p.requiresInstallation)) && (
+              <div className="p-6 border-t border-slate-100 bg-amber-50/30">
+                <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
+                  <Wrench className="w-4 h-4 text-amber-600" />
+                  Installation Assignment
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Lead Installer</label>
+                    <select 
+                      value={installerName}
+                      onChange={(e) => {
+                        setInstallerName(e.target.value);
+                        saveOrder({ ...order, details: { ...order.details, installerName: e.target.value, installationHelpers, installationDate } });
+                      }}
+                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none text-sm font-medium"
+                    >
+                      <option value="">Select Installer...</option>
+                      {installers.map((installer) => (
+                        <option key={installer.id} value={installer.name}>
+                          {installer.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Helpers (Comma separated)</label>
+                    <input 
+                      type="text" 
+                      value={installationHelpers}
+                      onChange={(e) => setInstallationHelpers(e.target.value)}
+                      onBlur={() => {
+                        saveOrder({ ...order, details: { ...order.details, installerName, installationHelpers, installationDate } });
+                      }}
+                      placeholder="e.g. Ramesh, Suresh"
+                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Installation Date</label>
+                    <input 
+                      type="date" 
+                      value={installationDate}
+                      onChange={(e) => {
+                        setInstallationDate(e.target.value);
+                        saveOrder({ ...order, details: { ...order.details, installerName, installationHelpers, installationDate: e.target.value } });
+                      }}
+                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none text-sm"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
             
             <div className="p-6 bg-slate-50 border-t border-slate-100 flex flex-wrap justify-end gap-3">
-              {order.status === 'Scheduled Dispatched' || order.status === 'Dispatched' ? (
+              {(order.status === 'Scheduled Dispatched' || order.status === 'Dispatched' || order.status === 'Out for Delivery' || order.status === 'Delivered' || order.status === 'Installation Pending' || order.status === 'Installation In Progress' || order.status === 'Installation Complete') ? (
                 <>
                   <button 
                     onClick={onBack}
@@ -776,7 +941,96 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
                     Back
                   </button>
                   
-                  {order.status !== 'Dispatched' && (
+                  {!isInstallationView && order.status === 'Dispatched' && (
+                    <button 
+                      onClick={() => setShowQcUpload(true)}
+                      disabled={isSaving}
+                      className="flex items-center px-4 py-2 text-sm font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                    >
+                      <Check className="w-4 h-4 mr-2" />
+                      {isSaving ? 'Processing...' : 'Upload QC & Send to Installation'}
+                    </button>
+                  )}
+                  {isInstallationView && !['Installation In Progress', 'Installation Complete', 'Completed'].includes(order.status) && (
+                    <button 
+                      onClick={async () => {
+                        if (!installationDate) {
+                          setAlertMessage('Please select an installation date first.');
+                          return;
+                        }
+                        setIsSaving(true);
+                        try {
+                          await saveOrder({ ...order, status: 'Installation In Progress', details: { ...order.details, installerName, installationHelpers, installationDate } });
+                          setAlertMessage('Installation Scheduled Successfully!');
+                          onBack();
+                        } catch (err) {
+                          setAlertMessage('Failed to schedule installation.');
+                        }
+                        setIsSaving(false);
+                      }}
+                      disabled={isSaving}
+                      className="flex items-center px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                    >
+                      <Check className="w-4 h-4 mr-2" />
+                      {isSaving ? 'Scheduling...' : 'Scheduled Dispatch'}
+                    </button>
+                  )}
+                  {isInstallationView && order.status === 'Installation In Progress' && (
+                    <button 
+                      onClick={() => {
+                        const text = `Installation Details for Order ${order.id || order.docId}\nCustomer: ${order.customer}\nInstaller: ${order.details?.installerName || 'Not assigned'}\nHelpers: ${order.details?.installationHelpers || 'None'}\nDate: ${order.details?.installationDate || 'Not scheduled'}`;
+                        const custPhone = order.details?.mobileNumber || '';
+                        window.open(`https://web.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
+                      }}
+                      className="flex items-center px-4 py-2 text-sm font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
+                    >
+                      <Send className="w-4 h-4 mr-2" />
+                      Send to Installer
+                    </button>
+                  )}
+                  {isInstallationView && order.status === 'Installation In Progress' && (
+                    <button 
+                      onClick={async () => {
+                        setIsSaving(true);
+                        try {
+                          const installers = await getInstallers();
+                          const installerDetails = installers.find(i => i.name === order.details?.installerName) || null;
+                          await generateSatisfactionFormPDF(order, installerDetails);
+                        } catch (error) {
+                          console.error('Error generating satisfaction form:', error);
+                          setAlertMessage('Failed to generate form.');
+                        }
+                        setIsSaving(false);
+                      }}
+                      disabled={isSaving}
+                      className="flex items-center px-4 py-2 text-sm font-semibold text-purple-700 bg-purple-50 border border-purple-200 rounded-lg hover:bg-purple-100 transition-colors disabled:opacity-50"
+                    >
+                      <ClipboardList className="w-4 h-4 mr-2" />
+                      Customer Satisfaction Form
+                    </button>
+                  )}
+                  {(!isInstallationView || order.status === 'Installation In Progress') && (order.status === 'Installation Pending' || order.status === 'Installation In Progress') && (
+                    <button 
+                      onClick={async () => {
+                        setIsSaving(true);
+                        try {
+                          await saveOrder({ ...order, status: 'Installation Complete' });
+                          setAlertMessage('Order marked as Installation Complete!');
+                          onBack();
+                        } catch (err) {
+                          setAlertMessage('Failed to update status.');
+                        }
+                        setIsSaving(false);
+                      }}
+                      disabled={isSaving}
+                      className="flex items-center px-4 py-2 text-sm font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+                    >
+                      <Check className="w-4 h-4 mr-2" />
+                      {isSaving ? 'Saving...' : 'Complete Installation'}
+                    </button>
+                  )}
+                  
+                  {!isInstallationView && order.status !== 'Dispatched' && !order.status.includes('Installation') && (
                     <button 
                       onClick={handleConfirmDispatchedClick}
                       disabled={isSaving}
@@ -786,14 +1040,17 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
                       {isSaving ? 'Confirming...' : 'Confirm Dispatched'}
                     </button>
                   )}
-                  <button 
-                    onClick={handleEmployeeReminder}
-                    className="flex items-center px-4 py-2 text-sm font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 transition-colors"
-                  >
-                    Payment Reminder (Employee)
-                  </button>
-                  <button 
-                    onClick={() => {
+                  {!isInstallationView && (
+                    <button 
+                      onClick={handleEmployeeReminder}
+                      className="flex items-center px-4 py-2 text-sm font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 transition-colors"
+                    >
+                      Payment Reminder (Employee)
+                    </button>
+                  )}
+                  {!isInstallationView && (
+                    <button 
+                      onClick={() => {
                       generatePaymentReminderPDF({ ...order, details: { ...order.details, products, bankDetails, logisticCharges, firstDispatchAmount, secondDispatchAmount, placeOfSupply, reasonForTransport } }, paymentRecord);
                       const custPhone = order.details?.mobileNumber;
                       if (custPhone) {
@@ -846,29 +1103,36 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
                     <FileText className="w-4 h-4 mr-2" />
                     Payment Reminder (PDF)
                   </button>
-                  <button 
-                    onClick={() => {
-                      const enhancedOrder = { ...order, details: { ...order.details, products, bankDetails, logisticCharges, firstDispatchAmount, secondDispatchAmount, placeOfSupply, reasonForTransport } };
-                      generateDispatchPDF(enhancedOrder, false, 'Packing List');
-                    }}
-                    className="flex items-center px-4 py-2 text-sm font-semibold text-fuchsia-700 bg-fuchsia-50 border border-fuchsia-200 rounded-lg hover:bg-fuchsia-100 transition-colors"
-                  >
-                    <FileText className="w-4 h-4 mr-2" />
-                    Packing List
-                  </button>
-                  <button 
-                    onClick={handleDriverDetails}
-                    className="flex items-center px-4 py-2 text-sm font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
-                  >
-                    Send to Driver
-                  </button>
-                  <button 
-                    onClick={handleChallanClick}
-                    className="flex items-center px-4 py-2 text-sm font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"
-                  >
-                    <FileText className="w-4 h-4 mr-2" />
-                    Challan
-                  </button>
+                  )}
+                  {!isInstallationView && (
+                    <button 
+                      onClick={() => {
+                        const enhancedOrder = { ...order, details: { ...order.details, products, bankDetails, logisticCharges, firstDispatchAmount, secondDispatchAmount, placeOfSupply, reasonForTransport } };
+                        generateDispatchPDF(enhancedOrder, false, 'Packing List');
+                      }}
+                      className="flex items-center px-4 py-2 text-sm font-semibold text-fuchsia-700 bg-fuchsia-50 border border-fuchsia-200 rounded-lg hover:bg-fuchsia-100 transition-colors"
+                    >
+                      <FileText className="w-4 h-4 mr-2" />
+                      Packing List
+                    </button>
+                  )}
+                  {!isInstallationView && (
+                    <button 
+                      onClick={handleDriverDetails}
+                      className="flex items-center px-4 py-2 text-sm font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
+                    >
+                      Send to Driver
+                    </button>
+                  )}
+                  {!isInstallationView && (
+                    <button 
+                      onClick={handleChallanClick}
+                      className="flex items-center px-4 py-2 text-sm font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"
+                    >
+                      <FileText className="w-4 h-4 mr-2" />
+                      Challan
+                    </button>
+                  )}
                 </>
               ) : (
                 <>
@@ -1384,6 +1648,60 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
                   className="px-4 py-2 text-sm font-semibold text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
                 >
                   {isSaving ? 'Saving...' : 'Confirm Dispatched'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {showQcUpload && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 sm:p-6 bg-slate-900/50 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden flex flex-col max-h-[90vh]"
+            >
+              <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-indigo-100 text-indigo-600 rounded-lg">
+                    <CheckSquare className="w-5 h-5" />
+                  </div>
+                  <h2 className="text-xl font-bold text-slate-800">Ready for Installation</h2>
+                </div>
+                <button 
+                  onClick={() => setShowQcUpload(false)}
+                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-full transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-6 space-y-4">
+                <p className="text-sm text-slate-600">Please upload the QC (Quality Control) document (Optional) before sending to Installation.</p>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">QC Document</label>
+                  <input
+                    type="file"
+                    accept="image/*,.pdf"
+                    onChange={(e) => setQcDocument(e.target.files?.[0] || null)}
+                    className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+              <div className="p-6 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
+                <button
+                  onClick={() => setShowQcUpload(false)}
+                  className="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-200 rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={markReadyForInstallation}
+                  disabled={isSaving}
+                  className="px-4 py-2 text-sm font-semibold text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
+                >
+                  {isSaving ? 'Saving...' : 'Confirm Installation'}
                 </button>
               </div>
             </motion.div>

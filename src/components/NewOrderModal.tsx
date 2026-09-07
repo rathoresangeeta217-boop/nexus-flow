@@ -322,7 +322,7 @@ export function NewOrderModal({ isOpen, onClose, fileName, fileData, onAddOrder,
                   <Loader2 className="w-8 h-8 text-indigo-500 animate-spin mb-4" />
                   {countdown !== null && countdown > 0 ? (
                     <>
-                      <p className="text-sm font-medium text-amber-600">Free Tier API Quota Reached.</p>
+                      <p className="text-sm font-medium text-amber-600">Waiting for AI processing capacity...</p>
                       <p className="text-xs text-slate-500 mt-1">Automatically retrying in {countdown} seconds...</p>
                     </>
                   ) : (

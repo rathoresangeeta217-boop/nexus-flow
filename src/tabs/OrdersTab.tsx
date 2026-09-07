@@ -29,6 +29,10 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
     const unsubscribe = subscribeToOrders((fetchedOrders) => {
       setOrders(fetchedOrders);
       setIsLoading(false);
+      setSelectedOrder(current => {
+        if (!current) return null;
+        return fetchedOrders.find(o => o.id === current.id || o.docId === current.docId) || current;
+      });
     });
     
   

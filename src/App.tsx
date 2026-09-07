@@ -6,6 +6,7 @@ import { OrdersTab } from './tabs/OrdersTab';
 import { PurchaseTab } from './tabs/PurchaseTab';
 import { ProductionTab } from './tabs/ProductionTab';
 import { DispatchedTab } from './tabs/DispatchedTab';
+import { InstallationTab } from './tabs/InstallationTab';
 import { PaymentsTab } from './tabs/PaymentsTab';
 import { AnalyticsTab } from './tabs/AnalyticsTab';
 import { VendorQuoteForm } from './components/VendorQuoteForm';
@@ -81,6 +82,7 @@ export default function App() {
             {currentTab === 'Orders' && (profile.role === 'super_admin' || profile.role === 'admin' || profile.role === 'sales_executive') && <OrdersTab searchQuery={searchQuery} />}
             {currentTab === 'Purchase' && (profile.role === 'super_admin' || profile.role === 'admin') && <PurchaseTab searchQuery={searchQuery} />}
             {currentTab === 'Production' && (profile.role === 'super_admin' || profile.role === 'admin') && <ProductionTab searchQuery={searchQuery} />}
+            {currentTab === 'Installation' && <InstallationTab searchQuery={searchQuery} />}
             {currentTab === 'Dispatched' && (profile.role === 'super_admin' || profile.role === 'admin' || profile.role === 'sales_executive') && <DispatchedTab searchQuery={searchQuery} />}
             {currentTab === 'Payments' && (profile.role === 'super_admin' || profile.role === 'admin' || profile.role === 'sales_executive') && <PaymentsTab searchQuery={searchQuery} />}
             {currentTab === 'Analytics' && profile.role === 'super_admin' && <AnalyticsTab />}

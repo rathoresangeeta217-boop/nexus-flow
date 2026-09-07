@@ -1,0 +1,201 @@
+              </div>
+            )}
+            
+            <div className="p-6 bg-slate-50 border-t border-slate-100 flex flex-wrap justify-end gap-3">
+              {(order.status === 'Scheduled Dispatched' || order.status === 'Dispatched' || order.status === 'Installation Pending' || order.status === 'Installation In Progress' || order.status === 'Installation Complete') ? (
+                <>
+                  <button 
+                    onClick={onBack}
+                    className="px-5 py-2.5 text-sm font-semibold text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
+                  >
+                    Back
+                  </button>
+                  
+                  {order.status === 'Dispatched' && (
+                    <button 
+                      onClick={() => setShowQcUpload(true)}
+                      disabled={isSaving}
+                      className="flex items-center px-4 py-2 text-sm font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                    >
+                      <Check className="w-4 h-4 mr-2" />
+                      {isSaving ? 'Processing...' : 'Upload QC & Send to Installation'}
+                    </button>
+                  )}
+
+                  {isInstallationView && order.status === 'Installation Pending' && (
+                    <button 
+                      onClick={async () => {
+                        if (!installationDate) {
+                          setAlertMessage('Please select an installation date first.');
+                          return;
+                        }
+                        setIsSaving(true);
+                        try {
+                          await saveOrder({ ...order, status: 'Installation In Progress', details: { ...order.details, installerName, installationHelpers, installationDate } });
+                          setAlertMessage('Installation Scheduled Successfully!');
+                          onBack();
+                        } catch (err) {
+                          setAlertMessage('Failed to schedule installation.');
+                        }
+                        setIsSaving(false);
+                      }}
+                      disabled={isSaving}
+                      className="flex items-center px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                    >
+                      <Check className="w-4 h-4 mr-2" />
+                      {isSaving ? 'Scheduling...' : 'Schedule Installation'}
+                    </button>
+                  )}
+                  {(!isInstallationView || order.status === 'Installation In Progress') && (order.status === 'Installation Pending' || order.status === 'Installation In Progress') && (
+                    <button 
+                      onClick={async () => {
+                        setIsSaving(true);
+                        try {
+                          await saveOrder({ ...order, status: 'Installation Complete' });
+                          setAlertMessage('Order marked as Installation Complete!');
+                          onBack();
+                        } catch (err) {
+                          setAlertMessage('Failed to update status.');
+                        }
+                        setIsSaving(false);
+                      }}
+                      disabled={isSaving}
+                      className="flex items-center px-4 py-2 text-sm font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+                    >
+                      <Check className="w-4 h-4 mr-2" />
+                      {isSaving ? 'Saving...' : 'Complete Installation'}
+                    </button>
+                  )}
+                  
+                  {!isInstallationView && order.status !== 'Dispatched' && !order.status.includes('Installation') && (
+                    <button 
+                      onClick={handleConfirmDispatchedClick}
+                      disabled={isSaving}
+                      className="flex items-center px-4 py-2 text-sm font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+                    >
+                      <Check className="w-4 h-4 mr-2" />
+                      {isSaving ? 'Confirming...' : 'Confirm Dispatched'}
+                    </button>
+                  )}
+                  {!isInstallationView && (
+                    <button 
+                      onClick={handleEmployeeReminder}
+                      className="flex items-center px-4 py-2 text-sm font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 transition-colors"
+                    >
+                      Payment Reminder (Employee)
+                    </button>
+                  )}
+                  {!isInstallationView && (
+                    <button 
+                      onClick={() => {
+                      generatePaymentReminderPDF({ ...order, details: { ...order.details, products, bankDetails, logisticCharges, firstDispatchAmount, secondDispatchAmount, placeOfSupply, reasonForTransport } }, paymentRecord);
+                      const custPhone = order.details?.mobileNumber;
+                      if (custPhone) {
+                        setTimeout(() => {
+                          
+                      const parseVal = (str) => {
+      if (!str) return 0;
+      const strVal = str.toString();
+      const matchOrder = (order.amount || "").toString().match(/\d[\d,]*(\.\d+)?/);
+      const orderAmt = matchOrder ? parseFloat(matchOrder[0].replace(/,/g, "")) : 0;
+      const baseTotal = paymentRecord && paymentRecord.grandTotal ? (strVal.match(/\d[\d,]*(\.\d+)?/) ? parseFloat(strVal.match(/\d[\d,]*(\.\d+)?/)[0].replace(/,/g, "")) : orderAmt) : orderAmt;
+      
+      const pctMatch = strVal.match(/(\d[\d,]*(\.\d+)?)\s*%/);
+      if (pctMatch && baseTotal > 0) {
+        const pct = parseFloat(pctMatch[1].replace(/,/g, ""));
+        return (pct / 100) * baseTotal;
+      }
+      const matchAmt = strVal.match(/\d[\d,]*(\.\d+)?/);
+      return matchAmt ? parseFloat(matchAmt[0].replace(/,/g, "")) || 0 : 0;
+    };
+
+    const matchOrder = (order.amount || "").toString().match(/\d[\d,]*(\.\d+)?/);
+    const orderAmt = matchOrder ? parseFloat(matchOrder[0].replace(/,/g, "")) : 0;
+    const grandTotal = paymentRecord ? (parseVal(paymentRecord.grandTotal) || orderAmt) : orderAmt;
+
+    const parsePhaseVal = (str) => {
+      if (!str) return 0;
+      const strVal = str.toString();
+      const pctMatch = strVal.match(/(\d[\d,]*(\.\d+)?)\s*%/);
+      if (pctMatch && grandTotal > 0) {
+        const pct = parseFloat(pctMatch[1].replace(/,/g, ""));
+        return (pct / 100) * grandTotal;
+      }
+      const matchAmt = strVal.match(/\d[\d,]*(\.\d+)?/);
+      return matchAmt ? parseFloat(matchAmt[0].replace(/,/g, "")) || 0 : 0;
+    };
+
+    const alreadyReceived = paymentRecord?.phases
+      ?.filter(p => p.status === 'Received')
+      .reduce((sum, p) => sum + parsePhaseVal(p.amount), 0) || 0;
+                      const receivedText = alreadyReceived > 0 ? ` (Payment Already Received: ₹${alreadyReceived.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})` : '';
+                      const text = `Hello ${order.customer}, please find your Payment Reminder attached. Order ID: ${order.id || order.docId}${receivedText}`;
+
+                          window.open(`https://web.whatsapp.com/send?phone=${custPhone.replace(/[^0-9]/g, '')}&text=${encodeURIComponent(text)}`, '_blank');
+                        }, 1000);
+                      }
+                    }}
+                    className="flex items-center px-4 py-2 text-sm font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors"
+                  >
+                    <FileText className="w-4 h-4 mr-2" />
+                    Payment Reminder (PDF)
+                  </button>
+                  )}
+                  {!isInstallationView && (
+                    <button 
+                      onClick={() => {
+                        const enhancedOrder = { ...order, details: { ...order.details, products, bankDetails, logisticCharges, firstDispatchAmount, secondDispatchAmount, placeOfSupply, reasonForTransport } };
+                        generateDispatchPDF(enhancedOrder, false, 'Packing List');
+                      }}
+                      className="flex items-center px-4 py-2 text-sm font-semibold text-fuchsia-700 bg-fuchsia-50 border border-fuchsia-200 rounded-lg hover:bg-fuchsia-100 transition-colors"
+                    >
+                      <FileText className="w-4 h-4 mr-2" />
+                      Packing List
+                    </button>
+                  )}
+                  {!isInstallationView && (
+                    <button 
+                      onClick={handleDriverDetails}
+                      className="flex items-center px-4 py-2 text-sm font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
+                    >
+                      Send to Driver
+                    </button>
+                  )}
+                  {!isInstallationView && (
+                    <button 
+                      onClick={handleChallanClick}
+                      className="flex items-center px-4 py-2 text-sm font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"
+                    >
+                      <FileText className="w-4 h-4 mr-2" />
+                      Challan
+                    </button>
+                  )}
+                </>
+              ) : (
+                <>
+                  <button 
+                    onClick={onBack}
+                    className="px-5 py-2.5 text-sm font-semibold text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={handleSave}
+                    disabled={isSaving}
+                    className="flex items-center px-5 py-2.5 text-sm font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                  >
+                    {isSaving ? 'Saving...' : 'Scheduled Dispatched'}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <AnimatePresence>
+        {showQuotation && quotationFile && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 

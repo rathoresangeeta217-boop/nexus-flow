@@ -16,6 +16,10 @@ export function DispatchedTab({ searchQuery = '' }: { searchQuery?: string }) {
     const unsubscribe = subscribeToOrders((fetchedOrders) => {
       setOrders(fetchedOrders);
       setIsLoading(false);
+      setSelectedOrder(current => {
+        if (!current) return null;
+        return fetchedOrders.find(o => o.id === current.id || o.docId === current.docId) || current;
+      });
     });
     return () => unsubscribe();
   }, []);
@@ -27,8 +31,8 @@ export function DispatchedTab({ searchQuery = '' }: { searchQuery?: string }) {
   // Stats
   
   const pendingStatuses = ['New', 'Processing', 'Pending'];
-  const scheduledStatuses = ['Scheduled Dispatched', 'Shipped', 'Out for Delivery'];
-  const historyStatuses = ['Dispatched', 'Delivered', 'Completed'];
+  const scheduledStatuses = ['Scheduled Dispatched', 'Shipped', 'Out for Delivery', 'Dispatched', 'Installation Pending', 'Installation In Progress'];
+  const historyStatuses = ['Delivered', 'Completed', 'Installation Complete'];
 
   const displayedOrders = orders.filter(o => {
     if (activeSection === 'pending') {
@@ -187,9 +191,12 @@ export function DispatchedTab({ searchQuery = '' }: { searchQuery?: string }) {
                           <td className="px-6 py-4 whitespace-nowrap">
                             <Badge variant={
                               order.status === 'Delivered' ? 'success' : 
+                              order.status === 'Completed' || order.status === 'Installation Complete' ? 'success' : 
                               order.status === 'Out for Delivery' ? 'purple' :
                               order.status === 'Scheduled Dispatched' ? 'indigo' :
                       order.status === 'Dispatched' ? 'success' : 
+                      order.status === 'Installation In Progress' ? 'purple' :
+                      order.status === 'Installation Pending' ? 'warning' :
                               order.status === 'New' ? 'info' : 'warning'
                             }>
                               {order.status}

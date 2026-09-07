@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Plus, Save, Upload, CheckCircle2, ChevronRight, DollarSign } from 'lucide-react';
+import { X, Plus, Save, Trash2, Upload, CheckCircle2, ChevronRight, DollarSign } from 'lucide-react';
 import { VendorPaymentRecord, VendorPaymentPhase, getPaymentForPO, saveVendorPaymentRecord } from '../lib/vendorPayments';
 import { getAllVendors, Vendor } from '../lib/vendors';
 import { Landmark, CreditCard, User, Hash, QrCode } from 'lucide-react';
@@ -128,6 +128,23 @@ export function VendorPaymentModal({ isOpen, onClose, po }: VendorPaymentModalPr
   const updatePhase = (index: number, field: keyof VendorPaymentPhase, value: any) => {
     const updated = [...(record.phases || [])];
     updated[index] = { ...updated[index], [field]: value };
+    setRecord({ ...record, phases: updated });
+  };
+
+  const addPhase = () => {
+    const newPhase = {
+      id: `phase-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      title: '',
+      amount: '',
+      status: 'Pending' as const,
+      date: ''
+    };
+    setRecord({ ...record, phases: [...(record.phases || []), newPhase] });
+  };
+
+  const removePhase = (index: number) => {
+    const updated = [...(record.phases || [])];
+    updated.splice(index, 1);
     setRecord({ ...record, phases: updated });
   };
 
@@ -271,14 +288,24 @@ export function VendorPaymentModal({ isOpen, onClose, po }: VendorPaymentModalPr
             )}
 
             <div>
-              <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-                Payment Phases
-              </h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                  Payment Phases
+                </h3>
+                <button
+                  onClick={addPhase}
+                  type="button"
+                  className="flex items-center px-3 py-1.5 text-sm font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-md transition-colors"
+                >
+                  <Plus className="w-4 h-4 mr-1" /> Add Phase
+                </button>
+              </div>
               
               <div className="space-y-4">
                 {record.phases?.map((phase, index) => (
                   <div key={`${phase.id || "phase"}-${index}`} className="p-4 border border-slate-200 rounded-xl bg-slate-50 space-y-4">
                     <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3 w-full">
                       <input
                         type="text"
                         value={phase.title}
@@ -286,8 +313,18 @@ export function VendorPaymentModal({ isOpen, onClose, po }: VendorPaymentModalPr
                         className="font-bold text-slate-800 bg-transparent border-none outline-none focus:ring-0 text-lg p-0"
                         placeholder="Phase Title"
                       />
-                      <select
-                        value={phase.status}
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => removePhase(index)}
+                          className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded transition-colors"
+                          title="Remove Phase"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                        <select
+                          value={phase.status}
                         onChange={(e) => updatePhase(index, 'status', e.target.value as any)}
                         className={`text-xs font-bold rounded px-2 py-1 outline-none border ${phase.status === 'Paid' ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : phase.status === 'Request Payment' ? 'bg-blue-100 text-blue-800 border-blue-200' : 'bg-amber-100 text-amber-800 border-amber-200'}`}
                       >
@@ -297,6 +334,7 @@ export function VendorPaymentModal({ isOpen, onClose, po }: VendorPaymentModalPr
                       </select>
                     </div>
 
+                    </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-1">
                         <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Amount (₹)</label>

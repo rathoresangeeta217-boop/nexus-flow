@@ -287,19 +287,23 @@ export const generateDispatchPDF = async (order: any, showFare: boolean, docType
   doc.setFont("helvetica", "bold");
   doc.text('Consignee Details:', 14, 62);
   doc.setFont("helvetica", "normal");
-  doc.text(`Name: ${order.customer || 'N/A'}`, 14, 68);
+  const nameLines = doc.splitTextToSize(`Name: ${order.customer || 'N/A'}`, 90);
+  doc.text(nameLines, 14, 68);
   
+  let leftY = 68 + (nameLines.length * 6) - 6;
   const contact = order.details?.mobileNumber || 'N/A';
-  doc.text(`Contact: ${contact}`, 14, 74);
+  doc.text(`Contact: ${contact}`, 14, leftY + 6);
+  leftY += 6;
   
   const gstin = order.details?.gst || 'N/A';
   if (gstin && gstin !== 'N/A') {
-    doc.text(`GSTIN: ${gstin}`, 14, 80);
+    doc.text(`GSTIN: ${gstin}`, 14, leftY + 6);
+    leftY += 6;
   }
   
   const address = order.dispatchAddress || order.details?.address || 'N/A';
   const addressLines = doc.splitTextToSize(`Address: ${address}`, 90);
-  doc.text(addressLines, 14, gstin && gstin !== 'N/A' ? 86 : 80);
+  doc.text(addressLines, 14, leftY + 6);
 
   // Right Column: Challan/Dispatch Details
   doc.setFont("helvetica", "bold");
@@ -416,9 +420,16 @@ export const generatePaymentReminderPDF = async (order: any, paymentRecord?: any
   // Order Info
   doc.setFontSize(10);
   doc.text(`Order ID: ${order.id || order.docId}`, 14, 65);
-  doc.text(`Customer Name: ${order.customer}`, 14, 71);
+  
+  let leftY = 71;
+  const customerLines = doc.splitTextToSize(`Customer Name: ${order.customer}`, 180);
+  doc.text(customerLines, 14, leftY);
+  leftY += (customerLines.length * 5) + 1;
+  
   if (order.details?.companyName) {
-    doc.text(`Company: ${order.details.companyName}`, 14, 77);
+    const companyLines = doc.splitTextToSize(`Company: ${order.details.companyName}`, 180);
+    doc.text(companyLines, 14, leftY);
+    leftY += (companyLines.length * 5) + 1;
   }
   
   doc.text(`Date: ${new Date().toLocaleDateString('en-GB')}`, 196, 65, { align: 'right' });
@@ -426,9 +437,11 @@ export const generatePaymentReminderPDF = async (order: any, paymentRecord?: any
   doc.setFont("helvetica", "normal");
   const msg = "Please find the details of the items dispatched. We request you to kindly process the pending payment for the dispatched quantity as per the details below.";
   const msgLines = doc.splitTextToSize(msg, 180);
-  doc.text(msgLines, 14, 85);
-
-  let startY = 85 + (msgLines.length * 5) + 5;
+  
+  let startY = Math.max(85, leftY + 5);
+  doc.text(msgLines, 14, startY);
+  
+  startY += (msgLines.length * 5) + 5;
   
   const dispatchedProducts = (order.details?.products || []).filter((p: any) => p.isDispatched);
   const items = dispatchedProducts.length > 0 ? dispatchedProducts : (order.details?.products || []);
@@ -646,4 +659,207 @@ export const generatePaymentReminderPDF = async (order: any, paymentRecord?: any
   
   addPageBorder(doc);
   doc.save(`Payment-Reminder-${order.id || order.docId}.pdf`);
+};
+
+export const generateSatisfactionFormPDF = async (order: any, installerDetails: any) => {
+  const doc = new jsPDF();
+  let y = 20;
+
+  // Header
+  doc.setFillColor(139, 69, 19);
+  doc.rect(0, 0, 210, 40, 'F');
+  
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(24);
+  doc.text('SRK MODULAR FURNITURE CO', 105, 20, { align: 'center' });
+  doc.setFontSize(14);
+  doc.setFont("helvetica", "normal");
+  doc.text('Customer Satisfaction Letter', 105, 30, { align: 'center' });
+  
+  y = 50;
+  doc.setTextColor(0, 0, 0);
+
+  // Customer & Order Info
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(14);
+  doc.text('Order Details', 14, y);
+  
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(11);
+  y += 8;
+  doc.text(`Order ID: ${order.id || order.docId || 'N/A'}`, 14, y);
+  doc.text(`Installation Date: ${order.details?.installationDate || 'N/A'}`, 120, y);
+  
+  y += 8;
+  const customerLines = doc.splitTextToSize(`Customer Name: ${order.customer || 'N/A'}`, 180);
+  doc.text(customerLines, 14, y);
+  y += (customerLines.length * 6);
+  
+  const projectLines = doc.splitTextToSize(`Project Name: ${order.project || 'N/A'}`, 180);
+  doc.text(projectLines, 14, y);
+  y += (projectLines.length * 6);
+
+  // Installer Info
+  y += 6;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(14);
+  doc.text('Installation Team Details', 14, y);
+  
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(11);
+  y += 8;
+  const installerLines = doc.splitTextToSize(`Primary Installer: ${installerDetails?.name || order.details?.installerName || 'N/A'}`, 180);
+  doc.text(installerLines, 14, y);
+  y += (installerLines.length * 6);
+  if (installerDetails?.mobileNumber) {
+    doc.text(`Contact: ${installerDetails.mobileNumber}`, 14, y);
+    y += 8;
+  }
+  const helperLines = doc.splitTextToSize(`Helpers: ${order.details?.installationHelpers || 'None'}`, 180);
+  doc.text(helperLines, 14, y);
+  y += (helperLines.length * 6) - 6;
+  
+  let currentYForDetails = y;
+
+  if (installerDetails?.imageUrl) {
+    try {
+      // Add the installer image to the right side
+      doc.addImage(installerDetails.imageUrl, 'JPEG', 150, currentYForDetails - 25, 40, 40);
+    } catch (e) {
+      console.warn("Could not load installer image for PDF", e);
+    }
+  }
+
+  if (installerDetails?.portfolio) {
+    y += 10;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.text('Installer Experience & Portfolio:', 14, y);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    const splitPortfolio = doc.splitTextToSize(installerDetails.portfolio, 130); // Reduced width to avoid overlapping image
+    doc.text(splitPortfolio, 14, y + 6);
+    y += Math.max((splitPortfolio.length * 5) + 6, installerDetails?.imageUrl ? 30 : 0);
+  } else {
+    y += Math.max(10, installerDetails?.imageUrl ? 20 : 0);
+  }
+
+  // Items Installed
+  y += 5;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(14);
+  doc.text('Items Installed', 14, y);
+  y += 4;
+  
+  const products = order.details?.products?.filter((p: any) => p.requiresInstallation) || [];
+  
+  if (products.length > 0) {
+    const tableData = products.map((p: any, index: number) => [
+      index + 1,
+      p.name || '-',
+      p.quantity || 0
+    ]);
+    
+    autoTable(doc, {
+      startY: y,
+      head: [['S.No', 'Product Description', 'Qty']],
+      body: tableData,
+      theme: 'grid',
+      headStyles: { fillColor: [139, 69, 19], textColor: [255, 255, 255], fontStyle: 'bold' },
+      styles: { fontSize: 10, cellPadding: 3 },
+      columnStyles: {
+        0: { cellWidth: 15, halign: 'center' },
+        2: { cellWidth: 20, halign: 'center' }
+      },
+    });
+    y = (doc as any).lastAutoTable.finalY + 15;
+  } else {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+    doc.text('No items specified for installation.', 14, y + 5);
+    y += 15;
+  }
+
+  // Satisfaction Form Checklist
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(14);
+  doc.text('Customer Feedback Checklist', 14, y);
+  y += 8;
+  
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(11);
+  const checklist = [
+    "Were the installation team members professional and courteous?",
+    "Was the installation completed to your satisfaction?",
+    "Was the work area left clean and tidy after the installation?",
+    "Were you given instructions on how to use/maintain the products?",
+    "Are all the items accounted for and free of defects?"
+  ];
+  
+  checklist.forEach((item, index) => {
+    doc.rect(14, y - 4, 4, 4);
+    doc.text(item, 22, y);
+    doc.text("Yes  /  No", 170, y);
+    y += 8;
+  });
+  
+  y += 10;
+  doc.setFont("helvetica", "bold");
+  doc.text("Additional Comments:", 14, y);
+  doc.setLineWidth(0.5);
+  doc.setDrawColor(200, 200, 200);
+  doc.line(14, y + 8, 196, y + 8);
+  doc.line(14, y + 18, 196, y + 18);
+  doc.line(14, y + 28, 196, y + 28);
+  
+  // Signatures
+  y += 45;
+  doc.setFont("helvetica", "bold");
+  doc.text("Customer Signature", 14, y);
+  doc.text("Installer Signature", 150, y);
+  
+  doc.setDrawColor(0, 0, 0);
+  doc.line(14, y - 5, 60, y - 5);
+  doc.line(150, y - 5, 196, y - 5);
+  
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.text("Name: ______________________", 14, y + 8);
+  doc.text("Date: ______________________", 150, y + 8);
+
+  try {
+    const qrResponse = await fetch('/google-qr.png');
+    if (qrResponse.ok) {
+      const qrBlob = await qrResponse.blob();
+      const qrBase64 = await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.readAsDataURL(qrBlob);
+      });
+      
+      // Add a new page for the QR code
+      doc.addPage();
+      
+      // Add heading text for the review page
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(18);
+      doc.setTextColor(139, 69, 19); // Brand color
+      doc.text("Leave us a Review!", 105, 40, { align: 'center' });
+      
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(12);
+      doc.setTextColor(0, 0, 0);
+      doc.text("Your feedback helps us improve and serve you better.", 105, 50, { align: 'center' });
+
+      // Place QR code prominently on the new page (scaled up significantly)
+      // x=35, y=70, width=140, height=155
+      doc.addImage(qrBase64, 'PNG', 35, 70, 140, 160);
+    }
+  } catch (e) {
+    console.warn('Could not load google-qr.png for PDF', e);
+  }
+  
+  addPageBorder(doc);
+  doc.save(`Customer-Satisfaction-Letter-${order.id || order.docId}.pdf`);
 };

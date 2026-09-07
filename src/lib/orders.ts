@@ -7,6 +7,7 @@ export interface OrderProduct {
   name: string;
   quantity: number;
   isDispatched: boolean;
+  requiresInstallation?: boolean;
   dispatchedQuantity?: number;
   size?: string;
   image?: string;
@@ -43,6 +44,9 @@ export interface OrderDetails {
   reasonForTransport?: string;
   challanApprovalStatus?: string;
   challanPendingReason?: string;
+  installerName?: string;
+  installationHelpers?: string;
+  installationDate?: string;
 }
 
 export interface Order {
