@@ -74,7 +74,7 @@ export function DispatchedTab({ searchQuery = '' }: { searchQuery?: string }) {
           className="space-y-6 pb-8"
         >
           {/* Action Bar */}
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
             <div>
               <h2 className="text-xl font-bold text-slate-800 tracking-tight">Logistics & Dispatch</h2>
               <p className="text-sm text-slate-500 font-medium mt-1">Track outgoing shipments and scheduled dispatches.</p>
@@ -145,7 +145,7 @@ export function DispatchedTab({ searchQuery = '' }: { searchQuery?: string }) {
             </button>
           </div>
 
-            <div className="bg-white rounded-t-xl border border-slate-200 flex items-center justify-between px-6 py-4 mt-4">
+            <div className="bg-white rounded-t-xl border border-slate-200 flex flex-col lg:flex-row items-start lg:items-center justify-between px-4 sm:px-6 py-4 gap-4 mt-4">
               <h2 className="font-bold text-slate-800">{activeSection === 'pending' ? 'Pending Dispatch' : activeSection === 'scheduled' ? 'Scheduled Dispatches' : 'Dispatch History'}</h2>
               <div className="flex gap-2">
                 <button className="px-3 py-1 border border-slate-300 rounded text-xs font-medium text-slate-600 bg-white hover:bg-slate-50">

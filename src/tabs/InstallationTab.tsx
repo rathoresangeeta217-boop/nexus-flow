@@ -136,7 +136,7 @@ export function InstallationTab({ searchQuery = '' }: { searchQuery?: string }) 
           className="space-y-6 pb-8"
         >
           {/* Action Bar */}
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
             <div>
               <h2 className="text-xl font-bold text-slate-800 tracking-tight">Installation</h2>
               <p className="text-sm text-slate-500 font-medium mt-1">Track pending and completed installations.</p>
@@ -218,7 +218,7 @@ export function InstallationTab({ searchQuery = '' }: { searchQuery?: string }) 
             </button>
           </div>
 
-            <div className="bg-white rounded-t-xl border border-slate-200 flex items-center justify-between px-6 py-4 mt-4">
+            <div className="bg-white rounded-t-xl border border-slate-200 flex flex-col lg:flex-row items-start lg:items-center justify-between px-4 sm:px-6 py-4 gap-4 mt-4">
               <h2 className="font-bold text-slate-800">
                 {activeSection === 'pending' ? 'Pending Installation' : 
                  activeSection === 'scheduled' ? 'In Progress Installations' : 

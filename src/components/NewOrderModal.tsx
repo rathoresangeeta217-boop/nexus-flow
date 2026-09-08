@@ -282,7 +282,7 @@ export function NewOrderModal({ isOpen, onClose, fileName, fileData, onAddOrder,
             initial={{ scale: 0.95, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.95, opacity: 0 }}
-            className="bg-white rounded-2xl shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden"
+            className="bg-white rounded-none md:rounded-2xl shadow-xl w-full max-w-4xl max-h-[100dvh] md:max-h-[90vh] flex flex-col overflow-hidden"
           >
             <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-slate-50/50">
               <div className="flex items-center gap-3">

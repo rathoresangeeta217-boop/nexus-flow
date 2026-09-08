@@ -602,7 +602,7 @@ export function PurchaseTab({ searchQuery = '' }: { searchQuery?: string }) {
         transition={{ delay: 0.1 }}
         className="flex-1 flex flex-col"
       >
-        <div className="bg-white rounded-t-xl border border-slate-200 flex items-center justify-between px-6 py-4">
+        <div className="bg-white rounded-t-xl border border-slate-200 flex flex-col lg:flex-row items-start lg:items-center justify-between px-4 sm:px-6 py-4 gap-4">
           <h2 className="font-bold text-slate-800">
             {activeTab === 'orders' && 'Active Purchase Orders'}
             {activeTab === 'arrivals' && 'Today\'s Arrivals'}

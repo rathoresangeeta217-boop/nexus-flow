@@ -13,7 +13,7 @@ import {
 import { TabName } from '../types';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
-import { Users, LogOut, Wrench } from 'lucide-react';
+import { Users, LogOut, Wrench, X } from 'lucide-react';
 
 const navigation = [
   { name: 'Orders', icon: ShoppingCart, section: 'Operations' },
@@ -28,7 +28,7 @@ const navigation = [
 export function Sidebar({ activeTab, setActiveTab }: { activeTab: TabName, setActiveTab: (tab: TabName) => void }) {
   const { user, profile, signOut } = useAuth();
   return (
-    <div className="w-64 bg-slate-900 flex flex-col h-full shrink-0 shadow-xl">
+        <div className="w-64 bg-slate-900 flex flex-col h-full shrink-0 shadow-xl">
       <div className="p-6 border-b border-slate-800">
         <div className="flex items-center gap-3">
           <div className="font-black text-3xl tracking-tighter" style={{ fontFamily: 'Arial, sans-serif' }}>
@@ -38,6 +38,7 @@ export function Sidebar({ activeTab, setActiveTab }: { activeTab: TabName, setAc
           </div>
           <span className="text-white font-bold text-lg tracking-tight uppercase">Modular</span>
         </div>
+        
       </div>
       
             <nav className="flex-1 p-4 space-y-1 overflow-y-auto custom-scrollbar">

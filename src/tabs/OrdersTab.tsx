@@ -112,7 +112,7 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
       customer: orderDetails.companyName || orderDetails.customerName || 'Unknown Customer',
       amount: orderDetails.totalAmount || '₹0.00',
       date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-      status: 'New',
+      status: 'New Order',
       items: Number(orderDetails.totalItems) || 0,
       details: {
         ...orderDetails,
@@ -146,7 +146,13 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
   };
 
   const filteredOrders = orders.filter(order => {
-    if (statusFilter !== 'all' && order.status !== statusFilter) return false;
+    if (statusFilter !== 'all') {
+      if (statusFilter === 'New Order' && (order.status === 'New Order' || order.status === 'New')) {
+        // match legacy
+      } else if (order.status !== statusFilter) {
+        return false;
+      }
+    }
     
     if (dateFilter !== 'all') {
       const now = new Date();
@@ -362,7 +368,7 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
       />
 
       {/* Action Bar */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
         <div>
           <h2 className="text-xl font-bold text-slate-800 tracking-tight">Dashboard</h2>
           <p className="text-sm text-slate-500 font-medium mt-1">Manage and track customer orders across the pipeline.</p>
@@ -455,9 +461,9 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
         transition={{ delay: 0.1 }}
         className="flex-1 flex flex-col"
       >
-        <div className="bg-white rounded-t-xl border border-slate-200 flex items-center justify-between px-6 py-4">
+        <div className="bg-white rounded-t-xl border border-slate-200 flex flex-col lg:flex-row items-start lg:items-center justify-between px-4 sm:px-6 py-4 gap-4">
           <h2 className="font-bold text-slate-800">Recent Sales Orders</h2>
-          <div className="flex gap-2 items-center">
+          <div className="flex flex-wrap gap-2 items-center w-full lg:w-auto">
             {dateFilter === 'custom' && (
               <div className="flex gap-2 items-center mr-2">
                 <input 
@@ -481,15 +487,13 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
               className="px-3 py-1 border border-slate-300 rounded text-xs font-medium text-slate-600 bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
               <option value="all">All Statuses</option>
-              <option value="New">New Order</option>
-              <option value="Processing">Processing</option>
-              <option value="Pending">Pending</option>
+              <option value="New Order">New Order</option>
+              <option value="Purchase">Purchase</option>
+              <option value="Production">Production</option>
               <option value="Scheduled Dispatched">Scheduled Dispatched</option>
               <option value="Dispatched">Dispatched</option>
-              <option value="Shipped">Shipped</option>
-              <option value="Delivered">Delivered</option>
-              <option value="Completed">Completed</option>
-              <option value="Cancelled">Cancelled</option>
+              <option value="Installation Scheduled">Installation Scheduled</option>
+              <option value="Installation Complete">Installation Complete</option>
             </select>
             <select 
               value={dateFilter}
@@ -574,14 +578,15 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-800 font-bold">{order.amount}</td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <Badge variant={
-                      order.status === 'Completed' ? 'success' : 
-                      order.status === 'Processing' ? 'info' :
-                      order.status === 'Scheduled Dispatched' ? 'indigo' :
+                      order.status === 'Installation Complete' ? 'success' : 
+                      order.status === 'Installation Scheduled' ? 'info' :
                       order.status === 'Dispatched' ? 'success' : 
-                      order.status === 'New' ? 'purple' : 
-                      order.status === 'Cancelled' ? 'error' : 'warning'
+                      order.status === 'Scheduled Dispatched' ? 'indigo' :
+                      order.status === 'Production' ? 'warning' :
+                      order.status === 'Purchase' ? 'purple' :
+                      (order.status === 'New Order' || order.status === 'New') ? 'default' : 'default'
                     }>
-                      {order.status}
+                      {order.status === 'New' ? 'New Order' : order.status}
                     </Badge>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">

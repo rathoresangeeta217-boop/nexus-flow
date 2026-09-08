@@ -69,7 +69,7 @@ export function ProductionTab({ searchQuery = '' }: { searchQuery?: string }) {
   return (
     <div className="space-y-6 pb-8">
       {/* Action Bar */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
         <div>
           <h2 className="text-xl font-bold text-slate-800 tracking-tight">Production Floor</h2>
           <p className="text-sm text-slate-500 font-medium mt-1">Monitor manufacturing jobs, machinery status, and output quality based on real active orders.</p>
@@ -115,7 +115,7 @@ export function ProductionTab({ searchQuery = '' }: { searchQuery?: string }) {
         transition={{ delay: 0.1 }}
         className="flex-1 flex flex-col"
       >
-        <div className="bg-white rounded-t-xl border border-slate-200 flex items-center justify-between px-6 py-4">
+        <div className="bg-white rounded-t-xl border border-slate-200 flex flex-col lg:flex-row items-start lg:items-center justify-between px-4 sm:px-6 py-4 gap-4">
           <h2 className="font-bold text-slate-800">Active Production Jobs</h2>
         </div>
         

@@ -1,14 +1,16 @@
 import { useState, useEffect, useRef } from 'react';
-import { Bell, Search, UserCircle, Menu, Command, Package } from 'lucide-react';
+import { Bell, Search, UserCircle, Menu, Command, Package, LogOut } from 'lucide-react';
 import { TabName } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { subscribeToOrders, Order } from '../lib/orders';
 
 export function Header({ activeTab, searchQuery, onSearchChange }: { activeTab: TabName, searchQuery?: string, onSearchChange?: (val: string) => void }) {
-  const { profile } = useAuth();
+  const { profile, user, signOut } = useAuth();
   const [orders, setOrders] = useState<Order[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (profile?.role === 'super_admin') {
@@ -22,6 +24,9 @@ export function Header({ activeTab, searchQuery, onSearchChange }: { activeTab: 
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setShowNotifications(false);
       }
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setShowUserMenu(false);
+      }
     }
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -32,7 +37,7 @@ export function Header({ activeTab, searchQuery, onSearchChange }: { activeTab: 
   return (
     <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 shrink-0 z-20">
       <div className="flex items-center gap-4">
-        <button className="lg:hidden p-2 -ml-2 mr-2 text-slate-500 hover:text-slate-700">
+        <button className="lg:hidden p-2 -ml-2 mr-2 text-slate-500 hover:text-slate-700 hidden">
           <Menu className="w-5 h-5" />
         </button>
         <h1 className="text-xl font-bold text-slate-800 hidden sm:block">

@@ -1,6 +1,7 @@
 
 import { useState, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
+import { BottomNav } from './components/BottomNav';
 import { Header } from './components/Header';
 import { OrdersTab } from './tabs/OrdersTab';
 import { PurchaseTab } from './tabs/PurchaseTab';
@@ -22,11 +23,13 @@ export default function App() {
   const [quoteId, setQuoteId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [approvalOrderId, setApprovalOrderId] = useState<string | null>(null);
+  
 
   useEffect(() => {
     const handleNavigate = (e: CustomEvent) => {
       const { tab, search } = e.detail;
       setActiveTab(tab);
+      
       setTimeout(() => setSearchQuery(search || ''), 10);
     };
     window.addEventListener('navigate', handleNavigate as EventListener);
@@ -73,11 +76,13 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen bg-slate-50 text-slate-900 overflow-hidden font-sans selection:bg-indigo-100 selection:text-indigo-900">
-      <Sidebar activeTab={currentTab} setActiveTab={setActiveTab} />
-      <div className="flex-1 flex flex-col h-screen overflow-hidden">
+    <div className="flex h-[100dvh] bg-slate-50 text-slate-900 overflow-hidden font-sans selection:bg-indigo-100 selection:text-indigo-900">
+      <div className="hidden lg:flex shrink-0">
+        <Sidebar activeTab={currentTab} setActiveTab={setActiveTab} />
+      </div>
+      <div className="flex-1 flex flex-col h-[100dvh] overflow-hidden">
         <Header activeTab={currentTab} searchQuery={searchQuery} onSearchChange={setSearchQuery} />
-        <main className="flex-1 overflow-y-auto p-6 lg:p-8 custom-scrollbar">
+        <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 pb-24 lg:pb-8 custom-scrollbar">
           <div className="max-w-[1600px] mx-auto h-full">
             {currentTab === 'Orders' && (profile.role === 'super_admin' || profile.role === 'admin' || profile.role === 'sales_executive') && <OrdersTab searchQuery={searchQuery} />}
             {currentTab === 'Purchase' && (profile.role === 'super_admin' || profile.role === 'admin') && <PurchaseTab searchQuery={searchQuery} />}
@@ -89,6 +94,9 @@ export default function App() {
             {currentTab === 'Users' as any && profile.role === 'super_admin' && <UsersTab />}
           </div>
         </main>
+        <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200">
+          <BottomNav activeTab={currentTab} setActiveTab={setActiveTab} />
+        </div>
       </div>
     </div>
   );

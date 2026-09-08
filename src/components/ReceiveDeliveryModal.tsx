@@ -330,7 +330,7 @@ const generateSatisfactionLetter = async (status: 'Delivered' | 'Rejected' = 'De
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
-          className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]"
+          className="bg-white rounded-none md:rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[100dvh] md:max-h-[90vh]"
         >
           <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-white sticky top-0 z-10 shrink-0">
             <div className="flex items-center gap-3">

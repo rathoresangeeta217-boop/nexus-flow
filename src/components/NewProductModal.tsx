@@ -117,7 +117,7 @@ export function NewProductModal({ isOpen, onClose, onAddProduct, vendors, initia
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-0 md:p-4 sm:p-6">
           <motion.div 
             initial={{ opacity: 0 }} 
             animate={{ opacity: 1 }} 
@@ -129,7 +129,7 @@ export function NewProductModal({ isOpen, onClose, onAddProduct, vendors, initia
             initial={{ opacity: 0, scale: 0.95, y: 20 }} 
             animate={{ opacity: 1, scale: 1, y: 0 }} 
             exit={{ opacity: 0, scale: 0.95, y: 20 }} 
-            className="relative bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col max-h-full"
+            className="relative bg-white rounded-none md:rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col max-h-full"
           >
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/50">
               <div className="flex items-center gap-3">

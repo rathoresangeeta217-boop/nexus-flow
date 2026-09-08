@@ -176,7 +176,7 @@ export function VendorPaymentModal({ isOpen, onClose, po }: VendorPaymentModalPr
             <button className="absolute top-4 right-4 text-white p-2 hover:bg-white/10 rounded-full" onClick={() => setViewImage(null)}>
               <X className="w-8 h-8" />
             </button>
-            <img src={viewImage} alt="Payment Screenshot" className="max-w-full max-h-[90vh] object-contain rounded-lg" />
+            <img src={viewImage} alt="Payment Screenshot" className="max-w-full max-h-[100dvh] md:max-h-[90vh] object-contain rounded-lg" />
           </div>
         )}
 

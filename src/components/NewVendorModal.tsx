@@ -110,7 +110,7 @@ export function NewVendorModal({ isOpen, onClose, onAddVendor, vendors }: NewVen
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-0 md:p-4 sm:p-6">
           <motion.div 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -123,7 +123,7 @@ export function NewVendorModal({ isOpen, onClose, onAddVendor, vendors }: NewVen
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            className="relative w-full max-w-2xl bg-white rounded-2xl shadow-xl flex flex-col max-h-[90vh]"
+            className="relative w-full max-w-2xl bg-white rounded-none md:rounded-2xl shadow-xl flex flex-col max-h-[100dvh] md:max-h-[90vh]"
           >
             <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-3">
