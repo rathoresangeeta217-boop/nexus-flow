@@ -78,7 +78,7 @@ You have a new dispatch scheduled.\n\nOrder ID: ${order.id}\n${items}\n${vehicle
   };
 
 
-  const totalReceived = paymentRecord?.phases.filter(p => p.status === 'Received').reduce((sum, p) => {
+  const totalReceived = paymentRecord?.phases?.filter(p => p.status === 'Received').reduce((sum, p) => {
     return sum + (parseFloat(String(p.amount).replace(/[^0-9.]/g, '')) || 0);
   }, 0) || 0;
   
@@ -269,112 +269,102 @@ You have a new dispatch scheduled.\n\nOrder ID: ${order.id}\n${items}\n${vehicle
               )}
 
               {/* Financial Overview */}
-              {paymentRecord && (
-                <div className="bg-slate-50 rounded-xl p-5 border border-slate-100">
-                  <h4 className="text-sm font-bold text-slate-800 mb-4 border-b border-slate-200 pb-2">Financial Overview</h4>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                    <div>
-                      <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Grand Total</p>
-                      <p className="text-sm font-semibold text-slate-800">{paymentRecord.grandTotal || order.amount}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Advance</p>
-                      <p className="text-sm font-semibold text-slate-800">{paymentRecord.advancePayment || paymentRecord.advanceRequirement || 'N/A'}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Transport</p>
-                      <p className="text-sm font-semibold text-slate-800">{paymentRecord.transportationCharges || paymentRecord.loadingCharges || 'N/A'}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Installation</p>
-                      <p className="text-sm font-semibold text-slate-800">{paymentRecord.installationCharges || 'N/A'}</p>
-                    </div>
+              <div className="bg-slate-50 rounded-xl p-5 border border-slate-100">
+                <h4 className="text-sm font-bold text-slate-800 mb-4 border-b border-slate-200 pb-2 flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4 text-emerald-600" />
+                  Financial Overview & Payment Details
+                </h4>
+                
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                  <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
+                    <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Grand Total</p>
+                    <p className="text-lg font-bold text-slate-800">{paymentRecord?.grandTotal || order.amount || order.details?.totalAmount || '0'}</p>
                   </div>
-                  
-                  {paymentRecord.rateEditHistory && paymentRecord.rateEditHistory.length > 0 && (
-                    <div className="mt-4 border-t border-slate-200 pt-4">
-                      <div className="flex items-center gap-2 mb-3">
-                        <Clock className="w-4 h-4 text-indigo-500" />
-                        <h4 className="text-sm font-bold text-slate-800">Rate Modification History</h4>
-                      </div>
-                      <div className="space-y-3">
-                        {[...paymentRecord.rateEditHistory].reverse().map((entry, idx) => (
-                          <div key={`${entry.timestamp}-${idx}`} className="bg-white p-3 border border-slate-200 rounded-lg shadow-sm">
-                            <div className="flex items-start justify-between mb-1">
-                              <span className="text-xs font-medium text-slate-500">
-                                {new Date(entry.timestamp).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
-                              </span>
-                            </div>
-                            <p className="text-sm text-slate-800 font-medium mb-2">
-                              Reason: <span className="font-normal italic text-slate-600">{entry.reason}</span>
-                            </p>
-                            <div className="flex flex-wrap gap-2">
-                              {entry.changes.map((change, cIdx) => (
-                                <span key={`change-${cIdx}`} className="inline-block px-2 py-1 bg-indigo-50 text-indigo-700 text-xs font-semibold rounded">
-                                  {change}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                  <div className="bg-emerald-50 p-3 rounded-lg border border-emerald-100 shadow-sm">
+                    <p className="text-xs font-medium text-emerald-700 uppercase tracking-wider">Total Received</p>
+                    <p className="text-lg font-bold text-emerald-700">{formatVal(totalReceived)}</p>
+                  </div>
+                  <div className="bg-amber-50 p-3 rounded-lg border border-amber-100 shadow-sm">
+                    <p className="text-xs font-medium text-amber-700 uppercase tracking-wider">Total Pending</p>
+                    <p className="text-lg font-bold text-amber-700">{formatVal(pendingAmount)}</p>
+                  </div>
+                  <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
+                    <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Advance Req.</p>
+                    <p className="text-lg font-bold text-slate-800">{paymentRecord?.advancePayment || paymentRecord?.advanceRequirement || order.details?.advancePayment || 'N/A'}</p>
+                  </div>
                 </div>
-              )}
-
-              
-              {/* Products Extracted */}
-              {order.details?.products && order.details.products.length > 0 && (
-                <div>
-                  <h4 className="text-sm font-bold text-slate-800 mb-4 border-b border-slate-100 pb-2 flex items-center justify-between">
-                    <span>Products</span>
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">
-                        {dispatchedCount} Dispatched
-                      </span>
-                      <span className="text-xs font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md">
-                        {pendingDispatchCount} Pending
-                      </span>
-                      <span className="bg-slate-100 text-slate-600 px-2.5 py-0.5 rounded-full text-xs font-semibold">
-                        {order.details.products.length} Items
-                      </span>
-                    </div>
-                  </h4>
-                  <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm bg-white">
-                    <div className="divide-y divide-slate-100">
-                      {order.details.products.map((p: any, i: number) => (
-                        <div key={i} className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors gap-4">
-                          <div className="flex-1 min-w-0">
-                            <h4 className="text-sm font-semibold text-slate-800 truncate">{p.name || 'Unknown Product'}</h4>
-                            {p.size && (
-                              <p className="text-xs text-slate-500 mt-1 line-clamp-1">{p.size}</p>
-                            )}
-                            <div className="flex items-center gap-2 mt-1">
-                              {p.rate && (
-                                <span className="text-xs text-slate-500">Rate: {p.rate}</span>
-                              )}
-                              {p.amount && (
-                                <span className="text-xs text-slate-500 font-medium text-slate-700">Total: {p.amount}</span>
-                              )}
+                
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                  <div>
+                    <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Transport Charges</p>
+                    <p className="text-sm font-semibold text-slate-800">{paymentRecord?.transportationCharges || paymentRecord?.loadingCharges || order.details?.transportationCharges || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Installation</p>
+                    <p className="text-sm font-semibold text-slate-800">{paymentRecord?.installationCharges || order.details?.installationCharges || 'N/A'}</p>
+                  </div>
+                  <div className="md:col-span-2">
+                     <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Bank Details</p>
+                     <p className="text-sm font-semibold text-slate-800">{order.details?.bankDetails || 'N/A'}</p>
+                  </div>
+                </div>
+                
+                {paymentRecord?.phases && paymentRecord.phases.length > 0 && (
+                  <div className="mt-4 border-t border-slate-200 pt-4">
+                    <h5 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3">Payment Phases</h5>
+                    <div className="space-y-3">
+                      {paymentRecord.phases.map((phase, idx) => (
+                        <div key={phase.id || idx} className="bg-white border border-slate-200 rounded-lg p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+                          <div>
+                            <p className="font-semibold text-slate-800 text-sm">{phase.title}</p>
+                            <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
+                              {phase.date && <span>{phase.date}</span>}
+                              {phase.sourceType && <span>Via {phase.sourceType}</span>}
+                              {phase.bankName && <span>({phase.bankName})</span>}
                             </div>
                           </div>
-                          <div className="text-right whitespace-nowrap flex flex-col items-end gap-1">
-                            <span className="text-sm font-medium text-slate-700 bg-slate-100 px-2.5 py-1 rounded-full">
-                              Qty: {p.quantity || 1}
-                            </span>
-                            {p.isDispatched && (
-                              <span className="text-xs font-medium text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
-                                Dispatched: {p.dispatchedQuantity || p.quantity || 1}
-                              </span>
-                            )}
+                          <div className="flex items-center gap-4">
+                            <span className="font-bold text-slate-700">{phase.amount}</span>
+                            <Badge variant={phase.status === 'Received' ? 'success' : 'warning'}>
+                              {phase.status}
+                            </Badge>
                           </div>
                         </div>
                       ))}
                     </div>
                   </div>
-                </div>
-              )}
+                )}
+                
+                {paymentRecord?.rateEditHistory && paymentRecord.rateEditHistory.length > 0 && (
+                  <div className="mt-4 border-t border-slate-200 pt-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Clock className="w-4 h-4 text-indigo-500" />
+                      <h4 className="text-sm font-bold text-slate-800">Rate Modification History</h4>
+                    </div>
+                    <div className="space-y-3">
+                      {[...paymentRecord.rateEditHistory].reverse().map((entry, idx) => (
+                        <div key={`${entry.timestamp}-${idx}`} className="bg-white p-3 border border-slate-200 rounded-lg shadow-sm">
+                          <div className="flex items-start justify-between mb-1">
+                            <span className="text-xs font-medium text-slate-500">
+                              {new Date(entry.timestamp).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
+                            </span>
+                          </div>
+                          <p className="text-sm text-slate-800 font-medium mb-2">
+                            Reason: <span className="font-normal italic text-slate-600">{entry.reason}</span>
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {entry.changes.map((change, cIdx) => (
+                              <span key={`change-${cIdx}`} className="inline-block px-2 py-1 bg-indigo-50 text-indigo-700 text-xs font-semibold rounded">
+                                {change}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
 
               {/* Attachments */}
               <div>
