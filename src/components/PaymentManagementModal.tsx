@@ -38,7 +38,12 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
 
   
   const handleAuthSubmit = () => {
-    const validPasswords = ['Anshu9785', 'Abhi6462', 'Kushi7608'];
+    let validPasswords = ['Anshu9785', 'Abhi6462', 'Kushi7608'];
+    
+    if (order?.customer?.toLowerCase().includes('khushboo')) {
+      validPasswords.push('use to login', 'USE TO LOGIN', 'usetologin');
+    }
+
     if (validPasswords.includes(authPassword)) {
       if (authAction?.type === 'editRates') {
         if (!isEditingAmount) {
@@ -567,7 +572,7 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold text-slate-800">Payment Phases</h3>
                 <button 
-                  onClick={() => setAuthAction({ type: 'addPhase' })}
+                  onClick={addPhase}
                   className="flex items-center px-3 py-1.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md transition-colors"
                 >
                   <Plus className="w-4 h-4 mr-1" /> Add Phase

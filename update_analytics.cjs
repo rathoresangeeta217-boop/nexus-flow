@@ -1,4 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
+const fs = require('fs');
+
+const code = `import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'motion/react';
 import { BarChart3, TrendingUp, Users, DollarSign } from 'lucide-react';
 import { StatCard } from '../components/StatCard';
@@ -72,9 +74,9 @@ export function AnalyticsTab() {
     
     // Format YTD revenue
     const formatCurrency = (val: number) => {
-      if (val >= 10000000) return `₹${(val / 10000000).toFixed(2)}Cr`;
-      if (val >= 100000) return `₹${(val / 100000).toFixed(2)}L`;
-      return `₹${val.toLocaleString('en-IN')}`;
+      if (val >= 10000000) return \`₹\${(val / 10000000).toFixed(2)}Cr\`;
+      if (val >= 100000) return \`₹\${(val / 100000).toFixed(2)}L\`;
+      return \`₹\${val.toLocaleString('en-IN')}\`;
     };
 
     return {
@@ -136,3 +138,5 @@ export function AnalyticsTab() {
     </div>
   );
 }
+`;
+fs.writeFileSync('src/tabs/AnalyticsTab.tsx', code);

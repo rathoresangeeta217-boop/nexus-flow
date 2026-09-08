@@ -1,4 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
+const fs = require('fs');
+
+const code = `import React, { useState, useEffect, useMemo } from 'react';
 import { cn } from '../lib/utils';
 import { motion } from 'motion/react';
 import { Factory, Zap, AlertTriangle, MoreHorizontal, Filter, PlayCircle, Settings } from 'lucide-react';
@@ -34,7 +36,7 @@ export function ProductionTab({ searchQuery = '' }: { searchQuery?: string }) {
       products.forEach((p, idx) => {
         if (!p.isDispatched) {
           jobs.push({
-            id: `${order.id}-P${idx+1}`,
+            id: \`\${order.id}-P\${idx+1}\`,
             orderId: order.id,
             product: p.name,
             qty: p.quantity,
@@ -176,3 +178,5 @@ export function ProductionTab({ searchQuery = '' }: { searchQuery?: string }) {
     </div>
   );
 }
+`;
+fs.writeFileSync('src/tabs/ProductionTab.tsx', code);

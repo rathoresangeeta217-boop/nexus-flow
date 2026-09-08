@@ -130,16 +130,38 @@ export const deleteOrder = async (docId: string) => {
 export const subscribeToOrders = (callback: (orders: Order[]) => void) => {
   let unsubscribeSnapshot: () => void;
   
-  const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+  const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
     if (user) {
+      const { getUserProfile } = await import('./users');
+      const profile = await getUserProfile(user.uid);
+      
       const q = query(getOrdersCollection(), orderBy('createdAt', 'desc'));
       unsubscribeSnapshot = onSnapshot(q, (snapshot) => {
-        const orders = snapshot.docs.map(doc => ({
+        let orders = snapshot.docs.map(doc => ({
           ...doc.data(),
           // Use firestore id as the backup if id is missing
           id: doc.data().id || doc.id,
           docId: doc.id
         })) as Order[];
+        
+        // Filter orders for sales executives and employees
+        if (profile && (profile.role === 'sales_executive' || profile.role === 'employee')) {
+          const profileName = (profile.displayName || '').toLowerCase().trim();
+          
+          orders = orders.filter(order => {
+            const empName = (order.details?.employeeName || '').toLowerCase().trim();
+            if (!empName) return false;
+            
+            const empFirstName = empName.split(' ')[0];
+            const profileFirstName = profileName.split(' ')[0];
+            
+            return empName === profileName || 
+                   profileName.includes(empName) || 
+                   empName.includes(profileName) ||
+                   (empFirstName && profileFirstName && empFirstName === profileFirstName);
+          });
+        }
+        
         callback(orders);
       }, (error) => {
         console.error("Error fetching orders:", error);

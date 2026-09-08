@@ -77,27 +77,6 @@ You have a new dispatch scheduled.\n\nOrder ID: ${order.id}\n${items}\n${vehicle
     }
   };
 
-
-  const totalReceived = paymentRecord?.phases.filter(p => p.status === 'Received').reduce((sum, p) => {
-    return sum + (parseFloat(String(p.amount).replace(/[^0-9.]/g, '')) || 0);
-  }, 0) || 0;
-  
-  const grandTotalParsed = parseFloat(String(paymentRecord?.grandTotal || order.amount || '0').replace(/[^0-9.]/g, '')) || 0;
-  const pendingAmount = Math.max(0, grandTotalParsed - totalReceived);
-  
-  const formatVal = (val) => `₹${val.toLocaleString('en-IN')}`;
-  
-  let dispatchedCount = 0;
-  let pendingDispatchCount = 0;
-  if (order.details?.products) {
-    order.details.products.forEach(p => {
-      const q = Number(p.quantity) || 1;
-      const d = Number(p.dispatchedQuantity) || (p.isDispatched ? q : 0);
-      dispatchedCount += d;
-      pendingDispatchCount += Math.max(0, q - d);
-    });
-  }
-
   return (
     <AnimatePresence>
       {isOpen && (
@@ -146,22 +125,8 @@ You have a new dispatch scheduled.\n\nOrder ID: ${order.id}\n${items}\n${vehicle
             <div className="p-6 overflow-y-auto custom-scrollbar space-y-8">
               {/* Customer Info */}
               <div className="bg-slate-50 rounded-xl p-5 border border-slate-100">
-                <h4 className="text-sm font-bold text-slate-800 mb-4 border-b border-slate-200 pb-2">Order & Customer Information</h4>
+                <h4 className="text-sm font-bold text-slate-800 mb-4 border-b border-slate-200 pb-2">Customer Information</h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="flex items-start gap-3">
-                    <Clock className="w-4 h-4 text-slate-400 mt-0.5" />
-                    <div>
-                      <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Order Receiving Date</p>
-                      <p className="text-sm font-semibold text-slate-800">{order.date || 'N/A'}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-3">
-                    <Clock className="w-4 h-4 text-slate-400 mt-0.5" />
-                    <div>
-                      <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Quotation Date</p>
-                      <p className="text-sm font-semibold text-slate-800">{order.details?.quotationDate || order.date || 'N/A'}</p>
-                    </div>
-                  </div>
 
                   <div className="flex items-start gap-3">
                     <User className="w-4 h-4 text-slate-400 mt-0.5" />
@@ -329,17 +294,9 @@ You have a new dispatch scheduled.\n\nOrder ID: ${order.id}\n${items}\n${vehicle
                 <div>
                   <h4 className="text-sm font-bold text-slate-800 mb-4 border-b border-slate-100 pb-2 flex items-center justify-between">
                     <span>Products</span>
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">
-                        {dispatchedCount} Dispatched
-                      </span>
-                      <span className="text-xs font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md">
-                        {pendingDispatchCount} Pending
-                      </span>
-                      <span className="bg-slate-100 text-slate-600 px-2.5 py-0.5 rounded-full text-xs font-semibold">
-                        {order.details.products.length} Items
-                      </span>
-                    </div>
+                    <span className="bg-slate-100 text-slate-600 px-2.5 py-0.5 rounded-full text-xs font-semibold">
+                      {order.details.products.length} Items
+                    </span>
                   </h4>
                   <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm bg-white">
                     <div className="divide-y divide-slate-100">
