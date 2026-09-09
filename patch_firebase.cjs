@@ -1,15 +1,17 @@
 const fs = require('fs');
-const file = 'src/lib/firebase.ts';
-let content = fs.readFileSync(file, 'utf-8');
+let content = fs.readFileSync('src/lib/firebase.ts', 'utf8');
 
 content = content.replace(
-  "import { getAuth, signInAnonymously } from 'firebase/auth';",
-  "import { getAuth, GoogleAuthProvider } from 'firebase/auth';"
+  "import { getFirestore } from 'firebase/firestore';",
+  "import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';"
 );
 
 content = content.replace(
-  "// Authenticate anonymously\nsignInAnonymously(auth).catch(console.error);\n",
-  "export const googleProvider = new GoogleAuthProvider();\n"
+  "const db = getFirestore(app, config.firestoreDatabaseId);",
+  `const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+}, config.firestoreDatabaseId);`
 );
 
-fs.writeFileSync(file, content);
+fs.writeFileSync('src/lib/firebase.ts', content);
+console.log("Patched firebase.ts");

@@ -7,6 +7,7 @@ interface AuthContextType {
   user: User | null;
   profile: UserProfile | null;
   loading: boolean;
+  authError: string | null;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -18,6 +19,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   const refreshProfile = async () => {
     if (user) {
@@ -46,8 +48,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             p = pData;
           }
           setProfile(p);
-        } catch (err) {
-          console.error("Error fetching/creating profile", err);
+        } catch (err: any) {
+          console.warn("Error fetching/creating profile", err);
+          if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota') || err?.message?.includes('quota')) {
+            setAuthError('Database Quota Exceeded: The free daily limit for database reads has been reached. Please try again tomorrow.');
+            const isAdmin = currentUser.email === 'marketing.srkmodular@gmail.com' || currentUser.email === 'rathoresangeeta217@gmail.com';
+            setProfile({
+              uid: currentUser.uid,
+              email: currentUser.email || '',
+              displayName: currentUser.displayName || 'Unknown User',
+              role: isAdmin ? 'super_admin' : 'employee',
+              isActive: true,
+            });
+          }
         }
       } else {
         setProfile(null);
@@ -70,7 +83,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, signInWithGoogle, signOut, refreshProfile }}>
+    <AuthContext.Provider value={{ user, profile, loading, authError, signInWithGoogle, signOut, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   );

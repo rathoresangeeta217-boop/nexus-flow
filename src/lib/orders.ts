@@ -62,7 +62,7 @@ export interface Order {
   driverName?: string;
   driverMobile?: string;
   createdAt: any;
-  details?: OrderDetails;
+  details?: OrderDetails & { employeeName?: string };
 }
 
 const getOrdersCollection = () => collection(db, 'orders');
@@ -119,7 +119,7 @@ export const getOrder = async (docId: string): Promise<Order | null> => {
     }
     return null;
   } catch (error) {
-    console.error("Error fetching order:", error);
+    console.warn("Error fetching order:", error);
     return null;
   }
 };
@@ -164,7 +164,7 @@ export const subscribeToOrders = (callback: (orders: Order[]) => void) => {
         
         callback(orders);
       }, (error) => {
-        console.error("Error fetching orders:", error);
+        console.warn("Error fetching orders:", error);
       });
     } else {
       if (unsubscribeSnapshot) {

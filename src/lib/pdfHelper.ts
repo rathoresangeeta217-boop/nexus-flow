@@ -22,7 +22,7 @@ export const addSignatureToPDF = async (doc: any, x: number, y: number) => {
       const blob = await response.blob();
       const base64data = await new Promise((resolve) => {
         const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result);
+        reader.onloadend = () => resolve(reader.result as string);
         reader.readAsDataURL(blob);
       });
       doc.addImage(base64data, 'PNG', x, y, 50, 20);
@@ -832,9 +832,9 @@ export const generateSatisfactionFormPDF = async (order: any, installerDetails: 
     const qrResponse = await fetch('/google-qr.png');
     if (qrResponse.ok) {
       const qrBlob = await qrResponse.blob();
-      const qrBase64 = await new Promise((resolve) => {
+      const qrBase64 = await new Promise<string>((resolve) => {
         const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result);
+        reader.onloadend = () => resolve(reader.result as string);
         reader.readAsDataURL(qrBlob);
       });
       

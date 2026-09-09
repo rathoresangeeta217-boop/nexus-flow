@@ -65,14 +65,14 @@ export const subscribeToQuotes = (callback: (quotes: QuoteRequest[]) => void) =>
       ...doc.data()
     })) as QuoteRequest[];
     callback(quotes);
-  });
+  }, (error) => { console.warn('Firestore snapshot error in src/lib/quotes.ts:', error); });
 };
 
 export const updateQuoteStatus = async (docId: string, updates: Partial<QuoteRequest>) => {
   await updateDoc(doc(db, 'quotes', docId), {
     ...updates,
     updatedAt: serverTimestamp()
-  });
+  }, (error) => { console.warn('Firestore snapshot error in src/lib/quotes.ts:', error); });
 };
 
 export const deleteQuoteRequest = async (docId: string) => {

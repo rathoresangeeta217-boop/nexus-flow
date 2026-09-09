@@ -85,7 +85,7 @@ export const subscribeToPurchases = (callback: (purchases: Purchase[]) => void) 
         })) as Purchase[];
         callback(purchases);
       }, (error) => {
-        console.error("Error fetching purchases:", error);
+        console.warn("Error fetching purchases:", error);
       });
     } else {
       if (unsubscribeSnapshot) {

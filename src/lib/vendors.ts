@@ -51,7 +51,7 @@ export const subscribeToVendors = (callback: (vendors: Vendor[]) => void) => {
         })) as Vendor[];
         callback(vendors);
       }, (error) => {
-        console.error("Error fetching vendors:", error);
+        console.warn("Error fetching vendors:", error);
       });
     } else {
       if (unsubscribeSnapshot) {

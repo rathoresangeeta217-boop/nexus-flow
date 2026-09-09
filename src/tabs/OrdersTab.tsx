@@ -27,7 +27,7 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
 
   useEffect(() => {
     const unsubscribe = subscribeToOrders((fetchedOrders) => {
-      setOrders(fetchedOrders);
+      setOrders(fetchedOrders); console.log("Fetched Orders: ", fetchedOrders);
       setIsLoading(false);
       setSelectedOrder(current => {
         if (!current) return null;

@@ -156,7 +156,7 @@ export function ProductionTab({ searchQuery = '' }: { searchQuery?: string }) {
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600 font-medium">{job.qty}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{job.stage}</td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <Badge variant={job.status === 'Completed' ? 'success' : job.status === 'Halted' ? 'danger' : 'indigo'}>
+                        <Badge variant={job.status === 'Completed' ? 'success' : job.status === 'Halted' ? 'error' : 'indigo'}>
                           {job.status}
                         </Badge>
                       </td>

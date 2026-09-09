@@ -24,7 +24,7 @@ export const subscribeToInstallers = (callback: (installers: Installer[]) => voi
       ...doc.data()
     })) as Installer[];
     callback(installers);
-  });
+  }, (error) => { console.warn('Firestore snapshot error in src/lib/installers.ts:', error); });
 };
 
 export const getInstallers = async (): Promise<Installer[]> => {

@@ -18,7 +18,7 @@ import { AuthView } from './components/AuthView';
 import { UsersTab } from './tabs/UsersTab';
 
 export default function App() {
-  const { user, profile, loading } = useAuth();
+  const { user, profile, loading, authError } = useAuth();
   const [activeTab, setActiveTab] = useState<TabName>('Orders');
   const [quoteId, setQuoteId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -68,19 +68,24 @@ export default function App() {
   }
 
   // Handle active tab fallback if a role doesn't have access to current tab
+  // Handle active tab fallback if a role doesn't have access to current tab
   let currentTab = activeTab;
-  if (profile.role === 'sales_executive' && (activeTab === 'Purchase' || activeTab === 'Production' || activeTab === 'Analytics' || activeTab === 'Users')) {
+  if (profile.role === 'employee' && activeTab !== 'Installation') {
+     currentTab = 'Installation';
+  } else if (profile.role === 'sales_executive' && (activeTab === 'Purchase' || activeTab === 'Production' || activeTab === 'Analytics' || activeTab === 'Users')) { 
+     currentTab = 'Orders';
+  } else if (profile.role === 'admin' && (activeTab === 'Analytics' || activeTab === 'Users')) { 
      currentTab = 'Orders';
   } else if (profile.role === 'admin' && (activeTab === 'Analytics' || activeTab === 'Users')) {
      currentTab = 'Orders';
   }
 
   return (
-    <div className="flex h-[100dvh] bg-slate-50 text-slate-900 overflow-hidden font-sans selection:bg-indigo-100 selection:text-indigo-900">
+    <div className="flex h-screen bg-slate-50 text-slate-900 overflow-hidden font-sans selection:bg-indigo-100 selection:text-indigo-900">
       <div className="hidden lg:flex shrink-0">
         <Sidebar activeTab={currentTab} setActiveTab={setActiveTab} />
       </div>
-      <div className="flex-1 flex flex-col h-[100dvh] overflow-hidden">
+      <div className="flex-1 flex flex-col h-screen overflow-hidden">
         <Header activeTab={currentTab} searchQuery={searchQuery} onSearchChange={setSearchQuery} />
         <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 pb-24 lg:pb-8 custom-scrollbar">
           <div className="max-w-[1600px] mx-auto h-full">

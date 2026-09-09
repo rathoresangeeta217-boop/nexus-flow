@@ -45,7 +45,7 @@ export const subscribeToProjects = (callback: (projects: Project[]) => void) => 
         })) as Project[];
         callback(projects);
       }, (error) => {
-        console.error("Error fetching projects:", error);
+        console.warn("Error fetching projects:", error);
       });
     } else {
       if (unsubscribeSnapshot) {

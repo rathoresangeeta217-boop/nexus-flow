@@ -38,7 +38,7 @@ export const subscribeToVendorPayments = (callback: (payments: VendorPaymentReco
   return onSnapshot(q, (snapshot) => {
     const payments = snapshot.docs.map(doc => ({ docId: doc.id, ...doc.data() } as VendorPaymentRecord));
     callback(payments);
-  });
+  }, (error) => { console.warn('Firestore snapshot error in src/lib/vendorPayments.ts:', error); });
 };
 
 
