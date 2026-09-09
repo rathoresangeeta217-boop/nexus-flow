@@ -30,9 +30,9 @@ export function DispatchedTab({ searchQuery = '' }: { searchQuery?: string }) {
 
   // Stats
   
-  const pendingStatuses = ['New', 'Processing', 'Pending'];
-  const scheduledStatuses = ['Scheduled Dispatched', 'Shipped', 'Out for Delivery', 'Dispatched', 'Installation Pending', 'Installation In Progress'];
-  const historyStatuses = ['Delivered', 'Completed', 'Installation Complete'];
+  const pendingStatuses = ['New Order', 'New', 'Processing', 'Pending'];
+  const scheduledStatuses = ['Scheduled Dispatched', 'Shipped', 'Out for Delivery'];
+  const historyStatuses = ['Dispatched', 'Installation Pending', 'Installation In Progress', 'Installation Complete', 'Delivered', 'Completed'];
 
   const displayedOrders = orders.filter(o => {
     if (activeSection === 'pending') {
@@ -53,8 +53,9 @@ export function DispatchedTab({ searchQuery = '' }: { searchQuery?: string }) {
     return true;
   });
 
-  const dispatchedOrders = orders.filter(o => o.status === 'Out for Delivery' || o.status === 'Delivered');
-  const deliveredCount = orders.filter(o => o.status === 'Delivered').length;
+  const pendingCount = orders.filter(o => pendingStatuses.includes(o.status)).length;
+  const scheduledCount = orders.filter(o => scheduledStatuses.includes(o.status)).length;
+  const historyCount = orders.filter(o => historyStatuses.includes(o.status)).length;
 
   return (
     <AnimatePresence mode="wait">
@@ -82,23 +83,29 @@ export function DispatchedTab({ searchQuery = '' }: { searchQuery?: string }) {
           </div>
 
           {/* Stats Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
             <StatCard 
-              title="Active Shipments" 
-              value={dispatchedOrders.length.toString()} 
+              title="Pending Dispatch" 
+              value={pendingCount.toString()} 
+              icon={<AlertCircle className="w-5 h-5" />}
+              colorClass="bg-amber-50 text-amber-600"
+            />
+            <StatCard 
+              title="Scheduled Dispatch" 
+              value={scheduledCount.toString()} 
               icon={<Truck className="w-5 h-5" />}
               colorClass="bg-blue-50 text-blue-600"
+            />
+            <StatCard 
+              title="Dispatch History" 
+              value={historyCount.toString()} 
+              icon={<PackageCheck className="w-5 h-5" />}
+              colorClass="bg-emerald-50 text-emerald-600"
             />
             <StatCard 
               title="Total Orders" 
               value={orders.length.toString()} 
               icon={<Package className="w-5 h-5" />}
-              colorClass="bg-emerald-50 text-emerald-600"
-            />
-            <StatCard 
-              title="Delivered" 
-              value={deliveredCount.toString()} 
-              icon={<PackageCheck className="w-5 h-5" />}
               colorClass="bg-indigo-50 text-indigo-600"
             />
           </div>

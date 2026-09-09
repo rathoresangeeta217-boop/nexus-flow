@@ -541,6 +541,14 @@ export const generatePaymentReminderPDF = async (order: any, paymentRecord?: any
 
   // Dispatched Amounts & Bank Details
   let tY = finalY + 10;
+  const checkPageBreak = (needed: number = 10) => {
+    if (tY + needed > 275) {
+      doc.addPage();
+      tY = 20;
+    }
+  };
+
+  checkPageBreak(15);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(139, 69, 19);
   doc.text('Order & Dispatch Summary:', 14, tY);
@@ -590,12 +598,14 @@ export const generatePaymentReminderPDF = async (order: any, paymentRecord?: any
 
     if (receivedPhases.length > 0) {
       tY += 6;
+      checkPageBreak(15);
       doc.setFont("helvetica", "bold");
       doc.text("Past Payments Received:", 14, tY);
       doc.setFont("helvetica", "normal");
       
       receivedPhases.forEach((p: any) => {
         tY += 5;
+        checkPageBreak(5);
         const phaseAmt = parseVal(p.amount, grandTotal);
         const formattedAmt = phaseAmt.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         const dateStr = p.date ? ` (Date: ${p.date})` : '';
@@ -605,26 +615,33 @@ export const generatePaymentReminderPDF = async (order: any, paymentRecord?: any
       tY += 2;
     }
     tY += 6;
+    checkPageBreak(10);
     doc.setFont("helvetica", "bold");
+    doc.setTextColor(220, 38, 38); // Red color for remaining payment
     doc.text(`Remaining Payment: ${remainingPayment > 0 ? remainingPayment.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : 0}`, 14, tY);
     doc.setFont("helvetica", "normal");
+    setBlackText();
   }
   
   if (order.details?.firstDispatchAmount) {
     tY += 6;
+    checkPageBreak(10);
     doc.text(`First Dispatched Amount: ${order.details.firstDispatchAmount}`, 14, tY);
   }
   
   if (order.details?.secondDispatchAmount) {
     tY += 6;
+    checkPageBreak(10);
     doc.text(`Second Dispatched Amount: ${order.details.secondDispatchAmount}`, 14, tY);
   }
   
   tY += 6;
+  checkPageBreak(10);
   const currAmt = finalGrandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   doc.text(`Current Dispatched Amount: ${currAmt}`, 14, tY);
 
   tY += 10;
+  checkPageBreak(15);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(139, 69, 19);
   doc.text('Bank Details:', 14, tY);
@@ -634,9 +651,11 @@ export const generatePaymentReminderPDF = async (order: any, paymentRecord?: any
   
   if (order.details?.bankDetails) {
     const bdLines = doc.splitTextToSize(order.details.bankDetails, 100);
+    checkPageBreak(bdLines.length * 5 + 6);
     doc.text(bdLines, 14, tY + 6);
     tY += (bdLines.length * 5) + 6;
   } else {
+    checkPageBreak(30);
     doc.text('Account Name: Srk Modular furniture co.', 14, tY + 6);
     doc.text('Bank Name: State Bank of India', 14, tY + 12);
     doc.text('Account No: 31766643906', 14, tY + 18);
@@ -645,7 +664,8 @@ export const generatePaymentReminderPDF = async (order: any, paymentRecord?: any
   }
   
   // Footer
-  tY = Math.max(finalY + 55, tY + 15);
+  checkPageBreak(40);
+  tY = Math.max(tY + 15, finalY + 55 < 275 && tY < finalY + 55 ? finalY + 55 : tY + 15);
   doc.setDrawColor(139, 69, 19);
   doc.setLineWidth(0.5);
   await addSignatureToPDF(doc, 145, tY - 25);

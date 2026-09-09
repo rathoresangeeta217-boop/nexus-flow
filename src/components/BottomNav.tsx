@@ -1,4 +1,4 @@
-import { ShoppingCart, ShoppingBag, Factory, Truck, CreditCard, BarChart3, Wrench, Users } from 'lucide-react';
+import { ShoppingCart, ShoppingBag, Factory, Truck, CreditCard, BarChart3, Wrench, Users, FileText } from 'lucide-react';
 import { TabName } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { cn } from '../lib/utils';
@@ -6,6 +6,7 @@ import { cn } from '../lib/utils';
 const navigation = [
   { name: 'Orders', icon: ShoppingCart },
   { name: 'Purchase', icon: ShoppingBag },
+  { name: 'Quotations', icon: FileText },
   { name: 'Production', icon: Factory },
   { name: 'Dispatched', icon: Truck },
   { name: 'Installation', icon: Wrench },

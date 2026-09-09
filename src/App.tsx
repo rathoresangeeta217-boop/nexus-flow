@@ -5,6 +5,8 @@ import { BottomNav } from './components/BottomNav';
 import { Header } from './components/Header';
 import { OrdersTab } from './tabs/OrdersTab';
 import { PurchaseTab } from './tabs/PurchaseTab';
+import { QuotationsTab } from './tabs/QuotationsTab';
+import { StorefrontTab } from './tabs/StorefrontTab';
 import { ProductionTab } from './tabs/ProductionTab';
 import { DispatchedTab } from './tabs/DispatchedTab';
 import { InstallationTab } from './tabs/InstallationTab';
@@ -86,11 +88,13 @@ export default function App() {
         <Sidebar activeTab={currentTab} setActiveTab={setActiveTab} />
       </div>
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
-        <Header activeTab={currentTab} searchQuery={searchQuery} onSearchChange={setSearchQuery} />
+        {currentTab !== 'Storefront' && <Header activeTab={currentTab} searchQuery={searchQuery} onSearchChange={setSearchQuery} />}
         <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 pb-24 lg:pb-8 custom-scrollbar">
           <div className="max-w-[1600px] mx-auto h-full">
             {currentTab === 'Orders' && (profile.role === 'super_admin' || profile.role === 'admin' || profile.role === 'sales_executive') && <OrdersTab searchQuery={searchQuery} />}
             {currentTab === 'Purchase' && (profile.role === 'super_admin' || profile.role === 'admin') && <PurchaseTab searchQuery={searchQuery} />}
+            {currentTab === 'Quotations' && (profile.role === 'super_admin' || profile.role === 'admin') && <QuotationsTab searchQuery={searchQuery} setActiveTab={setActiveTab} />}
+            {currentTab === 'Storefront' && <StorefrontTab setActiveTab={setActiveTab} />}
             {currentTab === 'Production' && (profile.role === 'super_admin' || profile.role === 'admin') && <ProductionTab searchQuery={searchQuery} />}
             {currentTab === 'Installation' && <InstallationTab searchQuery={searchQuery} />}
             {currentTab === 'Dispatched' && (profile.role === 'super_admin' || profile.role === 'admin' || profile.role === 'sales_executive') && <DispatchedTab searchQuery={searchQuery} />}

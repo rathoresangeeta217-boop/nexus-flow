@@ -158,10 +158,10 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
       const now = new Date();
       let orderDate = null;
       
-      if (order.createdAt?.seconds) {
-        orderDate = new Date(order.createdAt.seconds * 1000);
-      } else if (order.date) {
+      if (order.date) {
         orderDate = new Date(order.date);
+      } else if (order.createdAt?.seconds) {
+        orderDate = new Date(order.createdAt.seconds * 1000);
       }
       
       if (orderDate && !isNaN(orderDate.getTime())) {
@@ -204,6 +204,20 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
     }
     
     return true;
+  }).sort((a, b) => {
+    // Helper to get a comparable date time
+    const getTime = (order) => {
+      if (order.createdAt?.seconds) {
+        return order.createdAt.seconds * 1000;
+      }
+      if (order.date) {
+        const d = new Date(order.date);
+        if (!isNaN(d.getTime())) return d.getTime();
+      }
+      return 0; // fallback
+    };
+    
+    return getTime(b) - getTime(a); // Descending order (newest first)
   });
 
       const getOrdersStats = () => {
@@ -221,10 +235,10 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
     
     filteredOrders.forEach(order => {
       let orderDate;
-      if (order.createdAt?.seconds) {
-        orderDate = new Date(order.createdAt.seconds * 1000);
-      } else if (order.date) {
+      if (order.date) {
         orderDate = new Date(order.date);
+      } else if (order.createdAt?.seconds) {
+        orderDate = new Date(order.createdAt.seconds * 1000);
       }
 
       // Parse amount properly - take the total amount directly

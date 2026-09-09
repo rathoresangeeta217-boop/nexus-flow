@@ -31,10 +31,10 @@ export function AnalyticsTab() {
 
     orders.forEach(order => {
       let orderDate = now;
-      if (order.createdAt?.seconds) {
-        orderDate = new Date(order.createdAt.seconds * 1000);
-      } else if (order.date) {
+      if (order.date) {
         orderDate = new Date(order.date);
+      } else if (order.createdAt?.seconds) {
+        orderDate = new Date(order.createdAt.seconds * 1000);
       }
 
       // Safe parse amount

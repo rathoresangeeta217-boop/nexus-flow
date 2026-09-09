@@ -13,11 +13,12 @@ import {
 import { TabName } from '../types';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
-import { Users, LogOut, Wrench, X } from 'lucide-react';
+import { Users, LogOut, Wrench, X, FileText } from 'lucide-react';
 
 const navigation = [
   { name: 'Orders', icon: ShoppingCart, section: 'Operations' },
   { name: 'Purchase', icon: ShoppingBag, section: 'Operations' },
+  { name: 'Quotations', icon: FileText, section: 'Operations' },
   { name: 'Production', icon: Factory, section: 'Operations' },
   { name: 'Dispatched', icon: Truck, section: 'Operations' },
   { name: 'Installation', icon: Wrench, section: 'Operations' },
