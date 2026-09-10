@@ -78,6 +78,7 @@ export const subscribeToProducts = (callback: (products: Product[]) => void) => 
         callback(products);
       }, (error) => {
         console.warn("Error fetching products:", error);
+        callback([]);
       });
     } else {
       if (unsubscribeSnapshot) {

@@ -56,7 +56,7 @@ export const subscribeToPayments = (callback: (payments: PaymentRecord[]) => voi
   return onSnapshot(q, (snapshot) => {
     const payments = snapshot.docs.map(doc => ({ docId: doc.id, ...doc.data() } as PaymentRecord));
     callback(payments);
-  }, (error) => { console.warn('Firestore snapshot error in src/lib/payments.ts:', error); });
+  }, (error) => { console.warn('Firestore snapshot error in src/lib/payments.ts:', error); callback([]); });
 };
 
 

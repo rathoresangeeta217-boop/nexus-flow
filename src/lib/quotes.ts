@@ -65,7 +65,7 @@ export const subscribeToQuotes = (callback: (quotes: QuoteRequest[]) => void) =>
       ...doc.data()
     })) as QuoteRequest[];
     callback(quotes);
-  }, (error) => { console.warn('Firestore snapshot error', error); });
+  }, (error) => { console.warn('Firestore snapshot error', error); callback([]); });
 };
 
 export const updateQuoteStatus = async (docId: string, updates: Partial<QuoteRequest>) => {
