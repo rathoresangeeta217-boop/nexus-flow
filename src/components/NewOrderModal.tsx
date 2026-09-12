@@ -309,7 +309,7 @@ export function NewOrderModal({ isOpen, onClose, fileName, fileData, onAddOrder,
                   <div>
                     <h4 className="text-sm font-bold text-red-800 mb-1">Failed to analyze file</h4>
                     <p className="text-sm text-red-600">{extractError}</p>
-                    {extractError.includes('limit') && (
+                    { (extractError.includes('limit') || extractError.includes('Quota')) && (
                        <p className="text-sm font-medium text-red-700 mt-2">
                           Please configure your Gemini API Key in the AI Studio Settings.
                        </p>

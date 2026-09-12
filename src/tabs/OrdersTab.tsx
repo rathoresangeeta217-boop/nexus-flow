@@ -108,7 +108,7 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
     const { poFileData, drawingFileData, ...orderDetails } = newOrder;
 
     const orderData = {
-      id: `ORD-2026-${String(Math.floor(Math.random() * 1000)).padStart(3, '0')}`,
+      id: `ORD-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}${String(Math.floor(Math.random() * 1000)).padStart(3, '0')}`,
       customer: orderDetails.companyName || orderDetails.customerName || 'Unknown Customer',
       amount: orderDetails.totalAmount || '₹0.00',
       date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),

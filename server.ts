@@ -1,6 +1,5 @@
 import express from "express";
 import path from "path";
-import { createServer as createViteServer } from "vite";
 import fs from "fs";
 import { GoogleGenAI } from "@google/genai";
 import "dotenv/config";
@@ -97,10 +96,19 @@ async function callGeminiWithRetry(params, maxRetries = 6) {
            delay = parseFloat(match[1]) * 1000 + 2000;
         }
         
+        // Check if it's a quota issue vs a temporary rate limit
+        if (errMsg.includes('Quota exceeded') || errMsg.includes('quota')) {
+           throw new Error(JSON.stringify({
+             isRateLimit: true,
+             message: "Gemini API Quota Exceeded. Please check your API key billing details or configure a valid API key in settings.",
+             retryAfter: 0 // Do not retry automatically
+           }));
+        }
+        
         if (delay > 10000 || attempt >= maxRetries) {
            throw new Error(JSON.stringify({
              isRateLimit: true,
-             message: "Google AI rate limit reached.",
+             message: "Google AI rate limit reached. The system is busy.",
              retryAfter: delay
            }));
         }
@@ -108,7 +116,7 @@ async function callGeminiWithRetry(params, maxRetries = 6) {
         console.log(`Rate limited (429). Retrying in ${delay}ms... (Attempt ${attempt}/${maxRetries})`);
         await sleep(delay);
       } else {
-        if (attempt >= maxRetries) throw error;
+        throw error; // Fail fast for 404s, 400s, etc.
       }
     }
   }
@@ -176,7 +184,7 @@ async function startServer() {
       `;
 
       const response = await callGeminiWithRetry({
-        model: 'gemini-3.8-flash',
+        model: 'gemini-3.6-flash',
         input: [
           { type: 'text', text: prompt },
           {
@@ -237,7 +245,7 @@ async function startServer() {
       For example: "Office Chair", "Wooden Desk", "Conference Table", "Drawer Handle".`;
 
       const response = await callGeminiWithRetry({
-        model: 'gemini-3.8-flash',
+        model: 'gemini-3.6-flash',
         input: [
           { type: 'text', text: prompt },
           {
@@ -408,7 +416,7 @@ async function startServer() {
 4. Return ONLY a JSON object with a single array property "matchingIds" containing the string IDs of the matched items. If no items match, return {"matchingIds": []}. Do not return any other text.` });
 
       const response = await callGeminiWithRetry({
-        model: 'gemini-3.8-flash',
+        model: 'gemini-3.6-flash',
         input: parts
       });
 
@@ -436,6 +444,7 @@ async function startServer() {
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",

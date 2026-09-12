@@ -84,9 +84,11 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-slate-50 text-slate-900 overflow-hidden font-sans selection:bg-indigo-100 selection:text-indigo-900">
-      <div className="hidden lg:flex shrink-0">
-        <Sidebar activeTab={currentTab} setActiveTab={setActiveTab} />
-      </div>
+      {currentTab !== 'Storefront' && (
+        <div className="hidden lg:flex shrink-0">
+          <Sidebar activeTab={currentTab} setActiveTab={setActiveTab} />
+        </div>
+      )}
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
         {currentTab !== 'Storefront' && <Header activeTab={currentTab} searchQuery={searchQuery} onSearchChange={setSearchQuery} />}
         <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 pb-24 lg:pb-8 custom-scrollbar">
@@ -104,7 +106,7 @@ export default function App() {
           </div>
         </main>
         <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200">
-          <BottomNav activeTab={currentTab} setActiveTab={setActiveTab} />
+          {currentTab !== 'Storefront' && <BottomNav activeTab={currentTab} setActiveTab={setActiveTab} />}
         </div>
       </div>
     </div>

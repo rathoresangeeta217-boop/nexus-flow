@@ -47,11 +47,18 @@ You have a new dispatch scheduled.\n\nOrder ID: ${order.id}\n${items}\n${vehicle
     if (isOpen) {
       setIsConfirmingDelete(false);
     }
+    if (!isOpen) {
+      setPaymentRecord(null);
+      setFiles({});
+      return;
+    }
     if (isOpen && order) {
       setIsLoadingFiles(true);
+      setPaymentRecord(null);
+      setFiles({});
       Promise.all([
         getOrderFiles(order.id || order.docId),
-        getPaymentForOrder(order.id)
+        getPaymentForOrder(order.id || order.docId)
       ])
         .then(([fileData, paymentData]) => {
           setFiles(fileData || {});
