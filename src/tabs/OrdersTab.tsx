@@ -14,6 +14,7 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
   const [isLoading, setIsLoading] = useState(true);
   const [dateFilter, setDateFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [salespersonFilter, setSalespersonFilter] = useState('all');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   
@@ -111,7 +112,7 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
       id: `ORD-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}${String(Math.floor(Math.random() * 1000)).padStart(3, '0')}`,
       customer: orderDetails.companyName || orderDetails.customerName || 'Unknown Customer',
       amount: orderDetails.totalAmount || '₹0.00',
-      date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+      date: orderDetails.orderDate ? new Date(orderDetails.orderDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
       status: 'New Order',
       items: Number(orderDetails.totalItems) || 0,
       details: {
@@ -145,7 +146,14 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
     }
   };
 
+  const uniqueSalesPersons = Array.from(new Set(orders.map(o => o.details?.employeeName).filter(Boolean))).sort();
+
   const filteredOrders = orders.filter(order => {
+    if (salespersonFilter !== 'all') {
+      if (order.details?.employeeName !== salespersonFilter) {
+        return false;
+      }
+    }
     if (statusFilter !== 'all') {
       if (statusFilter === 'New Order' && (order.status === 'New Order' || order.status === 'New')) {
         // match legacy
@@ -495,6 +503,16 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
                 />
               </div>
             )}
+            <select 
+              value={salespersonFilter}
+              onChange={(e) => setSalespersonFilter(e.target.value)}
+              className="px-3 py-1 border border-slate-300 rounded text-xs font-medium text-slate-600 bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              <option value="all">All Salespersons</option>
+              {uniqueSalesPersons.map((sp) => (
+                <option key={sp as string} value={sp as string}>{sp}</option>
+              ))}
+            </select>
             <select 
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}

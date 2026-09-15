@@ -20,6 +20,7 @@ export function NewOrderModal({ isOpen, onClose, fileName, fileData, onAddOrder,
   const [countdown, setCountdown] = useState<number | null>(null);
   const [formData, setFormData] = useState({
     employeeName: '',
+    orderDate: new Date().toISOString().split('T')[0],
     customerName: '',
     companyName: '',
     mobileNumber: '',
@@ -156,6 +157,7 @@ export function NewOrderModal({ isOpen, onClose, fileName, fileData, onAddOrder,
         setFormData(prev => ({
           ...prev,
           employeeName: employeeName || '',
+        orderDate: new Date().toISOString().split('T')[0],
           customerName: data.customerName || '',
           companyName: data.companyName || '',
           mobileNumber: data.mobileNumber || '',

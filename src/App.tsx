@@ -5,6 +5,7 @@ import { BottomNav } from './components/BottomNav';
 import { Header } from './components/Header';
 import { OrdersTab } from './tabs/OrdersTab';
 import { PurchaseTab } from './tabs/PurchaseTab';
+import { ProductsTab } from './tabs/ProductsTab';
 import { QuotationsTab } from './tabs/QuotationsTab';
 import { StorefrontTab } from './tabs/StorefrontTab';
 import { ProductionTab } from './tabs/ProductionTab';
@@ -95,6 +96,7 @@ export default function App() {
           <div className="max-w-[1600px] mx-auto h-full">
             {currentTab === 'Orders' && (profile.role === 'super_admin' || profile.role === 'admin' || profile.role === 'sales_executive') && <OrdersTab searchQuery={searchQuery} />}
             {currentTab === 'Purchase' && (profile.role === 'super_admin' || profile.role === 'admin') && <PurchaseTab searchQuery={searchQuery} />}
+            {currentTab === 'Products' && (profile.role === 'super_admin' || profile.role === 'admin') && <ProductsTab searchQuery={searchQuery} />}
             {currentTab === 'Quotations' && (profile.role === 'super_admin' || profile.role === 'admin') && <QuotationsTab searchQuery={searchQuery} setActiveTab={setActiveTab} />}
             {currentTab === 'Storefront' && <StorefrontTab setActiveTab={setActiveTab} />}
             {currentTab === 'Production' && (profile.role === 'super_admin' || profile.role === 'admin') && <ProductionTab searchQuery={searchQuery} />}

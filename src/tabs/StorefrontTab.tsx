@@ -768,18 +768,31 @@ function WorkstationSetup() {
           </select>
         </div>
 
-        {/* 6. Modesty */}
+        {/* 6. Screen Colours */}
         <div className="pt-2 border-t border-slate-200">
-          <label className="block text-sm font-medium text-slate-700 mb-1.5">6. Modesty <span className="text-slate-400 font-normal">(Optional)</span></label>
+          <label className="block text-sm font-medium text-slate-700 mb-1.5">6. Screen Colours</label>
+          <select className="w-full bg-white border-slate-300 rounded-lg shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500">
+            <option>Blue</option>
+            <option>Grey</option>
+            <option>Green</option>
+            <option>Red</option>
+            <option>Orange</option>
+            <option>Custom Colour</option>
+          </select>
+        </div>
+
+        {/* 7. Modesty */}
+        <div className="pt-2 border-t border-slate-200">
+          <label className="block text-sm font-medium text-slate-700 mb-1.5">7. Modesty <span className="text-slate-400 font-normal">(Optional)</span></label>
           <select className="w-full bg-white border-slate-300 rounded-lg shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500">
             <option>None</option>
             <option>Include Modesty Panel</option>
           </select>
         </div>
 
-        {/* 7. Electric Function */}
+        {/* 8. Electric Function */}
         <div className="pt-2 border-t border-slate-200">
-          <label className="block text-sm font-medium text-slate-700 mb-1.5">7. Electric Function</label>
+          <label className="block text-sm font-medium text-slate-700 mb-1.5">8. Electric Function</label>
           <select className="w-full bg-white border-slate-300 rounded-lg shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500">
             <option>Wire Raceway</option>
             <option>2 switch</option>
@@ -788,9 +801,9 @@ function WorkstationSetup() {
           </select>
         </div>
         
-        {/* 8. Add-ons */}
+        {/* 9. Add-ons */}
         <div className="pt-2 border-t border-slate-200">
-          <label className="block text-sm font-medium text-slate-700 mb-2">8. Add-ons</label>
+          <label className="block text-sm font-medium text-slate-700 mb-2">9. Add-ons</label>
           <div className="space-y-2">
             <label className="flex items-center gap-2">
               <input type="checkbox" className="rounded border-slate-300 text-amber-500 focus:ring-amber-500" />
