@@ -155,6 +155,14 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
             </div>
 
             <div className="flex items-center gap-4">
+              {(profile?.role === 'admin' || profile?.role === 'super_admin' || profile?.role === 'sales_executive' || profile?.role === 'employee') && setActiveTab && (
+                <button 
+                  onClick={() => { window.history.pushState({}, '', '/admin'); setActiveTab('Products'); }}
+                  className="hidden md:flex items-center gap-2 px-4 py-1.5 bg-slate-900 text-white rounded-full text-sm font-medium hover:bg-slate-800 transition-colors mr-2"
+                >
+                  Admin Panel
+                </button>
+              )}
               <button className="relative p-2 text-black hover:text-red-600 transition-colors" onClick={() => setIsCartOpen(true)}>
                 <ShoppingCart className="w-5 h-5" />
                 {cart.length > 0 && (

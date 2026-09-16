@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { X, ShoppingBag, Upload, Image as ImageIcon } from 'lucide-react';
+import { X, ShoppingBag, Upload, Image as ImageIcon, Loader2 } from 'lucide-react';
 import React, { useState, useRef } from 'react';
 
 interface NewProductModalProps {
@@ -12,6 +12,7 @@ interface NewProductModalProps {
 
 export function NewProductModal({ isOpen, onClose, onAddProduct, vendors, initialData }: NewProductModalProps) {
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isGeneratingDesc, setIsGeneratingDesc] = useState(false);
   const [formData, setFormData] = useState({
     productName: '',
     specification: '',
@@ -56,6 +57,29 @@ export function NewProductModal({ isOpen, onClose, onAddProduct, vendors, initia
 
   const [productImage, setProductImage] = useState<File | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+
+
+  const handleGenerateDescription = async () => {
+    if (!formData.productName || formData.details) return;
+    setIsGeneratingDesc(true);
+    try {
+      const res = await fetch('/api/generate-description', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productName: formData.productName })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.description) {
+          setFormData(prev => ({ ...prev, details: data.description }));
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsGeneratingDesc(false);
+    }
+  };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setFormData(prev => ({
@@ -159,6 +183,7 @@ export function NewProductModal({ isOpen, onClose, onAddProduct, vendors, initia
                       name="productName"
                       value={formData.productName}
                       onChange={handleChange}
+                      onBlur={handleGenerateDescription}
                       className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm"
                       placeholder="e.g. Raw Steel Sheets"
                       required
@@ -255,7 +280,10 @@ export function NewProductModal({ isOpen, onClose, onAddProduct, vendors, initia
                   </div>
                   
                   <div className="space-y-1.5 md:col-span-2">
-                    <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">Details</label>
+                    <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-2">
+                      Details 
+                      {isGeneratingDesc && <span className="text-indigo-500 lowercase text-[10px] flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> auto writing...</span>}
+                    </label>
                     <textarea 
                       name="details"
                       value={formData.details}

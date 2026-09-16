@@ -22,7 +22,11 @@ import { UsersTab } from './tabs/UsersTab';
 
 export default function App() {
   const { user, profile, loading, authError } = useAuth();
-  const [activeTab, setActiveTab] = useState<TabName>('Orders');
+  const [activeTab, setActiveTab] = useState<TabName>(() => {
+    const path = window.location.pathname;
+    if (path.startsWith('/admin')) return 'Products';
+    return 'Storefront';
+  });
   const [quoteId, setQuoteId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [approvalOrderId, setApprovalOrderId] = useState<string | null>(null);
