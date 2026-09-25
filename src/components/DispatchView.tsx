@@ -8,7 +8,7 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   import.meta.url,
 ).toString();
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, X, Save, Package, CheckSquare, Image as ImageIcon, Plus, Trash2, Edit2, FileText, Check, Truck, User, MapPin, Phone, Wrench, Send, ClipboardList } from 'lucide-react';
+import { ArrowLeft, X, Save, Package, CheckSquare, Image as ImageIcon, Plus, Trash2, Edit2, FileText, Check, Truck, User, MapPin, Phone, Wrench, Send, ClipboardList, ShieldAlert, AlertTriangle, Download, Loader2, CheckCircle2 } from 'lucide-react';
 import { Order, OrderProduct, saveOrder } from '../lib/orders';
 import { Product, subscribeToProducts } from '../lib/products';
 import { getProductFile } from '../lib/fileStorage';
@@ -17,6 +17,7 @@ import { getOrderFiles, saveOrderFiles } from '../lib/fileStorage';
 import { generateDispatchPDF, generatePaymentReminderPDF, generateSatisfactionFormPDF } from '../lib/pdfHelper';
 import { getPaymentForOrder, PaymentRecord } from '../lib/payments';
 import { getInstallers, subscribeToInstallers, Installer } from '../lib/installers';
+import { useAuth } from '../contexts/AuthContext';
 
 interface DispatchViewProps {
   order: Order;
@@ -25,6 +26,8 @@ interface DispatchViewProps {
 }
 
 export function DispatchView({ order, onBack, isInstallationView = false }: DispatchViewProps) {
+  const { profile } = useAuth();
+  const isSuperAdmin = profile?.role === 'super_admin';
   const [products, setProducts] = useState<OrderProduct[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [quotationFile, setQuotationFile] = useState<string | null>(null);
@@ -33,6 +36,9 @@ export function DispatchView({ order, onBack, isInstallationView = false }: Disp
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
   const [numPages, setNumPages] = useState<number>();
   const [showFarePrompt, setShowFarePrompt] = useState(false);
+  const [includeFareInChallan, setIncludeFareInChallan] = useState(true);
+  const [isGeneratingChallan, setIsGeneratingChallan] = useState(false);
+  const [lastDownloadedChallan, setLastDownloadedChallan] = useState<{ url: string; fileName: string } | null>(null);
   const [showPendingReasonPrompt, setShowPendingReasonPrompt] = useState(false);
   const [pendingReason, setPendingReason] = useState("");
   const [alertMessage, setAlertMessage] = useState<string | null>(null);
@@ -60,19 +66,31 @@ export function DispatchView({ order, onBack, isInstallationView = false }: Disp
   }, [order.id, order.docId]);
   
   const [showDispatchForm, setShowDispatchForm] = useState(false);
-  const [dispatchAddress, setDispatchAddress] = useState(order.details?.address || '');
-  const [vehicleNumber, setVehicleNumber] = useState(order.details?.vehicleNumber || '');
-  const [driverName, setDriverName] = useState(order.details?.driverName || '');
-  const [driverMobile, setDriverMobile] = useState(order.details?.driverMobile || '');
+  const [dispatchAddress, setDispatchAddress] = useState(order.details?.address || order.dispatchAddress || '');
+  const [vehicleNumber, setVehicleNumber] = useState(order.details?.vehicleNumber || order.vehicleNumber || '');
+  const [driverName, setDriverName] = useState(order.details?.driverName || order.driverName || '');
+  const [driverMobile, setDriverMobile] = useState(order.details?.driverMobile || order.driverMobile || '');
   const [bankDetails, setBankDetails] = useState(order.details?.bankDetails || '');
-  const [logisticCharges, setLogisticCharges] = useState(order.details?.logisticCharges || '');
+  const [logisticCharges, setLogisticCharges] = useState(order.details?.logisticCharges || order.logisticCharges || '');
   const [firstDispatchAmount, setFirstDispatchAmount] = useState(order.details?.firstDispatchAmount || '');
   const [secondDispatchAmount, setSecondDispatchAmount] = useState(order.details?.secondDispatchAmount || '');
   const [installerName, setInstallerName] = useState(order.details?.installerName || "");
   const [installationHelpers, setInstallationHelpers] = useState(order.details?.installationHelpers || "");
   const [installationDate, setInstallationDate] = useState(order.details?.installationDate || "");
   const [placeOfSupply, setPlaceOfSupply] = useState(order.details?.placeOfSupply || '');
-  const [reasonForTransport, setReasonForTransport] = useState(order.details?.reasonForTransport || 'Delivery');
+  const [reasonForTransport, setReasonForTransport] = useState(order.details?.reasonForTransport || order.reasonForTransport || 'Delivery');
+
+  useEffect(() => {
+    setDispatchAddress(order.details?.address || order.dispatchAddress || '');
+    setVehicleNumber(order.details?.vehicleNumber || order.vehicleNumber || '');
+    setDriverName(order.details?.driverName || order.driverName || '');
+    setDriverMobile(order.details?.driverMobile || order.driverMobile || '');
+    setLogisticCharges(order.details?.logisticCharges || order.logisticCharges || '');
+    setReasonForTransport(order.details?.reasonForTransport || order.reasonForTransport || 'Delivery');
+    setPlaceOfSupply(order.details?.placeOfSupply || '');
+    setFirstDispatchAmount(order.details?.firstDispatchAmount || '');
+    setSecondDispatchAmount(order.details?.secondDispatchAmount || '');
+  }, [order.id, order.docId, order.details?.driverName, order.details?.vehicleNumber, order.details?.driverMobile]);
 
   function onDocumentLoadSuccess({ numPages }: { numPages: number }): void {
     setNumPages(numPages);
@@ -173,18 +191,44 @@ export function DispatchView({ order, onBack, isInstallationView = false }: Disp
 
   const toggleDispatch = (product: OrderProduct) => {
     if (product.isDispatched) {
-      setProducts(prev => 
-        prev.map(p => p.id === product.id ? { ...p, isDispatched: false, dispatchedQuantity: 0 } : p)
-      );
+      const updated = products.map(p => p.id === product.id ? { ...p, isDispatched: false, dispatchedQuantity: 0 } : p);
+      setProducts(updated);
+      if (order.id || order.docId) {
+        saveOrder({
+          ...order,
+          details: { ...order.details, products: updated }
+        }).catch(err => console.error('Error auto-saving uncheck:', err));
+      }
     } else {
       if (product.quantity <= 1) {
-        setProducts(prev => 
-          prev.map(p => p.id === product.id ? { ...p, isDispatched: true, dispatchedQuantity: product.quantity } : p)
-        );
+        const updated = products.map(p => p.id === product.id ? { ...p, isDispatched: true, dispatchedQuantity: product.quantity } : p);
+        setProducts(updated);
+        if (order.id || order.docId) {
+          saveOrder({
+            ...order,
+            details: { ...order.details, products: updated }
+          }).catch(err => console.error('Error auto-saving check:', err));
+        }
       } else {
         setDispatchPromptProduct(product);
         setDispatchQty(product.quantity);
       }
+    }
+  };
+
+  const toggleSelectAll = () => {
+    const allSelected = products.length > 0 && products.every(p => p.isDispatched);
+    const updated = products.map(p => ({
+      ...p,
+      isDispatched: !allSelected,
+      dispatchedQuantity: !allSelected ? p.quantity : 0
+    }));
+    setProducts(updated);
+    if (order.id || order.docId) {
+      saveOrder({
+        ...order,
+        details: { ...order.details, products: updated }
+      }).catch(err => console.error('Error auto-saving select all:', err));
     }
   };
 
@@ -214,9 +258,16 @@ export function DispatchView({ order, onBack, isInstallationView = false }: Disp
 
   const confirmDispatchQty = (qty: number) => {
     if (!dispatchPromptProduct) return;
-    setProducts(prev => 
-      prev.map(p => p.id === dispatchPromptProduct.id ? { ...p, isDispatched: true, dispatchedQuantity: qty } : p)
+    const updated = products.map(p => 
+      p.id === dispatchPromptProduct.id ? { ...p, isDispatched: true, dispatchedQuantity: qty } : p
     );
+    setProducts(updated);
+    if (order.id || order.docId) {
+      saveOrder({
+        ...order,
+        details: { ...order.details, products: updated }
+      }).catch(err => console.error('Error auto-saving qty:', err));
+    }
     setDispatchPromptProduct(null);
   };
 
@@ -433,70 +484,178 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
     return displayTotalAmt - receivedPhasesTotal;
   };
 
+  const isPartialDispatch = products.length > 0 && products.some(p => !p.isDispatched || (p.dispatchedQuantity !== undefined && p.dispatchedQuantity !== null && p.dispatchedQuantity < p.quantity));
+  const dispatchedItemsList = products.filter(p => p.isDispatched);
+  const heldBackItemsList = products.filter(p => !p.isDispatched || (p.dispatchedQuantity !== undefined && p.dispatchedQuantity !== null && p.dispatchedQuantity < p.quantity));
+
   const handleChallanClick = () => {
+    const anyChecked = products.some(p => p.isDispatched);
+    if (!anyChecked) {
+      setAlertMessage('Please select at least one item to generate a Challan.');
+      return;
+    }
+
     const remaining = getRemainingPayment();
     const status = order.details?.challanApprovalStatus;
     
+    // If already approved by Super Admin, proceed directly
     if (status === 'Approved') {
       setShowFarePrompt(true);
       return;
     }
-    
-    if (status === 'Pending') {
-      setAlertMessage('Challan generation is waiting for admin approval. Please check back later.');
+
+    // If current user IS Super Admin, they have authority to generate directly
+    if (isSuperAdmin) {
+      setShowFarePrompt(true);
       return;
     }
     
+    // If pending approval by Super Admin
+    if (status === 'Pending') {
+      setAlertMessage('Challan generation is waiting for Super Admin approval. Please wait for Super Admin review or check back shortly.');
+      return;
+    }
+    
+    // If rejected previously by Super Admin
     if (status === 'Rejected') {
       setShowPendingReasonPrompt(true);
       return;
     }
 
-    if (remaining > 0.01) {
+    // If partial items are selected (some unchecked) OR payment is remaining: REQUIRES SUPER ADMIN APPROVAL
+    if (isPartialDispatch || remaining > 0.01) {
       setShowPendingReasonPrompt(true);
-    } else {
-      setShowFarePrompt(true);
+      return;
+    }
+
+    // Full dispatch with payment clear
+    setShowFarePrompt(true);
+  };
+
+  const generateNoticePDF = async (showFare: boolean) => {
+    setIsGeneratingChallan(true);
+    try {
+      const enhancedOrder = {
+        ...order,
+        vehicleNumber: vehicleNumber || order.vehicleNumber || order.details?.vehicleNumber,
+        driverName: driverName || order.driverName || order.details?.driverName,
+        driverMobile: driverMobile || order.driverMobile || order.details?.driverMobile,
+        dispatchAddress: dispatchAddress || order.dispatchAddress || order.details?.address,
+        logisticCharges: logisticCharges || order.details?.logisticCharges,
+        firstDispatchAmount: firstDispatchAmount || order.details?.firstDispatchAmount,
+        secondDispatchAmount: secondDispatchAmount || order.details?.secondDispatchAmount,
+        placeOfSupply: placeOfSupply || order.details?.placeOfSupply,
+        reasonForTransport: reasonForTransport || order.details?.reasonForTransport,
+        details: {
+          ...order.details,
+          products,
+          vehicleNumber: vehicleNumber || order.vehicleNumber || order.details?.vehicleNumber,
+          driverName: driverName || order.driverName || order.details?.driverName,
+          driverMobile: driverMobile || order.driverMobile || order.details?.driverMobile,
+          dispatchAddress: dispatchAddress || order.dispatchAddress || order.details?.address,
+          address: dispatchAddress || order.dispatchAddress || order.details?.address,
+          logisticCharges: logisticCharges || order.details?.logisticCharges,
+          firstDispatchAmount: firstDispatchAmount || order.details?.firstDispatchAmount,
+          secondDispatchAmount: secondDispatchAmount || order.details?.secondDispatchAmount,
+          placeOfSupply: placeOfSupply || order.details?.placeOfSupply,
+          reasonForTransport: reasonForTransport || order.details?.reasonForTransport,
+        }
+      };
+
+      // 1. Generate & download PDF
+      const result: any = await generateDispatchPDF(enhancedOrder, showFare, 'Challan');
+      if (result && result.blobUrl) {
+        setLastDownloadedChallan({ url: result.blobUrl, fileName: result.fileName });
+      }
+      
+      // 2. Auto-save current products selection AND driver details to Firestore
+      if (order.id || order.docId) {
+        try {
+          await saveOrder({
+            ...order,
+            vehicleNumber: enhancedOrder.vehicleNumber,
+            driverName: enhancedOrder.driverName,
+            driverMobile: enhancedOrder.driverMobile,
+            dispatchAddress: enhancedOrder.dispatchAddress,
+            details: enhancedOrder.details
+          });
+        } catch (err) {
+          console.error('Failed to auto-save products and driver details on challan generation:', err);
+        }
+      }
+
+      setAlertMessage('✅ Delivery Challan PDF generated and downloaded successfully!');
+      setShowFarePrompt(false);
+      
+      // 3. Check for customer phone to open WhatsApp
+      const custPhone = order.details?.mobileNumber;
+      if (custPhone) {
+        setTimeout(() => {
+          const text = `Hello ${order.customer || 'Customer'}, please find your Delivery Challan attached. Order ID: ${order.id || order.docId}`;
+          window.open(`https://web.whatsapp.com/send?phone=${custPhone.replace(/[^0-9]/g, '')}&text=${encodeURIComponent(text)}`, '_blank');
+        }, 1200);
+      }
+    } catch (err: any) {
+      console.error('Error generating Delivery Challan:', err);
+      setAlertMessage(`⚠️ Could not download Challan: ${err?.message || 'Please check item details and retry'}`);
+    } finally {
+      setIsGeneratingChallan(false);
     }
   };
 
-  const generateNoticePDF = (showFare: boolean) => {
-    setShowFarePrompt(false);
-    const enhancedOrder = {
-      ...order,
-      vehicleNumber: vehicleNumber || order.vehicleNumber || order.details?.vehicleNumber,
-      driverName: driverName || order.driverName || order.details?.driverName,
-      driverMobile: driverMobile || order.driverMobile || order.details?.driverMobile,
-      dispatchAddress: dispatchAddress || order.dispatchAddress || order.details?.address,
-      logisticCharges: logisticCharges || order.details?.logisticCharges,
-      firstDispatchAmount: firstDispatchAmount || order.details?.firstDispatchAmount,
-      secondDispatchAmount: secondDispatchAmount || order.details?.secondDispatchAmount,
-      placeOfSupply: placeOfSupply || order.details?.placeOfSupply,
-      reasonForTransport: reasonForTransport || order.details?.reasonForTransport,
-      details: { ...order.details, products }
-    };
-    generateDispatchPDF(enhancedOrder, showFare, 'Challan');
-    
-    // Check for customer phone to open WhatsApp
-    const custPhone = order.details?.mobileNumber;
-    if (custPhone) {
-      setTimeout(() => {
-        const text = `Hello ${order.customer}, please find your Challan attached. Order ID: ${order.id || order.docId}`;
-        window.open(`https://web.whatsapp.com/send?phone=${custPhone.replace(/[^0-9]/g, '')}&text=${encodeURIComponent(text)}`, '_blank');
-      }, 1000);
+  const handleSaveDriverDetailsOnly = async (closeModal = true) => {
+    setIsSaving(true);
+    try {
+      const updatedOrder = {
+        ...order,
+        driverName,
+        driverMobile,
+        vehicleNumber,
+        dispatchAddress,
+        details: {
+          ...order.details,
+          driverName,
+          driverMobile,
+          vehicleNumber,
+          dispatchAddress,
+          address: dispatchAddress,
+          logisticCharges,
+          firstDispatchAmount,
+          secondDispatchAmount,
+          placeOfSupply,
+          reasonForTransport,
+          bankDetails
+        }
+      };
+      await saveOrder(updatedOrder);
+      setAlertMessage('Driver & transport details updated successfully!');
+      if (closeModal) {
+        setShowDispatchForm(false);
+      }
+    } catch (error) {
+      console.error('Failed to update driver details:', error);
+      setAlertMessage('Failed to update driver details.');
+    } finally {
+      setIsSaving(false);
     }
   };
 
   const confirmFinalDispatch = async () => {
-    if (!order || !order.docId) return;
+    if (!order || (!order.docId && !order.id)) return;
     setIsSaving(true);
     try {
       const updatedOrder = {
         ...order,
         items: products.length, // update item count
+        driverName,
+        driverMobile,
+        vehicleNumber,
+        dispatchAddress,
         details: {
           ...order.details,
           products: products,
           dispatchAddress,
+          address: dispatchAddress,
           vehicleNumber,
           driverName,
           driverMobile,
@@ -512,19 +671,29 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
         }
       };
       
-      // If dispatch is scheduled, update the status
-      if (order.status !== 'Delivered' && order.status !== 'Completed') {
-         updatedOrder.status = 'Scheduled Dispatched';
+      const isAlreadyScheduledOrDispatched = 
+        order.status === 'Scheduled Dispatched' || 
+        order.status === 'Dispatched' || 
+        order.status === 'Out for Delivery' || 
+        order.status === 'Delivered' || 
+        order.status === 'Completed' || 
+        order.status?.includes('Installation');
+
+      if (!isAlreadyScheduledOrDispatched) {
+        updatedOrder.status = 'Scheduled Dispatched';
       }
       
       await saveOrder(updatedOrder);
-      onBack();
+      setAlertMessage('Driver and dispatch details saved successfully!');
+      setShowDispatchForm(false);
+      if (!isAlreadyScheduledOrDispatched) {
+        onBack();
+      }
     } catch (error) {
       console.error('Failed to schedule dispatch:', error);
       setAlertMessage('Failed to save dispatch schedule.');
     } finally {
       setIsSaving(false);
-      setShowDispatchForm(false);
     }
   };
 
@@ -544,7 +713,11 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
     try {
       const updatedOrder = {
         ...order,
-        status: 'Dispatched'
+        status: 'Dispatched',
+        details: {
+          ...order.details,
+          products: products
+        }
       };
       await saveOrder(updatedOrder);
       
@@ -662,16 +835,85 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
             </button>
           )}
         </div>
+
+        {/* Driver & Transport Details Card (Mentioned in Challan) */}
+        {!isInstallationView && (
+          <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3.5 border-b border-slate-100 gap-2">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0 border border-indigo-100">
+                  <Truck className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
+                    Driver & Transport Details
+                    <span className="text-[10px] font-semibold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full border border-indigo-100">
+                      Mentioned in Challan
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Driver, vehicle and dispatch information printed on delivery challans
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowDispatchForm(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors border border-indigo-200 self-start sm:self-auto"
+              >
+                <Edit2 className="w-3.5 h-3.5" />
+                Edit Driver Details
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-3.5 text-xs">
+              <div>
+                <span className="text-slate-400 font-medium block">Driver Name</span>
+                <span className="font-semibold text-slate-800 text-sm mt-0.5 block">
+                  {driverName || <span className="text-slate-400 italic font-normal">Not entered</span>}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-400 font-medium block">Driver Mobile</span>
+                <span className="font-semibold text-slate-800 text-sm mt-0.5 block">
+                  {driverMobile || <span className="text-slate-400 italic font-normal">Not entered</span>}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-400 font-medium block">Vehicle Number</span>
+                <span className="font-semibold text-slate-800 text-sm mt-0.5 block uppercase">
+                  {vehicleNumber || <span className="text-slate-400 italic font-normal">Not entered</span>}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-400 font-medium block">Reason for Transport</span>
+                <span className="font-semibold text-slate-800 text-sm mt-0.5 block">
+                  {reasonForTransport || 'Delivery'}
+                </span>
+              </div>
+
+              <div className="sm:col-span-2 lg:col-span-4 bg-slate-50 p-2.5 rounded-lg border border-slate-100 flex items-start gap-2">
+                <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
+                <div className="min-w-0 flex-1">
+                  <span className="text-[11px] text-slate-400 font-medium">Delivery Address: </span>
+                  <span className="text-xs text-slate-700 font-medium">
+                    {dispatchAddress || order.details?.address || 'Not entered'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div>
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm flex flex-col h-full">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50">
               <h3 className="font-semibold text-slate-800">Order Items</h3>
               <div className="flex items-center gap-4">
                 <button 
-                  onClick={() => setProducts(prev => prev.map(p => ({ ...p, isDispatched: true, dispatchedQuantity: p.quantity })))}
-                  className="text-sm font-medium text-indigo-600 hover:text-indigo-800"
+                  onClick={toggleSelectAll}
+                  className="text-sm font-medium text-indigo-600 hover:text-indigo-800 transition-colors"
                 >
-                  Select All
+                  {products.length > 0 && products.every(p => p.isDispatched) ? 'Deselect All' : 'Select All'}
                 </button>
                 <button 
                   onClick={addProduct}
@@ -682,21 +924,115 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
               </div>
             </div>
 
+            {/* Super Admin Approval & Partial Dispatch Notice Banners */}
+            {!isInstallationView && order.details?.challanApprovalStatus === 'Pending' && (
+              <div className="m-4 p-4 bg-amber-50 border border-amber-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-sm text-amber-900">
+                <div className="flex items-start gap-3">
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse mt-1 shrink-0"></span>
+                  <div>
+                    <p className="font-bold text-slate-800">Awaiting Super Admin Approval for Challan</p>
+                    <p className="text-xs text-amber-700 mt-0.5">
+                      <strong>Reason:</strong> {order.details?.challanPendingReason || 'Pending review'}
+                    </p>
+                    {isPartialDispatch && (
+                      <p className="text-xs text-amber-600 mt-1 font-medium">
+                        Partial Dispatch: {dispatchedItemsList.length} item(s) selected for Challan, {heldBackItemsList.length} unchecked.
+                      </p>
+                    )}
+                  </div>
+                </div>
+                {isSuperAdmin && (
+                  <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                    <button
+                      onClick={async () => {
+                        const updated = {
+                          ...order,
+                          details: {
+                            ...order.details,
+                            challanApprovalStatus: 'Rejected',
+                            challanApprovedAt: new Date().toISOString()
+                          }
+                        };
+                        await saveOrder(updated);
+                        setAlertMessage('Challan request rejected.');
+                      }}
+                      className="px-3 py-1.5 bg-white border border-rose-200 text-rose-700 text-xs font-bold rounded-lg hover:bg-rose-50 transition-colors"
+                    >
+                      Reject
+                    </button>
+                    <button
+                      onClick={async () => {
+                        const updated = {
+                          ...order,
+                          details: {
+                            ...order.details,
+                            challanApprovalStatus: 'Approved',
+                            challanApprovedAt: new Date().toISOString()
+                          }
+                        };
+                        await saveOrder(updated);
+                        setAlertMessage('Challan approved by Super Admin!');
+                      }}
+                      className="px-3 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition-colors shadow-sm"
+                    >
+                      Approve as Super Admin
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {!isInstallationView && order.details?.challanApprovalStatus === 'Approved' && (
+              <div className="m-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between text-xs sm:text-sm text-emerald-800">
+                <div className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>
+                    <strong>Super Admin Approved:</strong> Challan generation is approved for this order.
+                  </span>
+                </div>
+                {isSuperAdmin && (
+                  <button
+                    onClick={async () => {
+                      const updated = {
+                        ...order,
+                        details: {
+                          ...order.details,
+                          challanApprovalStatus: undefined
+                        }
+                      };
+                      await saveOrder(updated);
+                      setAlertMessage('Challan approval status reset.');
+                    }}
+                    className="text-xs text-emerald-700 underline hover:text-emerald-900 ml-2"
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
+            )}
+
+            {!isInstallationView && !order.details?.challanApprovalStatus && isPartialDispatch && (
+              <div className="m-4 p-3 bg-amber-50/80 border border-amber-200 rounded-xl flex items-center gap-2.5 text-xs text-amber-900">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>
+                  <strong>Partial Dispatch Active:</strong> {heldBackItemsList.length} item(s) unchecked. Generating this Challan requires <strong>Super Admin Approval</strong>.
+                </span>
+              </div>
+            )}
+
             <div className="divide-y divide-slate-100 flex-1 overflow-y-auto">
               {(isInstallationView ? products.filter(p => p.requiresInstallation) : products).map((product, idx) => {
-                const isSavedAsDispatched = order.details?.products?.find((p: any) => p.id === product.id)?.isDispatched;
-                
                 return (
-                <div key={`${product.id || "k"}-${idx}`} className={`flex flex-col sm:flex-row sm:items-center p-4 sm:p-6 hover:bg-slate-50 transition-colors gap-4 group ${isSavedAsDispatched ? 'opacity-75' : ''}`}>
+                <div key={`${product.id || "k"}-${idx}`} className="flex flex-col sm:flex-row sm:items-center p-4 sm:p-6 hover:bg-slate-50 transition-colors gap-4 group">
                   {!isInstallationView && (
                     <div 
-                      className={`flex-shrink-0 pt-1 sm:pt-0 ${isSavedAsDispatched ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+                      className="flex-shrink-0 pt-1 sm:pt-0 cursor-pointer"
                       onClick={() => { 
-                        if (isSavedAsDispatched) return;
                         if (editingId !== product.id) toggleDispatch(product); 
                       }}
+                      title={product.isDispatched ? "Click to uncheck (remove from Challan)" : "Click to select for Challan"}
                     >
-                      <div className={`w-6 h-6 rounded border flex items-center justify-center transition-colors ${product.isDispatched ? (isSavedAsDispatched ? 'bg-indigo-400 border-indigo-400 text-white' : 'bg-indigo-600 border-indigo-600 text-white') : 'border-slate-300 bg-white'}`}>
+                      <div className={`w-6 h-6 rounded border flex items-center justify-center transition-colors ${product.isDispatched ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm' : 'border-slate-300 bg-white hover:border-indigo-500'}`}>
                         {product.isDispatched && <CheckSquare className="w-4 h-4" />}
                       </div>
                     </div>
@@ -1118,6 +1454,15 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
                   )}
                   {!isInstallationView && (
                     <button 
+                      onClick={() => setShowDispatchForm(true)}
+                      className="flex items-center px-4 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
+                    >
+                      <Truck className="w-4 h-4 mr-2 text-slate-500" />
+                      Edit Driver Details
+                    </button>
+                  )}
+                  {!isInstallationView && (
+                    <button 
                       onClick={handleDriverDetails}
                       className="flex items-center px-4 py-2 text-sm font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
                     >
@@ -1127,10 +1472,20 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
                   {!isInstallationView && (
                     <button 
                       onClick={handleChallanClick}
-                      className="flex items-center px-4 py-2 text-sm font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"
+                      className={`flex items-center px-4 py-2 text-sm font-semibold rounded-lg transition-colors ${
+                        order.details?.challanApprovalStatus === 'Approved'
+                          ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm'
+                          : order.details?.challanApprovalStatus === 'Pending'
+                          ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                          : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                      }`}
                     >
                       <FileText className="w-4 h-4 mr-2" />
-                      Challan
+                      {order.details?.challanApprovalStatus === 'Approved'
+                        ? 'Generate Challan (Approved)'
+                        : order.details?.challanApprovalStatus === 'Pending'
+                        ? (isSuperAdmin ? 'Review Challan' : 'Challan (Pending Approval)')
+                        : 'Challan'}
                     </button>
                   )}
                 </>
@@ -1300,10 +1655,15 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
               className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden"
             >
               <div className="flex items-center justify-between p-5 border-b border-slate-100 bg-slate-50">
-                <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                  <Truck className="w-5 h-5 text-indigo-600" />
-                  Dispatch Details
-                </h3>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                    <Truck className="w-5 h-5 text-indigo-600" />
+                    Dispatch & Driver Details
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Update driver, vehicle, and transport details (printed on Challan)
+                  </p>
+                </div>
                 <button 
                   onClick={() => setShowDispatchForm(false)}
                   className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-200 transition-colors"
@@ -1424,7 +1784,16 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
                   disabled={isSaving}
                   className="px-5 py-2 text-sm font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 flex items-center gap-2"
                 >
-                  {isSaving ? 'Saving...' : 'Confirm Dispatch'}
+                  {isSaving ? (
+                    'Saving...'
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      {order.status === 'Scheduled Dispatched' || order.status === 'Dispatched' || order.status === 'Out for Delivery' || order.status === 'Delivered' || order.status === 'Completed'
+                        ? 'Save Driver Details'
+                        : 'Schedule & Save Dispatch'}
+                    </>
+                  )}
                 </button>
               </div>
             </motion.div>
@@ -1447,10 +1816,31 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
                   <FileText className="w-6 h-6" />
                 </div>
                 <h3 className="text-lg font-bold text-slate-800 mb-2">Notice</h3>
-                <p className="text-sm text-slate-600 mb-6">{alertMessage}</p>
+                <p className="text-sm text-slate-600 mb-4">{alertMessage}</p>
+                {lastDownloadedChallan && (
+                  <div className="mb-5 p-3.5 bg-indigo-50/80 border border-indigo-200 rounded-xl text-left">
+                    <p className="text-xs font-bold text-indigo-900 mb-1 flex items-center gap-1.5">
+                      <Download className="w-3.5 h-3.5 text-indigo-600" />
+                      Delivery Challan File
+                    </p>
+                    <p className="text-[11px] text-slate-600 mb-2.5">
+                      If the download didn't trigger automatically in your browser:
+                    </p>
+                    <a
+                      href={lastDownloadedChallan.url}
+                      download={lastDownloadedChallan.fileName}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center justify-center w-full px-3 py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 transition-colors gap-1.5 shadow-sm"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      Download {lastDownloadedChallan.fileName}
+                    </a>
+                  </div>
+                )}
                 <button 
                   onClick={() => setAlertMessage(null)}
-                  className="w-full py-2.5 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors"
+                  className="w-full py-2.5 bg-slate-800 text-white font-medium rounded-lg hover:bg-slate-900 transition-colors"
                 >
                   Okay
                 </button>
@@ -1464,14 +1854,25 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]"
+              className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]"
             >
               <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/50">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center text-red-600">
-                    <FileText className="w-5 h-5" />
+                  <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center text-amber-600">
+                    <ShieldAlert className="w-5 h-5" />
                   </div>
-                  <h3 className="font-bold text-slate-800 text-lg">Pending Payment Alert</h3>
+                  <div>
+                    <h3 className="font-bold text-slate-800 text-base sm:text-lg">
+                      Super Admin Approval Required
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      {isPartialDispatch && getRemainingPayment() > 0.01 
+                        ? 'Partial Item Dispatch & Pending Payment'
+                        : isPartialDispatch 
+                        ? 'Partial Item Dispatch (Unchecked Items)' 
+                        : 'Pending Payment Balance'}
+                    </p>
+                  </div>
                 </div>
                 <button 
                   onClick={() => setShowPendingReasonPrompt(false)}
@@ -1480,23 +1881,76 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              <div className="p-6 overflow-y-auto">
-                <p className="text-sm text-slate-600 mb-4">
+
+              <div className="p-6 overflow-y-auto space-y-4">
+                <p className="text-sm text-slate-600">
                   {order.details?.challanApprovalStatus === 'Rejected' 
-                    ? "Your previous challan request was rejected by the admin. Please provide a new reason to resubmit for approval."
-                    : "The remaining payment for this order is not zero. You must provide a reason for creating a Challan, which will be sent to the admin."}
+                    ? "Your previous Challan request was rejected by the Super Admin. Please provide a revised reason to resubmit for approval."
+                    : isPartialDispatch 
+                    ? "In this order, one or more items are unchecked (or partial quantities selected). Creating a Challan with partial items requires Super Admin approval."
+                    : "The remaining payment for this order is not zero. You must provide a reason for creating a Challan, which will be sent to the Super Admin."}
                 </p>
-                <div className="mb-4">
-                  <label className="block text-sm font-semibold text-slate-700 mb-2">Reason</label>
+
+                {/* Partial Dispatch Item Breakdown */}
+                {isPartialDispatch && (
+                  <div className="space-y-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                    <div>
+                      <span className="text-xs font-bold uppercase tracking-wider text-emerald-800 flex items-center gap-1.5 mb-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                        Selected for Challan ({dispatchedItemsList.length})
+                      </span>
+                      <div className="space-y-1">
+                        {dispatchedItemsList.map((p, idx) => (
+                          <div key={idx} className="flex justify-between items-center text-xs bg-white px-2.5 py-1.5 rounded border border-emerald-100 text-slate-700">
+                            <span className="font-medium truncate max-w-[240px]">{p.name}</span>
+                            <span className="font-bold text-emerald-700">{p.dispatchedQuantity || p.quantity} qty</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {heldBackItemsList.length > 0 && (
+                      <div>
+                        <span className="text-xs font-bold uppercase tracking-wider text-rose-800 flex items-center gap-1.5 mb-1.5">
+                          <span className="w-2 h-2 rounded-full bg-rose-500"></span>
+                          Held Back / Unchecked ({heldBackItemsList.length})
+                        </span>
+                        <div className="space-y-1">
+                          {heldBackItemsList.map((p, idx) => (
+                            <div key={idx} className="flex justify-between items-center text-xs bg-white px-2.5 py-1.5 rounded border border-rose-100 text-slate-700">
+                              <span className="font-medium truncate max-w-[240px] text-rose-950">{p.name}</span>
+                              <span className="font-bold text-rose-700">
+                                {!p.isDispatched ? p.quantity : (p.quantity - (p.dispatchedQuantity || 0))} qty
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {getRemainingPayment() > 0.01 && (
+                  <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 flex items-center justify-between text-xs text-amber-900">
+                    <span className="font-medium">Remaining Order Payment:</span>
+                    <span className="font-bold text-sm">₹{getRemainingPayment().toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1.5">
+                    Reason for Super Admin <span className="text-red-500">*</span>
+                  </label>
                   <textarea
                     value={pendingReason}
                     onChange={(e) => setPendingReason(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    rows={4}
-                    placeholder="Enter reason..."
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                    rows={3}
+                    placeholder="Provide detailed reason for unchecking item(s) / partial dispatch..."
                   />
                 </div>
               </div>
+
               <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
                 <button
                   onClick={() => setShowPendingReasonPrompt(false)}
@@ -1507,39 +1961,69 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
                 <button
                   onClick={async () => {
                     if (!pendingReason.trim()) {
-                      setAlertMessage('Please enter a reason.');
+                      setAlertMessage('Please enter a reason for the Super Admin.');
                       return;
                     }
                     setIsSaving(true);
                     try {
+                      const dispatchedFormatted = dispatchedItemsList.map(p => ({
+                        name: p.name,
+                        quantity: (p.dispatchedQuantity !== undefined && p.dispatchedQuantity !== null && p.dispatchedQuantity > 0) ? p.dispatchedQuantity : p.quantity,
+                        size: p.size || ''
+                      }));
+                      const heldBackFormatted = heldBackItemsList.map(p => ({
+                        name: p.name,
+                        quantity: !p.isDispatched ? p.quantity : (p.quantity - (p.dispatchedQuantity || 0)),
+                        size: p.size || ''
+                      }));
+                      const remaining = getRemainingPayment();
+                      const isPartial = heldBackFormatted.length > 0;
+
                       const updatedOrder = {
                         ...order,
                         details: {
                           ...order.details,
                           challanApprovalStatus: 'Pending',
-                          challanPendingReason: pendingReason
+                          challanPendingReason: pendingReason,
+                          challanApprovalType: isPartial && remaining > 0.01 ? 'partial_and_payment' : (isPartial ? 'partial_dispatch' : 'pending_payment'),
+                          challanPartialSummary: {
+                            dispatchedItems: dispatchedFormatted,
+                            heldBackItems: heldBackFormatted
+                          },
+                          products: products // persist item checkboxes
                         }
                       };
                       await saveOrder(updatedOrder);
                       
-                      const remaining = getRemainingPayment();
                       const approvalLink = window.location.origin + '?approveChallan=' + (order.id || order.docId);
-                      const text = `*Challan Approval Request*\n\nOrder ID: ${order.id || order.docId}\nCustomer: ${order.customer}\nRemaining Payment: Rs. ${remaining.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n\n*Reason for dispatch without full payment:*\n${pendingReason}\n\n*Click here to Approve or Reject:*\n${approvalLink}`;
+                      let text = `*Challan Super Admin Approval Request*\n\n`;
+                      text += `Order ID: ${order.id || order.docId}\n`;
+                      text += `Customer: ${order.customer}\n`;
+                      if (isPartial) {
+                        text += `\n*PARTIAL DISPATCH (Items Unchecked):*\n`;
+                        text += `• To Dispatch (${dispatchedFormatted.length}):\n` + dispatchedFormatted.map(i => `   - ${i.name} (${i.quantity} units)`).join('\n') + `\n`;
+                        text += `• Held Back (${heldBackFormatted.length}):\n` + heldBackFormatted.map(i => `   - ${i.name} (${i.quantity} units)`).join('\n') + `\n`;
+                      }
+                      if (remaining > 0.01) {
+                        text += `\n*Remaining Payment:* Rs. ${remaining.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n`;
+                      }
+                      text += `\n*Reason for Request:*\n${pendingReason}\n\n*Click here to Review & Approve/Reject:*\n${approvalLink}`;
+                      
                       const adminPhone = "919314871718";
                       window.open(`https://web.whatsapp.com/send?phone=${adminPhone}&text=${encodeURIComponent(text)}`, '_blank');
                       
                       setShowPendingReasonPrompt(false);
                       setPendingReason("");
-                      setAlertMessage("Approval request sent to Admin. You will be able to generate the Challan once approved.");
+                      setAlertMessage("Challan approval request sent to Super Admin via WhatsApp and system notifications. You will be able to generate the Challan once approved.");
                     } catch (e) {
                       setAlertMessage("Failed to send approval request.");
                     } finally {
                       setIsSaving(false);
                     }
                   }}
-                  className="px-5 py-2 text-sm font-semibold text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors"
+                  className="px-5 py-2 text-sm font-semibold text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors shadow-sm"
                 >
-                  Send for Approval
+                  Send for Super Admin Approval
                 </button>
               </div>
             </motion.div>
@@ -1554,18 +2038,233 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden"
+              className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]"
             >
-              <div className="p-5">
-                <h3 className="text-lg font-bold text-slate-800 mb-2">Challan Options</h3>
-                <p className="text-sm text-slate-500 mb-4">Would you like to include the total fare / charges in the Challan?</p>
-                <div className="flex flex-col gap-3">
-                  <button onClick={() => generateNoticePDF(true)} className="w-full py-2.5 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700">Yes, include Fare</button>
-                  <button onClick={() => generateNoticePDF(false)} className="w-full py-2.5 bg-white border border-slate-300 text-slate-700 font-medium rounded-lg hover:bg-slate-50">No, hide Fare</button>
+              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/70">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 shrink-0">
+                    <Truck className="w-5 h-5" />
+                  </div>
+                  <div className="text-left">
+                    <h3 className="font-bold text-slate-800 text-base sm:text-lg">
+                      Generate Delivery Challan
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Review or edit driver details mentioned in this Challan
+                    </p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setShowFarePrompt(false)}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-6 overflow-y-auto space-y-4 text-left">
+                {/* Driver Details for Challan */}
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                      <Truck className="w-4 h-4 text-indigo-600" />
+                      Driver & Vehicle Details (Printed on Challan)
+                    </span>
+                    <span className="text-[11px] text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100 font-medium">
+                      Editable
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1.5">
+                        <User className="w-3.5 h-3.5 text-slate-400" />
+                        Driver Name
+                      </label>
+                      <input
+                        type="text"
+                        value={driverName}
+                        onChange={(e) => setDriverName(e.target.value)}
+                        placeholder="e.g. Ramesh Kumar"
+                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1.5">
+                        <Phone className="w-3.5 h-3.5 text-slate-400" />
+                        Driver Mobile
+                      </label>
+                      <input
+                        type="tel"
+                        value={driverMobile}
+                        onChange={(e) => setDriverMobile(e.target.value)}
+                        placeholder="e.g. 9876543210"
+                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1.5">
+                        <Truck className="w-3.5 h-3.5 text-slate-400" />
+                        Vehicle Number
+                      </label>
+                      <input
+                        type="text"
+                        value={vehicleNumber}
+                        onChange={(e) => setVehicleNumber(e.target.value)}
+                        placeholder="e.g. RJ 14 AB 1234"
+                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none uppercase text-sm font-medium"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1.5">
+                        <FileText className="w-3.5 h-3.5 text-slate-400" />
+                        Reason for Transport
+                      </label>
+                      <select
+                        value={reasonForTransport}
+                        onChange={(e) => setReasonForTransport(e.target.value)}
+                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                      >
+                        <option value="Delivery">Delivery</option>
+                        <option value="Sale">Sale</option>
+                        <option value="Sale on Approval">Sale on Approval</option>
+                        <option value="Job Work">Job Work</option>
+                        <option value="Return">Return</option>
+                        <option value="Others">Others</option>
+                      </select>
+                    </div>
+
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1.5">
+                        <MapPin className="w-3.5 h-3.5 text-slate-400" />
+                        Delivery / Consignee Address
+                      </label>
+                      <textarea
+                        value={dispatchAddress}
+                        onChange={(e) => setDispatchAddress(e.target.value)}
+                        placeholder="Enter delivery address..."
+                        rows={2}
+                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm resize-none"
+                      />
+                    </div>
+
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1.5">
+                        Logistic Charges (optional)
+                      </label>
+                      <input
+                        type="text"
+                        value={logisticCharges}
+                        onChange={(e) => setLogisticCharges(e.target.value)}
+                        placeholder="e.g. Rs. 1,500"
+                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Fare Inclusion Option */}
+                <div>
+                  <h4 className="text-sm font-semibold text-slate-800 mb-1">Challan Fare & Value Option</h4>
+                  <p className="text-xs text-slate-500 mb-3">
+                    Choose whether item rates and total fare should be visible or hidden on the printed Challan:
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div 
+                      onClick={() => setIncludeFareInChallan(true)} 
+                      className={`cursor-pointer flex flex-col items-start p-3.5 rounded-xl border-2 transition-all text-left ${
+                        includeFareInChallan 
+                          ? 'bg-indigo-50/90 border-indigo-600 shadow-sm ring-2 ring-indigo-500/20' 
+                          : 'bg-white border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <span className="text-xs font-bold text-slate-800 flex items-center gap-2">
+                          {includeFareInChallan ? (
+                            <CheckCircle2 className="w-4 h-4 text-indigo-600 shrink-0" />
+                          ) : (
+                            <div className="w-4 h-4 rounded-full border border-slate-300 shrink-0" />
+                          )}
+                          Include Pricing & Fare
+                        </span>
+                        <span className="text-[10px] bg-indigo-100 text-indigo-700 font-semibold px-2 py-0.5 rounded">
+                          Standard
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-slate-500 mt-1.5 pl-6 leading-relaxed">
+                        Includes item pricing, transport charges & total order fare on Challan
+                      </span>
+                    </div>
+
+                    <div 
+                      onClick={() => setIncludeFareInChallan(false)} 
+                      className={`cursor-pointer flex flex-col items-start p-3.5 rounded-xl border-2 transition-all text-left ${
+                        !includeFareInChallan 
+                          ? 'bg-indigo-50/90 border-indigo-600 shadow-sm ring-2 ring-indigo-500/20' 
+                          : 'bg-white border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <span className="text-xs font-bold text-slate-800 flex items-center gap-2">
+                          {!includeFareInChallan ? (
+                            <CheckCircle2 className="w-4 h-4 text-indigo-600 shrink-0" />
+                          ) : (
+                            <div className="w-4 h-4 rounded-full border border-slate-300 shrink-0" />
+                          )}
+                          Hide Pricing (Quantities Only)
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-slate-500 mt-1.5 pl-6 leading-relaxed">
+                        Only products and quantities printed, prices & fare hidden
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
-              <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 flex justify-end">
-                <button onClick={() => setShowFarePrompt(false)} className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 transition-colors">Cancel</button>
+
+              <div className="px-6 py-3.5 border-t border-slate-100 bg-slate-50 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <button
+                  type="button"
+                  disabled={isSaving || isGeneratingChallan}
+                  onClick={async () => {
+                    await handleSaveDriverDetailsOnly(false);
+                  }}
+                  className="text-xs font-semibold text-slate-600 hover:text-indigo-600 underline flex items-center gap-1.5 self-start sm:self-auto"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  Save Driver Details Only
+                </button>
+                <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end">
+                  <button 
+                    type="button"
+                    onClick={() => setShowFarePrompt(false)} 
+                    disabled={isGeneratingChallan}
+                    className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="button"
+                    disabled={isGeneratingChallan}
+                    onClick={() => generateNoticePDF(includeFareInChallan)} 
+                    className="flex-1 sm:flex-initial px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold text-sm rounded-xl shadow hover:shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {isGeneratingChallan ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Generating PDF...
+                      </>
+                    ) : (
+                      <>
+                        <Download className="w-4 h-4" />
+                        Download Delivery Challan (PDF)
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             </motion.div>
           </div>

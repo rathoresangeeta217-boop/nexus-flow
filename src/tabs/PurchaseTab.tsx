@@ -240,7 +240,8 @@ export function PurchaseTab({ searchQuery = '' }: { searchQuery?: string }) {
   const handleAddProduct = async (productData: any) => {
     try {
       const newProduct: Partial<Product> = {
-        name: productData.productName,
+        name: productData.productName || productData.name,
+        category: productData.category || '',
         vendorId: productData.vendorId,
         vendorName: productData.vendorName,
         price: productData.totalUnitPrice || productData.price,
@@ -248,6 +249,8 @@ export function PurchaseTab({ searchQuery = '' }: { searchQuery?: string }) {
         details: {
           productImageName: productData.productImageName,
           details: productData.details,
+          category: productData.category || '',
+          productName: productData.productName || productData.name,
           measuringMetric: productData.measuringMetric,
           totalUnitPrice: productData.totalUnitPrice,
           perUnitPrice: productData.perUnitPrice,
@@ -441,6 +444,7 @@ export function PurchaseTab({ searchQuery = '' }: { searchQuery?: string }) {
       />
 
       <NewProductModal 
+        mode="catalog"
         isOpen={isNewProductModalOpen}
         onClose={() => {
           setIsNewProductModalOpen(false);

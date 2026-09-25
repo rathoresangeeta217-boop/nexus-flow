@@ -97,7 +97,7 @@ export default function App() {
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
         {currentTab !== 'Storefront' && <Header activeTab={currentTab} searchQuery={searchQuery} onSearchChange={setSearchQuery} />}
         <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 pb-24 lg:pb-8 custom-scrollbar">
-          <div className="max-w-[1600px] mx-auto h-full">
+          <div className="max-w-[1600px] mx-auto min-h-full">
             {currentTab === 'Orders' && (profile.role === 'super_admin' || profile.role === 'admin' || profile.role === 'sales_executive') && <OrdersTab searchQuery={searchQuery} />}
             {currentTab === 'Purchase' && (profile.role === 'super_admin' || profile.role === 'admin') && <PurchaseTab searchQuery={searchQuery} />}
             {currentTab === 'Products' && (profile.role === 'super_admin' || profile.role === 'admin') && <ProductsTab searchQuery={searchQuery} />}

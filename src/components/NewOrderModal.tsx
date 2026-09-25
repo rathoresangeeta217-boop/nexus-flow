@@ -89,115 +89,102 @@ export function NewOrderModal({ isOpen, onClose, fileName, fileData, onAddOrder,
     return () => clearTimeout(timer);
   }, [countdown]);
 
-  useEffect(() => {
-    let isCancelled = false;
-
-    const parseOrder = async () => {
-      if (!isOpen || !fileName || !fileData) return;
+  const parseOrder = async () => {
+    if (!isOpen || !fileName || !fileData) return;
+    
+    setIsProcessing(true);
+    setExtractError(null);
+    
+    try {
+      const res = await fetch('/api/parse-order', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ fileData })
+      });
       
-      setIsProcessing(true);
-      setExtractError(null);
-      
-      try {
-        const res = await fetch('/api/parse-order', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ fileData })
-        });
-        
-        const text = await res.text();
-        if (!res.ok) {
-          let errorMsg = 'Server error: ' + res.status;
-          let retryAfter = 0;
-          try {
-            const errorData = JSON.parse(text);
-            errorMsg = errorData.error || errorMsg;
-            if (res.status === 429 && errorData.retryAfter) {
-              retryAfter = Math.ceil(errorData.retryAfter / 1000);
-            }
-          } catch (e) {}
-          
-          if (retryAfter > 0) {
-            if (isCancelled) return;
-            setCountdown(retryAfter);
-            setTimeout(() => {
-               if (!isCancelled) {
-                 setCountdown(null);
-                 parseOrder(); // automatically retry
-               }
-            }, retryAfter * 1000);
-            return; // Don't end processing, wait for the timeout
-          }
-          
-          throw new Error(errorMsg);
-        }
-        
-        let data;
+      const text = await res.text();
+      if (!res.ok) {
+        let errorMsg = 'Server error: ' + res.status;
+        let retryAfter = 0;
         try {
-          data = JSON.parse(text);
-        } catch (e) {
-          throw new Error(`Invalid JSON (Status ${res.status}): ${text.substring(0, 100)}`);
+          const errorData = JSON.parse(text);
+          errorMsg = errorData.error || errorMsg;
+          if (res.status === 429 && errorData.retryAfter) {
+            retryAfter = Math.ceil(errorData.retryAfter / 1000);
+          }
+        } catch (e) {}
+        
+        if (retryAfter > 0) {
+          setCountdown(retryAfter);
+          setTimeout(() => {
+            setCountdown(null);
+            parseOrder(); // automatically retry
+          }, retryAfter * 1000);
+          return;
         }
         
-        if (data.error) {
-          throw new Error(data.error);
-        }
-        
-        if (isCancelled) return;
-        
-        let sourceImage = null;
-        if (fileData && fileData.startsWith('data:image')) {
-          sourceImage = fileData;
-        } else if (fileData && fileData.startsWith('data:application/pdf')) {
-          sourceImage = await generatePdfThumbnail(fileData);
-        }
-        
-        setFormData(prev => ({
-          ...prev,
-          employeeName: employeeName || '',
-        orderDate: new Date().toISOString().split('T')[0],
-          customerName: data.customerName || '',
-          companyName: data.companyName || '',
-          mobileNumber: data.mobileNumber || '',
-          email: data.email || '',
-          address: data.address || '',
-          gst: data.gst || '',
-          totalItems: data.totalItems || 0,
-          totalAmount: data.totalAmount || '₹0.00',
-          advancePayment: data.advancePayment || '',
-          transportationCharges: data.transportationCharges || '',
-          installationCharges: data.installationCharges || ''
-        }));
-        
-        if (data.products && Array.isArray(data.products)) {
-          setParsedProducts(data.products.map((p: any) => ({ 
-             id: Math.random().toString(36).substr(2, 9),
-             name: p.name || p.productName || p.title || p.item || 'Unknown Product',
-             description: p.description || '',
-             size: p.size || p.specification || p.specifications || p.dimensions || '',
-             quantity: p.quantity || p.qty || 1,
-             rate: p.rate || p.price || p.unitPrice || '',
-             amount: p.amount || p.total || p.lineTotal || '',
-             isDispatched: false
-          })));
-        }
-        
-        setIsProcessing(false);
-      } catch (err: any) {
-        if (isCancelled) return;
-        console.error("Error parsing order:", err);
-        setExtractError(err.message);
-        if (err.message && err.message.includes("Google AI rate limit") || err.message.includes("Daily limit")) {
-           // Do not alert
-        } else {
-           alert(`Failed to process quotation: ${err.message}. Please fill the details manually.`);
-        }
-        setIsProcessing(false);
+        throw new Error(errorMsg);
       }
-    };
+      
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        throw new Error(`Invalid JSON (Status ${res.status}): ${text.substring(0, 100)}`);
+      }
+      
+      if (data.error) {
+        throw new Error(data.error);
+      }
+      
+      let sourceImage = null;
+      if (fileData && fileData.startsWith('data:image')) {
+        sourceImage = fileData;
+      } else if (fileData && fileData.startsWith('data:application/pdf')) {
+        sourceImage = await generatePdfThumbnail(fileData);
+      }
+      
+      setFormData(prev => ({
+        ...prev,
+        employeeName: employeeName || '',
+        orderDate: new Date().toISOString().split('T')[0],
+        customerName: data.customerName || '',
+        companyName: data.companyName || '',
+        mobileNumber: data.mobileNumber || '',
+        email: data.email || '',
+        address: data.address || '',
+        gst: data.gst || '',
+        totalItems: data.totalItems || 0,
+        totalAmount: data.totalAmount || '₹0.00',
+        advancePayment: data.advancePayment || '',
+        transportationCharges: data.transportationCharges || '',
+        installationCharges: data.installationCharges || ''
+      }));
+      
+      if (data.products && Array.isArray(data.products)) {
+        setParsedProducts(data.products.map((p: any) => ({ 
+           id: Math.random().toString(36).substr(2, 9),
+           name: p.name || p.productName || p.title || p.item || 'Unknown Product',
+           description: p.description || '',
+           size: p.size || p.specification || p.specifications || p.dimensions || '',
+           quantity: p.quantity || p.qty || 1,
+           rate: p.rate || p.price || p.unitPrice || '',
+           amount: p.amount || p.total || p.lineTotal || '',
+           isDispatched: false
+        })));
+      }
+      
+      setIsProcessing(false);
+    } catch (err: any) {
+      console.error("Error parsing order:", err);
+      setExtractError(err.message || "Failed to analyze document.");
+      setIsProcessing(false);
+    }
+  };
 
+  useEffect(() => {
     if (isOpen && fileName && fileData) {
       parseOrder();
     } else if (!isOpen) {
@@ -221,10 +208,6 @@ export function NewOrderModal({ isOpen, onClose, fileName, fileData, onAddOrder,
       setExtractError(null);
       setCountdown(null);
     }
-    
-    return () => {
-       isCancelled = true;
-    };
   }, [isOpen, fileName, fileData]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -306,16 +289,27 @@ export function NewOrderModal({ isOpen, onClose, fileName, fileData, onAddOrder,
 
             <div className="p-6 overflow-y-auto custom-scrollbar">
               {extractError && (
-                <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
-                  <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
-                  <div>
-                    <h4 className="text-sm font-bold text-red-800 mb-1">Failed to analyze file</h4>
-                    <p className="text-sm text-red-600">{extractError}</p>
-                    { (extractError.includes('limit') || extractError.includes('Quota')) && (
-                       <p className="text-sm font-medium text-red-700 mt-2">
-                          Please configure your Gemini API Key in the AI Studio Settings.
-                       </p>
-                    )}
+                <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <h4 className="text-sm font-bold text-amber-900 mb-1">Could not auto-extract details from quotation</h4>
+                    <p className="text-xs text-amber-800 leading-relaxed">{extractError}</p>
+                    <div className="flex items-center gap-3 mt-3">
+                      <button
+                        type="button"
+                        onClick={() => parseOrder()}
+                        className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded text-xs font-semibold shadow-sm transition-colors"
+                      >
+                        Retry Analysis
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setExtractError(null)}
+                        className="px-3 py-1.5 bg-white border border-amber-300 text-amber-900 hover:bg-amber-100 rounded text-xs font-medium transition-colors"
+                      >
+                        Enter Details Manually
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}

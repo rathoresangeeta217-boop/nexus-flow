@@ -41,7 +41,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
               uid: currentUser.uid,
               email: currentUser.email || '',
               displayName: currentUser.displayName || 'Unknown User',
-              role: isAdmin ? 'admin' : 'employee', // let's give 'employee' as default instead of viewer
+              role: isAdmin ? 'super_admin' : 'employee', // let's give 'employee' as default instead of viewer
               isActive: isAdmin, // only admins active by default, others wait for approval
             };
             await createUserProfile(pData);

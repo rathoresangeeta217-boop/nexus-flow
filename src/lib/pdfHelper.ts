@@ -341,18 +341,29 @@ export const generateDispatchPDF = async (order: any, showFare: boolean, docType
 
   let startY = Math.max(105, rightY + 10);
   
-  const dispatchedProducts = (order.details?.products || []).filter((p: any) => p.isDispatched);
+  const dispatchedProducts = (order.details?.products || []).filter((p: any) => p && p.isDispatched);
   const items = dispatchedProducts.length > 0 ? dispatchedProducts : (order.details?.products || []);
 
   const tableBody: any[][] = [];
-  items.forEach((item: any, index: number) => {
-    tableBody.push([
-      (index + 1).toString(),
-      item.name,
-      item.quantity.toString(),
-      item.size || '-'
-    ]);
-  });
+  if (items && items.length > 0) {
+    items.forEach((item: any, index: number) => {
+      const rawQty = (item?.dispatchedQuantity !== undefined && item?.dispatchedQuantity !== null && Number(item?.dispatchedQuantity) > 0)
+        ? item.dispatchedQuantity
+        : (item?.quantity ?? 1);
+      const qtyStr = String(rawQty ?? 1);
+      const nameStr = String(item?.name || item?.productName || item?.description || `Item ${index + 1}`);
+      const sizeStr = String(item?.size || item?.spec || '-');
+      
+      tableBody.push([
+        (index + 1).toString(),
+        nameStr,
+        qtyStr,
+        sizeStr
+      ]);
+    });
+  } else {
+    tableBody.push(['1', 'Items as per order specification', '1', '-']);
+  }
 
   autoTable(doc, {
     startY,
@@ -366,7 +377,8 @@ export const generateDispatchPDF = async (order: any, showFare: boolean, docType
     styles: { fontSize: 10, cellPadding: 4 },
   });
 
-  const finalY = (doc as any).lastAutoTable.finalY + 15;
+  const lastTable = (doc as any).lastAutoTable;
+  const finalY = (lastTable && typeof lastTable.finalY === 'number') ? lastTable.finalY + 15 : startY + 40;
 
   if (showFare && order.amount) {
      doc.setFont("helvetica", "bold");
@@ -378,9 +390,47 @@ export const generateDispatchPDF = async (order: any, showFare: boolean, docType
   doc.text('Please verify the items upon receipt.', 105, finalY + 30, { align: 'center' });
   doc.text('Thank you for choosing Srk Modular furniture co.', 105, finalY + 35, { align: 'center' });
 
-  await addSignatureToPDF(doc, 145, finalY + 15);
-  addPageBorder(doc);
-  doc.save(`${docType.replace(/ /g, '-')}-${order.id || order.docId}.pdf`);
+  try {
+    await addSignatureToPDF(doc, 145, finalY + 15);
+  } catch (sigErr) {
+    console.warn('Error adding signature:', sigErr);
+  }
+
+  try {
+    addPageBorder(doc);
+  } catch (borderErr) {
+    console.warn('Error adding border:', borderErr);
+  }
+
+  const cleanDocType = docType.replace(/ /g, '-');
+  const orderIdentifier = order.id || order.docId || 'order';
+  const fileName = `${cleanDocType}-${orderIdentifier}.pdf`;
+
+  try {
+    // Generate blob and trigger download via object URL (works reliably in all environments and iframes)
+    const pdfBlob = doc.output('blob');
+    const blobUrl = URL.createObjectURL(pdfBlob);
+    
+    const downloadLink = document.createElement('a');
+    downloadLink.href = blobUrl;
+    downloadLink.download = fileName;
+    downloadLink.style.display = 'none';
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+    
+    setTimeout(() => {
+      if (document.body.contains(downloadLink)) {
+        document.body.removeChild(downloadLink);
+      }
+      URL.revokeObjectURL(blobUrl);
+    }, 2500);
+
+    return { success: true, fileName, blob: pdfBlob, blobUrl };
+  } catch (blobErr) {
+    console.warn('Blob download attempt failed, falling back to doc.save:', blobErr);
+    doc.save(fileName);
+    return { success: true, fileName };
+  }
 };
 
 

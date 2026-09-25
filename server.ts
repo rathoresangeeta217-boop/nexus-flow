@@ -12,7 +12,7 @@ function getAI(): GoogleGenAI {
     if (!apiKey) {
       throw new Error("GEMINI_API_KEY is not configured in the environment variables.");
     }
-    aiClient = new GoogleGenAI({ apiKey });
+    aiClient = new GoogleGenAI({ apiKey, httpOptions: { headers: { 'User-Agent': 'aistudio-build' } } });
   }
   return aiClient;
 }
@@ -40,86 +40,95 @@ function parseJsonOutput(text) {
 }
 
 
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-async function callGeminiWithRetry(params, maxRetries = 6) {
-  let attempt = 0;
-  while (true) {
-    try {
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error("Gemini API request timed out after 120 seconds. Please try again.")), 120000);
-      });
-      
-      const contents = [];
-      const parts = [];
-      
-      for (const input of params.input) {
-         if (input.type === 'text') {
-            parts.push({ text: input.text });
-         } else {
-            parts.push({
-               inlineData: {
-                  mimeType: input.mime_type,
-                  data: input.data
-               }
-            });
-         }
-      }
-      
-      contents.push({ role: 'user', parts });
-      
-      const ai = getAI();
-      const res = await Promise.race([
-        ai.models.generateContent({
-           model: params.model,
-           contents: contents
-        }),
-        timeoutPromise
-      ]);
-      
-      return { output_text: (res as any).text };
-    } catch (error) {
+const FALLBACK_MODELS = ['gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.8-flash'];
+
+async function callGeminiWithRetry(params: { model?: string; input: any[] }, maxRetries = 3) {
+  const initialModel = params.model || 'gemini-3.1-flash-lite';
+  const modelsToTry = [initialModel, ...FALLBACK_MODELS.filter(m => m !== initialModel)];
+
+  let lastError: any = null;
+
+  for (let mIdx = 0; mIdx < modelsToTry.length; mIdx++) {
+    const currentModel = modelsToTry[mIdx];
+    let attempt = 0;
+
+    while (attempt < maxRetries) {
       attempt++;
-      const errMsg = ((error as any).message || "") + ((error as any).body || "");
-      
-      if (errMsg.includes('PerDay')) {
-        throw new Error(JSON.stringify({
-           isRateLimit: true,
-           message: "Daily limit of 20 requests reached for this token. Please use a real Gemini API key (AIzaSy...).",
-           retryAfter: 0
-        }));
-      }
-      if (errMsg.includes('503') || errMsg.includes('429') || errMsg.includes('Quota exceeded') || errMsg.includes('too_many_requests')) {
-        let delay = 10000 * attempt;
-        const match = errMsg.match(/retry in ([\d\.]+)s/);
-        if (match && match[1]) {
-           delay = parseFloat(match[1]) * 1000 + 2000;
+      try {
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error("Gemini API request timed out after 90 seconds. Please try again.")), 90000);
+        });
+        
+        const contents = [];
+        const parts = [];
+        
+        for (const input of params.input) {
+          if (input.type === 'text') {
+            parts.push({ text: input.text });
+          } else {
+            parts.push({
+              inlineData: {
+                mimeType: input.mime_type,
+                data: input.data
+              }
+            });
+          }
         }
         
-        // Check if it's a quota issue vs a temporary rate limit
-        if (errMsg.includes('Quota exceeded') || errMsg.includes('quota')) {
-           throw new Error(JSON.stringify({
-             isRateLimit: true,
-             message: "Gemini API Quota Exceeded. Please check your API key billing details or configure a valid API key in settings.",
-             retryAfter: 0 // Do not retry automatically
-           }));
-        }
+        contents.push({ role: 'user', parts });
         
-        if (delay > 10000 || attempt >= maxRetries) {
-           throw new Error(JSON.stringify({
-             isRateLimit: true,
-             message: "Google AI rate limit reached. The system is busy.",
-             retryAfter: delay
-           }));
-        }
+        const ai = getAI();
+        const res = await Promise.race([
+          ai.models.generateContent({
+            model: currentModel,
+            contents: contents
+          }),
+          timeoutPromise
+        ]);
         
-        console.log(`Rate limited (429). Retrying in ${delay}ms... (Attempt ${attempt}/${maxRetries})`);
-        await sleep(delay);
-      } else {
-        throw error; // Fail fast for 404s, 400s, etc.
+        return { output_text: (res as any).text };
+      } catch (error: any) {
+        lastError = error;
+        const errMsg = ((error as any).message || "") + ((error as any).body || "");
+        console.warn(`[Gemini] Model ${currentModel} failed (attempt ${attempt}/${maxRetries}): ${errMsg.slice(0, 160)}`);
+
+        // If rate limit, daily limit, quota, or 503 unavailable, try next fallback model immediately
+        if (
+          errMsg.includes('PerDay') || 
+          errMsg.includes('503') || 
+          errMsg.includes('429') || 
+          errMsg.includes('Quota exceeded') || 
+          errMsg.includes('too_many_requests') ||
+          errMsg.includes('not found') ||
+          errMsg.includes('404')
+        ) {
+          if (mIdx < modelsToTry.length - 1) {
+            console.log(`[Gemini] Switching to fallback model: ${modelsToTry[mIdx + 1]}`);
+            break; // Break inner while loop to move to next model in for loop
+          }
+        }
+
+        if (attempt >= maxRetries) {
+          break;
+        }
+
+        await sleep(1500 * attempt);
       }
     }
   }
+
+  const finalErrMsg = ((lastError as any)?.message || "") + ((lastError as any)?.body || "");
+  if (finalErrMsg.includes('PerDay')) {
+    throw new Error(JSON.stringify({
+      isRateLimit: true,
+      message: "Daily request limit reached for this session. You can continue filling details manually, or retry shortly.",
+      retryAfter: 0
+    }));
+  }
+
+  throw lastError || new Error("Failed to process request with AI.");
 }
 
 async function startServer() {
@@ -184,7 +193,7 @@ async function startServer() {
       `;
 
       const response = await callGeminiWithRetry({
-        model: 'gemini-3.6-flash',
+        model: 'gemini-3.1-flash-lite',
         input: [
           { type: 'text', text: prompt },
           {
@@ -245,7 +254,7 @@ async function startServer() {
       For example: "Office Chair", "Wooden Desk", "Conference Table", "Drawer Handle".`;
 
       const response = await callGeminiWithRetry({
-        model: 'gemini-3.6-flash',
+        model: 'gemini-3.1-flash-lite',
         input: [
           { type: 'text', text: prompt },
           {
@@ -371,15 +380,31 @@ async function startServer() {
       const ai = getAI();
       const prompt = `Generate a short, compelling, and professional one-paragraph product description (maximum 3 sentences) for a product named "${productName}". Focus on its potential features and benefits. Do not use any markdown formatting.`;
       
-      const response = await ai.models.generateContent({
-        model: "gemini-3.8-flash",
-        contents: prompt,
-      });
+      let response;
+      let retries = 3;
+      while (retries > 0) {
+        try {
+          response = await ai.models.generateContent({
+            model: "gemini-3.8-flash",
+            contents: prompt,
+          });
+          break;
+        } catch (e: any) {
+          retries--;
+          if (retries === 0) throw e;
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
       
       res.json({ description: response.text });
     } catch (error) {
       console.error("Error generating description:", error);
-      res.status(500).json({ error: error.message || "Failed to generate description" });
+      const errorMessage = error.message || "Failed to generate description";
+      if (errorMessage.includes("503") || errorMessage.includes("high demand")) {
+        res.status(503).json({ error: "The AI model is currently busy. Please try again in a few seconds." });
+      } else {
+        res.status(500).json({ error: errorMessage });
+      }
     }
   });
 
@@ -438,7 +463,7 @@ async function startServer() {
 4. Return ONLY a JSON object with a single array property "matchingIds" containing the string IDs of the matched items. If no items match, return {"matchingIds": []}. Do not return any other text.` });
 
       const response = await callGeminiWithRetry({
-        model: 'gemini-3.6-flash',
+        model: 'gemini-3.1-flash-lite',
         input: parts
       });
 

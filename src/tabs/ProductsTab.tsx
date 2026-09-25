@@ -21,10 +21,15 @@ export function ProductsTab({ searchQuery = '' }: { searchQuery?: string }) {
 
   const handleAddProduct = async (productData: any) => {
     try {
+      const normalizedData = {
+        ...productData,
+        name: productData.name || productData.productName || 'Untitled Product',
+        productName: productData.name || productData.productName || 'Untitled Product'
+      };
       if (selectedProduct && selectedProduct.docId) {
-        await updateProductData(selectedProduct.docId, productData);
+        await updateProductData(selectedProduct.docId, normalizedData);
       } else {
-        await saveProduct(productData);
+        await saveProduct(normalizedData);
       }
       setIsModalOpen(false);
       setSelectedProduct(null);
@@ -33,20 +38,23 @@ export function ProductsTab({ searchQuery = '' }: { searchQuery?: string }) {
     }
   };
 
-  const handleDeleteProduct = async (docId: string) => {
+  const handleDeleteProduct = async (docId: string, variants?: any[]) => {
     if (confirm("Are you sure you want to delete this product?")) {
       try {
-        await deleteProduct(docId);
+        await deleteProduct(docId, variants);
       } catch (error) {
         console.error("Error deleting product:", error);
       }
     }
   };
 
-  const filteredProducts = products.filter(p => 
-    p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (p.category && p.category.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
+
+  const filteredProducts = products.filter(p => {
+    const pName = (p.name || (p as any).productName || '').toLowerCase();
+    const pCat = (p.category || p.details?.category || '').toLowerCase();
+    const q = (searchQuery || '').toLowerCase();
+    return pName.includes(q) || pCat.includes(q);
+  });
 
   return (
     <div className="h-full flex flex-col space-y-6">
@@ -81,21 +89,51 @@ export function ProductsTab({ searchQuery = '' }: { searchQuery?: string }) {
                 <tr key={product.docId || product.id} className="hover:bg-slate-50 transition-colors">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
-                      <div className="w-10 h-10 rounded bg-slate-100 flex items-center justify-center mr-3 overflow-hidden">
+                      <div className="w-10 h-10 rounded bg-slate-100 flex items-center justify-center mr-3 overflow-hidden shrink-0">
                          {product.details?.productImageData ? (
                            <img src={product.details.productImageData} alt={product.name} className="w-full h-full object-cover" />
                          ) : (
                            <Package className="w-5 h-5 text-slate-400" />
                          )}
                       </div>
-                      <span className="font-semibold text-slate-800">{product.name}</span>
+                      <div className="flex flex-col">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-slate-800">{product.name || (product as any).productName || 'Untitled'}</span>
+                          {product.variants && product.variants.length > 0 && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                              {product.variants.length} variants
+                            </span>
+                          )}
+                        </div>
+                        {product.variants && product.variants.length > 0 && (
+                          <div className="text-xs text-slate-400 mt-0.5 flex items-center gap-1.5">
+                            {product.variants.slice(0, 3).map((v, vi) => (
+                              <span key={vi} className="inline-flex items-center gap-1">
+                                {v.colorCode && <span className="w-2 h-2 rounded-full border border-slate-300" style={{ backgroundColor: v.colorCode }} />}
+                                {v.size || v.color}
+                                {vi < Math.min(product.variants!.length, 3) - 1 ? '•' : ''}
+                              </span>
+                            ))}
+                            {product.variants.length > 3 && <span>+{product.variants.length - 3}</span>}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">
-                    {product.category || product.details?.category || '-'}
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-800">
+                      {product.category || product.details?.category || '-'}
+                    </span>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">
-                    {product.price || '-'}
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600 font-semibold">
+                    {product.variants && product.variants.length > 0 ? (
+                      <div>
+                        <span className="text-xs text-slate-400 font-normal">From </span>
+                        ₹{Math.min(...product.variants.map(v => typeof v.price === 'string' ? parseFloat(v.price.replace(/[^0-9.]/g, '')) || 0 : v.price)).toLocaleString()}
+                      </div>
+                    ) : (
+                      product.price || '-'
+                    )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">
                     {product.vendorName || '-'}
@@ -108,12 +146,13 @@ export function ProductsTab({ searchQuery = '' }: { searchQuery?: string }) {
                       <Edit className="w-4 h-4" />
                     </button>
                     <button 
-                      onClick={() => product.docId && handleDeleteProduct(product.docId)}
+                      onClick={() => product.docId && handleDeleteProduct(product.docId, product.variants)}
                       className="text-red-600 hover:text-red-900"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </td>
+
                 </tr>
               ))}
               {filteredProducts.length === 0 && (
@@ -129,6 +168,7 @@ export function ProductsTab({ searchQuery = '' }: { searchQuery?: string }) {
       </div>
 
       <NewProductModal 
+        mode="catalog"
         isOpen={isModalOpen}
         onClose={() => { setIsModalOpen(false); setSelectedProduct(null); }}
         vendors={vendors}

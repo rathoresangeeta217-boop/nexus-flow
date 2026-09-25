@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Building2, MapPin, Mail, Phone, Package, Scale, IndianRupee, FileText } from 'lucide-react';
+import { X, Building2, MapPin, Mail, Phone, Package, Scale, IndianRupee, FileText, Layers } from 'lucide-react';
 import React, { useState, useEffect } from 'react';
 import { Product } from '../lib/products';
 import { Vendor } from '../lib/vendors';
@@ -121,6 +121,49 @@ export function ProductDetailModal({ isOpen, onClose, product, vendor }: Product
                     </div>
                   )}
                 </section>
+
+                {/* Product Variants if available */}
+                {product.variants && product.variants.length > 0 && (
+                  <section>
+                    <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-3 flex items-center justify-between">
+                      <span className="flex items-center gap-2">
+                        <Layers className="w-4 h-4 text-indigo-500" />
+                        Available Variants ({product.variants.length})
+                      </span>
+                    </h3>
+                    <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar pr-1">
+                      {product.variants.map((v, idx) => (
+                        <div key={v.id || idx} className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between gap-3 text-xs">
+                          <div className="flex items-center gap-2.5">
+                            {v.imageData ? (
+                              <img src={v.imageData} alt={v.name} className="w-8 h-8 rounded object-cover border border-slate-200" />
+                            ) : (
+                              <div className="w-8 h-8 rounded bg-slate-200 flex items-center justify-center font-bold text-slate-400 text-[10px]">
+                                {v.color ? v.color.substring(0, 2).toUpperCase() : 'V'}
+                              </div>
+                            )}
+                            <div>
+                              <div className="font-semibold text-slate-800">{v.name}</div>
+                              <div className="text-[11px] text-slate-500 flex items-center gap-2">
+                                {v.size && <span>Size: <strong>{v.size}</strong></span>}
+                                {v.color && (
+                                  <span className="flex items-center gap-1">
+                                    {v.colorCode && <span className="w-2.5 h-2.5 rounded-full inline-block border border-slate-300" style={{ backgroundColor: v.colorCode }} />}
+                                    {v.color}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="font-bold text-indigo-600 text-sm shrink-0">
+                            ₹{typeof v.price === 'number' ? v.price.toLocaleString() : v.price}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
 
                 {/* Vendor Information Section */}
                 <section>

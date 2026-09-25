@@ -70,6 +70,10 @@ export function AdminApprovalView({ orderId }: { orderId: string }) {
   }
 
   const currentStatus = order.details?.challanApprovalStatus;
+  const partialSummary = order.details?.challanPartialSummary;
+  const dispatchedItems = partialSummary?.dispatchedItems || order.details?.products?.filter((p: any) => p.isDispatched) || [];
+  const heldBackItems = partialSummary?.heldBackItems || order.details?.products?.filter((p: any) => !p.isDispatched) || [];
+  const isPartial = heldBackItems.length > 0;
 
   return (
     <div className="min-h-screen bg-slate-50 p-4 md:p-8 flex items-center justify-center">
@@ -80,6 +84,11 @@ export function AdminApprovalView({ orderId }: { orderId: string }) {
           </div>
           <h1 className="text-2xl font-bold mb-2">Challan Approval Request</h1>
           <p className="text-slate-400">Order ID: {order.id || order.docId}</p>
+          {isPartial && (
+            <span className="inline-block mt-3 px-3 py-1 bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-semibold rounded-full uppercase tracking-wider">
+              Partial Dispatch Request (Items Unchecked)
+            </span>
+          )}
         </div>
         
         <div className="p-6 md:p-8">
@@ -92,9 +101,55 @@ export function AdminApprovalView({ orderId }: { orderId: string }) {
               )}
             </div>
 
+            {isPartial && (
+              <div className="space-y-3">
+                <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Product Dispatch Breakdown</h3>
+                
+                {dispatchedItems.length > 0 && (
+                  <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3">
+                    <p className="text-xs font-bold uppercase tracking-wider text-emerald-800 mb-2 flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                      Items to Dispatch in this Challan ({dispatchedItems.length})
+                    </p>
+                    <div className="space-y-1.5">
+                      {dispatchedItems.map((item: any, i: number) => (
+                        <div key={i} className="flex justify-between items-center text-sm bg-white/80 px-2.5 py-1.5 rounded-lg border border-emerald-100 text-slate-800">
+                          <span className="font-medium">{item.name}</span>
+                          <span className="text-xs font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">
+                            {item.quantity || item.qty} units {item.size ? `(${item.size})` : ''}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {heldBackItems.length > 0 && (
+                  <div className="bg-rose-50/70 border border-rose-200 rounded-xl p-3">
+                    <p className="text-xs font-bold uppercase tracking-wider text-rose-800 mb-2 flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-rose-500"></span>
+                      Items Held Back / Unchecked ({heldBackItems.length})
+                    </p>
+                    <div className="space-y-1.5">
+                      {heldBackItems.map((item: any, i: number) => (
+                        <div key={i} className="flex justify-between items-center text-sm bg-white/80 px-2.5 py-1.5 rounded-lg border border-rose-100 text-slate-800">
+                          <span className="font-medium text-rose-950">{item.name}</span>
+                          <span className="text-xs font-bold bg-rose-100 text-rose-800 px-2 py-0.5 rounded">
+                            {item.quantity || item.qty} units {item.size ? `(${item.size})` : ''}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div>
-              <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-2">Reason for Pending Payment Dispatch</h3>
-              <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-lg">
+              <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                Reason for {isPartial ? 'Partial Dispatch & ' : ''}Approval
+              </h3>
+              <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-lg text-sm">
                 {order.details?.challanPendingReason || 'No reason provided.'}
               </div>
             </div>

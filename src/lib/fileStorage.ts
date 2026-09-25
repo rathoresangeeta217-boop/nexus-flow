@@ -36,3 +36,47 @@ export async function deleteProductFile(productId: string) {
   await del(`product_file_${productId}`);
 }
 
+export async function saveVariantFile(variantId: string, fileData: string) {
+  await set(`variant_file_${variantId}`, fileData);
+}
+
+export async function getVariantFile(variantId: string) {
+  return await get(`variant_file_${variantId}`);
+}
+
+export async function deleteVariantFile(variantId: string) {
+  await del(`variant_file_${variantId}`);
+}
+
+export async function compressImageFile(file: File, maxWidth = 1200, quality = 0.82): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(event.target?.result as string);
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = () => resolve(event.target?.result as string);
+      img.src = event.target?.result as string;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+

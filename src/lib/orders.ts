@@ -44,6 +44,13 @@ export interface OrderDetails {
   reasonForTransport?: string;
   challanApprovalStatus?: string;
   challanPendingReason?: string;
+  challanApprovalType?: 'partial_dispatch' | 'pending_payment' | 'partial_and_payment' | string;
+  challanPartialSummary?: {
+    dispatchedItems: { name: string; quantity: number; size?: string }[];
+    heldBackItems: { name: string; quantity: number; size?: string }[];
+  };
+  challanApprovedBy?: string;
+  challanApprovedAt?: string;
   installerName?: string;
   installationHelpers?: string;
   installationDate?: string;
@@ -61,6 +68,8 @@ export interface Order {
   vehicleNumber?: string;
   driverName?: string;
   driverMobile?: string;
+  logisticCharges?: string;
+  reasonForTransport?: string;
   createdAt: any;
   details?: OrderDetails & { employeeName?: string };
 }

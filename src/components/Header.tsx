@@ -83,27 +83,39 @@ export function Header({ activeTab, searchQuery, onSearchChange }: { activeTab: 
                       <p className="text-sm">No pending challans</p>
                     </div>
                   ) : (
-                    pendingChallans.map(order => (
-                      <div key={order.docId || order.id} className="p-4 border-b border-slate-50 hover:bg-slate-50 transition-colors group">
-                        <div className="flex gap-3">
-                          <div className="w-8 h-8 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
-                            <Package className="w-4 h-4" />
-                          </div>
-                          <div>
-                            <p className="text-sm font-medium text-slate-800 mb-0.5">Challan Approval Required</p>
-                            <p className="text-xs text-slate-500 mb-2">Order {order.id} from {order.customer}</p>
-                            <button 
-                              onClick={() => {
-                                window.location.href = `/?approveChallan=${order.id}`;
-                              }}
-                              className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-md inline-block transition-colors"
-                            >
-                              Review Challan
-                            </button>
+                    pendingChallans.map(order => {
+                      const isPartial = order.details?.challanApprovalType?.includes('partial') || (order.details?.challanPartialSummary?.heldBackItems?.length || 0) > 0;
+                      return (
+                        <div key={order.docId || order.id} className="p-4 border-b border-slate-50 hover:bg-slate-50 transition-colors group">
+                          <div className="flex gap-3">
+                            <div className="w-8 h-8 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
+                              <Package className="w-4 h-4" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+                                <p className="text-sm font-semibold text-slate-800">
+                                  Challan Approval
+                                </p>
+                                {isPartial && (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded">
+                                    Partial Items
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs text-slate-500 mb-2">Order {order.id} • {order.customer}</p>
+                              <button 
+                                onClick={() => {
+                                  window.location.href = `/?approveChallan=${order.id}`;
+                                }}
+                                className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-md inline-block transition-colors"
+                              >
+                                Review & Approve
+                              </button>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </div>

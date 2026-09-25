@@ -3,9 +3,29 @@ import { subscribeToQuotes, QuoteRequest } from '../lib/quotes';
 import { VendorQuoteForm } from '../components/VendorQuoteForm';
 import { Clock, CheckCircle2, Package } from 'lucide-react';
 import { Badge } from '../components/Badge';
+import { NewProductModal } from '../components/NewProductModal';
+import { saveProduct } from '../lib/products';
+import { subscribeToVendors, Vendor } from '../lib/vendors';
+import { ShoppingBag } from 'lucide-react';
 
 export function QuotationsTab({ searchQuery = '', setActiveTab }: { searchQuery?: string, setActiveTab?: (tab: any) => void }) {
   const [quotes, setQuotes] = useState<QuoteRequest[]>([]);
+  const [isNewProductModalOpen, setIsNewProductModalOpen] = useState(false);
+  const [vendors, setVendors] = useState<Vendor[]>([]);
+
+  useEffect(() => {
+    const unsub = subscribeToVendors(setVendors);
+    return () => unsub();
+  }, []);
+
+  const handleAddProduct = async (productData: any) => {
+    try {
+      await saveProduct(productData);
+      setIsNewProductModalOpen(false);
+    } catch (error) {
+      console.error('Error saving product:', error);
+    }
+  };
   
   useEffect(() => {
     const unsubscribe = subscribeToQuotes(setQuotes);
@@ -26,6 +46,13 @@ export function QuotationsTab({ searchQuery = '', setActiveTab }: { searchQuery?
           <p className="text-slate-500 mt-1">Manage vendor quotes and RFQs</p>
         </div>
         <div className="flex items-center gap-3">
+          <button 
+            onClick={() => setIsNewProductModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 transition-colors shadow-sm"
+          >
+            <ShoppingBag className="w-4 h-4" />
+            Add Quotation Product
+          </button>
           <button 
             onClick={() => setActiveTab?.('Storefront')}
             className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-indigo-700 transition-colors flex items-center gap-2"
@@ -80,6 +107,13 @@ export function QuotationsTab({ searchQuery = '', setActiveTab }: { searchQuery?
           </table>
         </div>
       </div>
+    <NewProductModal 
+        mode="purchase"
+        isOpen={isNewProductModalOpen}
+        onClose={() => setIsNewProductModalOpen(false)}
+        onAddProduct={handleAddProduct}
+        vendors={vendors}
+      />
     </div>
   );
 }
