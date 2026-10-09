@@ -405,7 +405,10 @@ export function PurchaseTab({ searchQuery = '' }: { searchQuery?: string }) {
             Add Vendor
           </button>
           <button 
-            onClick={() => setIsNewProductModalOpen(true)}
+            onClick={() => {
+              setEditingProduct(null);
+              setIsNewProductModalOpen(true);
+            }}
             className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 transition-colors shadow-sm"
           >
             <ShoppingBag className="w-4 h-4" />
@@ -444,7 +447,7 @@ export function PurchaseTab({ searchQuery = '' }: { searchQuery?: string }) {
       />
 
       <NewProductModal 
-        mode="catalog"
+        mode="purchase"
         isOpen={isNewProductModalOpen}
         onClose={() => {
           setIsNewProductModalOpen(false);

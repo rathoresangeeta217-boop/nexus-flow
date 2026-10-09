@@ -15,15 +15,107 @@ import { getAllPayments, subscribeToPayments, PaymentRecord } from '../lib/payme
 
 import * as XLSX from 'xlsx';
 
+export type PaymentFilterType = 'all' | 'remaining' | 'unpaid' | 'paid';
+
+export function getOrderPaymentSummary(order: Order, customerPayments: PaymentRecord[]) {
+  const match = (order.amount || "").toString().match(/\d[\d,]*(\.\d+)?/);
+  const orderAmt = match ? parseFloat(match[0].replace(/,/g, "")) : 0;
+  const paymentRecord = customerPayments.find(p => p.orderId === order.id || p.orderId === order.docId);
+
+  const parseVal = (str: string | undefined, baseTotal: number = 0) => {
+    if (!str) return 0;
+    const strVal = str.toString();
+    const pctMatch = strVal.match(/(\d[\d,]*(\.\d+)?)\s*%/);
+    if (pctMatch && baseTotal > 0) {
+      const pct = parseFloat(pctMatch[1].replace(/,/g, ""));
+      return (pct / 100) * baseTotal;
+    }
+    const matchAmt = strVal.match(/\d[\d,]*(\.\d+)?/);
+    return matchAmt ? parseFloat(matchAmt[0].replace(/,/g, "")) || 0 : 0;
+  };
+
+  let calculatedRemaining = orderAmt;
+  let displayTotalAmt = orderAmt;
+  if (paymentRecord) {
+    const grandTotal = parseVal(paymentRecord.grandTotal) || orderAmt;
+    const transport = parseVal(paymentRecord.transportationCharges || paymentRecord.loadingCharges, grandTotal);
+    const install = parseVal(paymentRecord.installationCharges, grandTotal);
+    
+    displayTotalAmt = grandTotal + transport + install;
+
+    let receivedPhasesTotal = 0;
+    if (paymentRecord.phases) {
+      paymentRecord.phases.forEach(phase => {
+        if (phase.status === 'Received') {
+          receivedPhasesTotal += parseVal(phase.amount, grandTotal);
+        }
+      });
+    }
+    calculatedRemaining = displayTotalAmt - receivedPhasesTotal;
+  }
+
+  const remainingAmount = Math.max(0, calculatedRemaining);
+  const isFullyPaid = displayTotalAmt > 0 && remainingAmount <= 0.01;
+  const hasRemaining = displayTotalAmt > 0 && remainingAmount > 0.01;
+  const isUnpaid = displayTotalAmt > 0 && Math.abs(remainingAmount - displayTotalAmt) < 0.01;
+
+  return {
+    orderAmt,
+    displayTotalAmt,
+    remainingAmount,
+    isFullyPaid,
+    hasRemaining,
+    isUnpaid,
+    paymentRecord
+  };
+}
+
+export function getVendorPoPaymentSummary(po: any, vendorPayments: VendorPaymentRecord[]) {
+  let totalPaid = 0;
+  if (po.pos) {
+    po.pos.forEach((subPo: any) => {
+      const record = vendorPayments.find(p => p.poNumber === subPo.poNumber);
+      if (record?.phases) {
+        record.phases.forEach(phase => {
+          if (phase.status === 'Paid') {
+            let phaseAmt = 0;
+            const strVal = (phase.amount || "").toString();
+            const pctMatch = strVal.match(/(\d[\d,]*(\.\d+)?)\s*%/);
+            if (pctMatch && po.totalAmount > 0) {
+              const pct = parseFloat(pctMatch[1].replace(/,/g, ""));
+              phaseAmt = (pct / 100) * po.totalAmount;
+            } else {
+              const amtMatch = strVal.match(/\d[\d,]*(\.\d+)?/);
+              phaseAmt = amtMatch ? parseFloat(amtMatch[0].replace(/,/g, "")) || 0 : 0;
+            }
+            totalPaid += phaseAmt;
+          }
+        });
+      }
+    });
+  }
+  const remainingAmount = Math.max(0, (po.totalAmount || 0) - totalPaid);
+  const isFullyPaid = (po.totalAmount || 0) > 0 && remainingAmount <= 0.01;
+  const hasRemaining = (po.totalAmount || 0) > 0 && remainingAmount > 0.01;
+  const isUnpaid = (po.totalAmount || 0) > 0 && totalPaid === 0;
+
+  return {
+    totalPaid,
+    remainingAmount,
+    isFullyPaid,
+    hasRemaining,
+    isUnpaid
+  };
+}
+
 export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
   const [activeTab, setActiveTab] = useState<'customer' | 'vendor'>('customer');
-  const [paymentFilter, setPaymentFilter] = useState<'all' | 'unpaid'>('all');
+  const [paymentFilter, setPaymentFilter] = useState<PaymentFilterType>('all');
   const [orders, setOrders] = useState<Order[]>([]);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   
   const [customerPayments, setCustomerPayments] = useState<PaymentRecord[]>([]);
   const [vendorPayments, setVendorPayments] = useState<VendorPaymentRecord[]>([]);
-
   
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -57,11 +149,6 @@ export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
       unsubVendPayments();
     };
   }, []);
-
-  const totalReceivables = orders.reduce((sum, order) => {
-    const amountStr = order.amount?.toString().replace(/[^0-9.-]+/g, "") || "0";
-    return sum + parseFloat(amountStr);
-  }, 0);
 
   const aggregatedProjects = useMemo(() => {
     const projectGroups: Record<string, any> = {};
@@ -130,6 +217,69 @@ export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
     });
   }, [purchases, searchQuery]);
 
+  // Overall metrics and counts for Customer orders
+  const customerMetrics = useMemo(() => {
+    let totalReceivables = 0;
+    let totalRemaining = 0;
+    let totalCollected = 0;
+    let remainingCount = 0;
+    let unpaidCount = 0;
+    let fullyPaidCount = 0;
+
+    orders.forEach(order => {
+      const summary = getOrderPaymentSummary(order, customerPayments);
+      totalReceivables += summary.displayTotalAmt;
+      totalRemaining += summary.remainingAmount;
+      totalCollected += Math.max(0, summary.displayTotalAmt - summary.remainingAmount);
+
+      if (summary.hasRemaining) remainingCount++;
+      if (summary.isUnpaid) unpaidCount++;
+      if (summary.isFullyPaid) fullyPaidCount++;
+    });
+
+    return {
+      totalReceivables,
+      totalRemaining,
+      totalCollected,
+      remainingCount,
+      unpaidCount,
+      fullyPaidCount,
+      totalCount: orders.length
+    };
+  }, [orders, customerPayments]);
+
+  // Overall metrics and counts for Vendor projects
+  const vendorMetrics = useMemo(() => {
+    let totalPayables = 0;
+    let totalRemaining = 0;
+    let totalDisbursed = 0;
+    let remainingCount = 0;
+    let unpaidCount = 0;
+    let fullyPaidCount = 0;
+
+    aggregatedProjects.forEach(po => {
+      const summary = getVendorPoPaymentSummary(po, vendorPayments);
+      totalPayables += po.totalAmount || 0;
+      totalRemaining += summary.remainingAmount;
+      totalDisbursed += summary.totalPaid;
+
+      if (summary.hasRemaining) remainingCount++;
+      if (summary.isUnpaid) unpaidCount++;
+      if (summary.isFullyPaid) fullyPaidCount++;
+    });
+
+    return {
+      totalPayables,
+      totalRemaining,
+      totalDisbursed,
+      remainingCount,
+      unpaidCount,
+      fullyPaidCount,
+      totalCount: aggregatedProjects.length
+    };
+  }, [aggregatedProjects, vendorPayments]);
+
+  // Filtered Customer Orders based on search and paymentFilter
   const filteredOrders = useMemo(() => {
     let result = orders;
     
@@ -143,59 +293,49 @@ export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
       );
     }
     
-    if (paymentFilter === 'unpaid') {
+    if (paymentFilter === 'remaining') {
       result = result.filter(order => {
-        const match = (order.amount || "").toString().match(/\d[\d,]*(\.\d+)?/);
-        const orderAmt = match ? parseFloat(match[0].replace(/,/g, "")) : 0;
-        const paymentRecord = customerPayments.find(p => p.orderId === order.id || p.orderId === order.docId);
-        
-        const parseVal = (str) => {
-          if (!str) return 0;
-          const strVal = str.toString();
-          const matchAmt = strVal.match(/\d[\d,]*(\.\d+)?/);
-          return matchAmt ? parseFloat(matchAmt[0].replace(/,/g, "")) || 0 : 0;
-        };
-
-        const parseValWithBase = (str, baseTotal) => {
-          if (!str) return 0;
-          const strVal = str.toString();
-          const pctMatch = strVal.match(/(\d[\d,]*(\.\d+)?)\s*%/);
-          if (pctMatch && baseTotal > 0) {
-            const pct = parseFloat(pctMatch[1].replace(/,/g, ""));
-            return (pct / 100) * baseTotal;
-          }
-          return parseVal(str);
-        };
-
-        let calculatedRemaining = orderAmt;
-        let displayTotalAmt = orderAmt;
-        
-        if (paymentRecord) {
-          const grandTotal = parseValWithBase(paymentRecord.grandTotal, 0) || orderAmt;
-          const transport = parseValWithBase(paymentRecord.transportationCharges || paymentRecord.loadingCharges, grandTotal);
-          const install = parseValWithBase(paymentRecord.installationCharges, grandTotal);
-          
-          displayTotalAmt = grandTotal + transport + install;
-          
-          let receivedPhasesTotal = 0;
-          if (paymentRecord.phases) {
-            paymentRecord.phases.forEach(phase => {
-              if (phase.status === 'Received') {
-                receivedPhasesTotal += parseValWithBase(phase.amount, grandTotal);
-              }
-            });
-          }
-          calculatedRemaining = displayTotalAmt - receivedPhasesTotal;
-        }
-        
-        const remainingAmount = Math.max(0, calculatedRemaining);
-        
-        return displayTotalAmt > 0 && remainingAmount === displayTotalAmt;
+        const summary = getOrderPaymentSummary(order, customerPayments);
+        return summary.hasRemaining;
+      });
+    } else if (paymentFilter === 'unpaid') {
+      result = result.filter(order => {
+        const summary = getOrderPaymentSummary(order, customerPayments);
+        return summary.isUnpaid;
+      });
+    } else if (paymentFilter === 'paid') {
+      result = result.filter(order => {
+        const summary = getOrderPaymentSummary(order, customerPayments);
+        return summary.isFullyPaid;
       });
     }
 
     return result;
   }, [orders, searchQuery, customerPayments, paymentFilter]);
+
+  // Filtered Vendor Projects based on search and paymentFilter
+  const filteredAggregatedProjects = useMemo(() => {
+    let result = aggregatedProjects;
+
+    if (paymentFilter === 'remaining') {
+      result = result.filter(po => {
+        const summary = getVendorPoPaymentSummary(po, vendorPayments);
+        return summary.hasRemaining;
+      });
+    } else if (paymentFilter === 'unpaid') {
+      result = result.filter(po => {
+        const summary = getVendorPoPaymentSummary(po, vendorPayments);
+        return summary.isUnpaid;
+      });
+    } else if (paymentFilter === 'paid') {
+      result = result.filter(po => {
+        const summary = getVendorPoPaymentSummary(po, vendorPayments);
+        return summary.isFullyPaid;
+      });
+    }
+
+    return result;
+  }, [aggregatedProjects, paymentFilter, vendorPayments]);
 
   const totalPayables = aggregatedProjects.reduce((sum, po) => sum + po.totalAmount, 0);
 
@@ -387,21 +527,142 @@ export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
       </div>
 
       {/* Tabs */}
-      <div className="flex bg-slate-200/50 p-1 rounded-xl w-fit">
-        <button
-          onClick={() => setActiveTab('customer')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'customer' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
-        >
-          <Users className="w-4 h-4" />
-          Customer Receivables
-        </button>
-        <button
-          onClick={() => setActiveTab('vendor')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'vendor' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
-        >
-          <Building2 className="w-4 h-4" />
-          Vendor Payables
-        </button>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex bg-slate-200/50 p-1 rounded-xl w-fit">
+          <button
+            onClick={() => setActiveTab('customer')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer ${activeTab === 'customer' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+          >
+            <Users className="w-4 h-4" />
+            Customer Receivables
+            <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 font-semibold text-slate-600">
+              {customerMetrics.totalCount}
+            </span>
+          </button>
+          <button
+            onClick={() => setActiveTab('vendor')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer ${activeTab === 'vendor' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+          >
+            <Building2 className="w-4 h-4" />
+            Vendor Payables
+            <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 font-semibold text-slate-600">
+              {vendorMetrics.totalCount}
+            </span>
+          </button>
+        </div>
+
+        {/* Active Filter Indicator Badge */}
+        {paymentFilter !== 'all' && (
+          <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-900 px-3 py-1.5 rounded-lg text-xs font-semibold">
+            <span>Filter Active: <strong>{paymentFilter === 'remaining' ? 'Orders with Remaining Amount' : paymentFilter === 'unpaid' ? 'Unpaid Orders Only' : 'Fully Paid Orders'}</strong></span>
+            <button
+              onClick={() => setPaymentFilter('all')}
+              className="text-amber-700 hover:text-amber-900 p-0.5 hover:bg-amber-100 rounded transition-colors cursor-pointer"
+              title="Clear Filter"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* KPI Stat Cards Row */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {activeTab === 'customer' ? (
+          <>
+            <StatCard 
+              title="Total Receivables"
+              value={`₹${customerMetrics.totalReceivables.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`}
+              icon={<DollarSign className="w-5 h-5 text-indigo-600" />}
+              colorClass="bg-indigo-50 text-indigo-600"
+            />
+            <div 
+              onClick={() => setPaymentFilter(paymentFilter === 'remaining' ? 'all' : 'remaining')}
+              className="cursor-pointer transition-transform hover:scale-[1.02] active:scale-[0.98]"
+              title="Click to filter orders with remaining amount"
+            >
+              <div className={`p-4 rounded-xl border transition-all ${paymentFilter === 'remaining' ? 'bg-amber-500/10 border-amber-500 shadow-md ring-2 ring-amber-400/30' : 'bg-white border-slate-200 shadow-sm hover:border-amber-300'}`}>
+                <div className="flex justify-between items-center mb-1">
+                  <p className="text-amber-700 text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                    Remaining Amount
+                  </p>
+                  <div className="opacity-80 p-1.5 rounded-lg bg-amber-100 text-amber-700">
+                    <AlertCircle className="w-4 h-4" />
+                  </div>
+                </div>
+                <p className="text-2xl font-black text-amber-600">
+                  ₹{customerMetrics.totalRemaining.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                </p>
+                <div className="mt-2 text-xs flex items-center justify-between text-slate-500 font-medium">
+                  <span className="text-amber-700 font-bold">{customerMetrics.remainingCount} Orders with balance</span>
+                  <span className="text-[11px] underline text-indigo-600 font-bold">
+                    {paymentFilter === 'remaining' ? 'Showing filtered' : 'Click to filter'}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <StatCard 
+              title="Payments Collected"
+              value={`₹${customerMetrics.totalCollected.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`}
+              icon={<CreditCard className="w-5 h-5 text-emerald-600" />}
+              colorClass="bg-emerald-50 text-emerald-600"
+            />
+            <StatCard 
+              title="Settled Orders"
+              value={`${customerMetrics.fullyPaidCount} / ${customerMetrics.totalCount}`}
+              icon={<Receipt className="w-5 h-5 text-sky-600" />}
+              colorClass="bg-sky-50 text-sky-600"
+            />
+          </>
+        ) : (
+          <>
+            <StatCard 
+              title="Total Payables"
+              value={`₹${vendorMetrics.totalPayables.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`}
+              icon={<DollarSign className="w-5 h-5 text-blue-600" />}
+              colorClass="bg-blue-50 text-blue-600"
+            />
+            <div 
+              onClick={() => setPaymentFilter(paymentFilter === 'remaining' ? 'all' : 'remaining')}
+              className="cursor-pointer transition-transform hover:scale-[1.02] active:scale-[0.98]"
+              title="Click to filter purchase orders with remaining amount"
+            >
+              <div className={`p-4 rounded-xl border transition-all ${paymentFilter === 'remaining' ? 'bg-amber-500/10 border-amber-500 shadow-md ring-2 ring-amber-400/30' : 'bg-white border-slate-200 shadow-sm hover:border-amber-300'}`}>
+                <div className="flex justify-between items-center mb-1">
+                  <p className="text-amber-700 text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                    Remaining Payables
+                  </p>
+                  <div className="opacity-80 p-1.5 rounded-lg bg-amber-100 text-amber-700">
+                    <AlertCircle className="w-4 h-4" />
+                  </div>
+                </div>
+                <p className="text-2xl font-black text-amber-600">
+                  ₹${vendorMetrics.totalRemaining.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                </p>
+                <div className="mt-2 text-xs flex items-center justify-between text-slate-500 font-medium">
+                  <span className="text-amber-700 font-bold">{vendorMetrics.remainingCount} POs with balance</span>
+                  <span className="text-[11px] underline text-blue-600 font-bold">
+                    {paymentFilter === 'remaining' ? 'Showing filtered' : 'Click to filter'}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <StatCard 
+              title="Disbursed to Vendors"
+              value={`₹${vendorMetrics.totalDisbursed.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`}
+              icon={<CreditCard className="w-5 h-5 text-emerald-600" />}
+              colorClass="bg-emerald-50 text-emerald-600"
+            />
+            <StatCard 
+              title="Settled Vendor POs"
+              value={`${vendorMetrics.fullyPaidCount} / ${vendorMetrics.totalCount}`}
+              icon={<Receipt className="w-5 h-5 text-sky-600" />}
+              colorClass="bg-sky-50 text-sky-600"
+            />
+          </>
+        )}
       </div>
 
       {/* Main Table */}
@@ -412,23 +673,87 @@ export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
         className="flex-1 flex flex-col"
       >
         <div className="bg-white rounded-t-xl border border-slate-200 flex flex-col lg:flex-row items-start lg:items-center justify-between px-4 sm:px-6 py-4 gap-4">
-          <h2 className="font-bold text-slate-800">
-            {activeTab === 'customer' ? 'Customer Payment Tracking' : 'Vendor Payment Tracking'}
-          </h2>
-          <div className="flex gap-2 items-center">
-            {activeTab === 'customer' && (
+          <div className="flex items-center gap-3">
+            <h2 className="font-bold text-slate-800 text-base">
+              {activeTab === 'customer' ? 'Customer Payment Tracking' : 'Vendor Payment Tracking'}
+            </h2>
+            <span className="text-xs px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 font-bold">
+              {activeTab === 'customer' ? `${filteredOrders.length} Orders` : `${filteredAggregatedProjects.length} Projects`}
+            </span>
+          </div>
+
+          {/* Filter Bar with Quick Pills and Select Dropdown */}
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* Quick Segmented Filter Pills */}
+            <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs">
+              <button
+                type="button"
+                onClick={() => setPaymentFilter('all')}
+                className={`px-2.5 py-1.5 rounded-md font-semibold transition-all cursor-pointer ${
+                  paymentFilter === 'all' 
+                    ? 'bg-white text-slate-900 shadow-xs font-bold' 
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                All ({activeTab === 'customer' ? customerMetrics.totalCount : vendorMetrics.totalCount})
+              </button>
+              
+              {/* PRIMARY USER FILTER: Orders with Remaining Amount */}
+              <button
+                type="button"
+                onClick={() => setPaymentFilter('remaining')}
+                className={`px-3 py-1.5 rounded-md font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
+                  paymentFilter === 'remaining' 
+                    ? 'bg-amber-500 text-white shadow-xs font-bold' 
+                    : 'text-slate-700 hover:text-amber-800 hover:bg-amber-50/60'
+                }`}
+              >
+                <span>Remaining Amount</span>
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                  paymentFilter === 'remaining' ? 'bg-white/25 text-white' : 'bg-amber-100 text-amber-800'
+                }`}>
+                  {activeTab === 'customer' ? customerMetrics.remainingCount : vendorMetrics.remainingCount}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setPaymentFilter('unpaid')}
+                className={`px-2.5 py-1.5 rounded-md font-semibold transition-all cursor-pointer ${
+                  paymentFilter === 'unpaid' 
+                    ? 'bg-rose-600 text-white shadow-xs font-bold' 
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Unpaid ({activeTab === 'customer' ? customerMetrics.unpaidCount : vendorMetrics.unpaidCount})
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setPaymentFilter('paid')}
+                className={`px-2.5 py-1.5 rounded-md font-semibold transition-all cursor-pointer ${
+                  paymentFilter === 'paid' 
+                    ? 'bg-emerald-600 text-white shadow-xs font-bold' 
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Fully Paid ({activeTab === 'customer' ? customerMetrics.fullyPaidCount : vendorMetrics.fullyPaidCount})
+              </button>
+            </div>
+
+            {/* Select Dropdown Filter */}
+            <div className="relative">
               <select
                 value={paymentFilter}
-                onChange={(e) => setPaymentFilter(e.target.value as any)}
-                className="px-3 py-1.5 border border-slate-300 rounded text-xs font-medium text-slate-600 bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                onChange={(e) => setPaymentFilter(e.target.value as PaymentFilterType)}
+                className="px-3 py-1.5 border border-slate-300 rounded-lg text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-2xs"
               >
                 <option value="all">All Orders</option>
+                <option value="remaining">Orders with Remaining Amount</option>
                 <option value="unpaid">Unpaid Orders Only</option>
+                <option value="paid">Fully Paid Orders</option>
               </select>
-            )}
-            <button className="hidden px-3 py-1 border border-slate-300 rounded text-xs font-medium text-slate-600 bg-white hover:bg-slate-50">
-              <Filter className="w-3.5 h-3.5 mr-1.5 inline" /> Filters
-            </button>
+            </div>
           </div>
         </div>
         
@@ -449,63 +774,39 @@ export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {filteredOrders.map((order, i) => {
-                    const match = (order.amount || "").toString().match(/\d[\d,]*(\.\d+)?/);
-                    const orderAmt = match ? parseFloat(match[0].replace(/,/g, "")) : 0;
-                    
-                    const paymentRecord = customerPayments.find(p => p.orderId === order.id || p.orderId === order.docId);
-                    
-                    const parseVal = (str: string | undefined, baseTotal: number = 0) => {
-                      if (!str) return 0;
-                      const strVal = str.toString();
-                      const pctMatch = strVal.match(/(\d[\d,]*(\.\d+)?)\s*%/);
-                      if (pctMatch && baseTotal > 0) {
-                        const pct = parseFloat(pctMatch[1].replace(/,/g, ""));
-                        return (pct / 100) * baseTotal;
-                      }
-                      const matchAmt = strVal.match(/\d[\d,]*(\.\d+)?/);
-                      return matchAmt ? parseFloat(matchAmt[0].replace(/,/g, "")) || 0 : 0;
-                    };
-
-                    let calculatedRemaining = orderAmt;
-                    let displayTotalAmt = orderAmt;
-                    if (paymentRecord) {
-                      const grandTotal = parseVal(paymentRecord.grandTotal) || orderAmt;
-                      const advance = parseVal(paymentRecord.advancePayment || paymentRecord.advanceRequirement, grandTotal);
-                      const transport = parseVal(paymentRecord.transportationCharges || paymentRecord.loadingCharges, grandTotal);
-                      const install = parseVal(paymentRecord.installationCharges, grandTotal);
-                      
-                      displayTotalAmt = grandTotal + transport + install;
-
-                      let receivedPhasesTotal = 0;
-                      if (paymentRecord.phases) {
-                        paymentRecord.phases.forEach(phase => {
-                          if (phase.status === 'Received') {
-                            receivedPhasesTotal += parseVal(phase.amount, grandTotal);
-                          }
-                        });
-                      }
-                      calculatedRemaining = displayTotalAmt - receivedPhasesTotal;
-                    } else {
-                      // no payment record yet, just base order amount
-                      calculatedRemaining = orderAmt;
-                    }
-                    
-                    const remainingAmount = Math.max(0, calculatedRemaining);
-                    const isFullyPaid = displayTotalAmt > 0 && remainingAmount <= 0;
-                    const displayStatus = isFullyPaid ? 'Dispatched' : order.status;
+                    const summary = getOrderPaymentSummary(order, customerPayments);
+                    const displayStatus = summary.isFullyPaid ? 'Dispatched' : order.status;
 
                     return (
                     <motion.tr 
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
-                      transition={{ delay: 0.1 + i * 0.05 }}
+                      transition={{ delay: 0.05 + i * 0.02 }}
                       key={`${order.docId || order.id || 'k'}-${i}`} 
                       className="hover:bg-slate-50 transition-colors"
                     >
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-indigo-600">{order.id}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-800 font-semibold">{order.customer}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-800 font-bold">₹{displayTotalAmt.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-800 font-bold">₹{remainingAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-800 font-bold">₹{summary.displayTotalAmt.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        {summary.remainingAmount > 0 ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-amber-600">
+                              ₹{summary.remainingAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                            </span>
+                            <span className="text-[10px] font-bold bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded border border-amber-200">
+                              Pending
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-emerald-600">₹0.00</span>
+                            <span className="text-[10px] font-bold bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded border border-emerald-200">
+                              Settled
+                            </span>
+                          </div>
+                        )}
+                      </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 font-medium">{order.date}</td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <Badge variant={displayStatus === 'Dispatched' ? 'success' : (displayStatus === 'Completed' ? 'success' : 'default')}>
@@ -518,17 +819,30 @@ export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
                             setSelectedOrder(order);
                             setIsModalOpen(true);
                           }}
-                          className="inline-flex items-center px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-md transition-colors"
+                          className="inline-flex items-center px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-md transition-colors cursor-pointer"
                         >
                           <Edit className="w-3.5 h-3.5 mr-1.5" /> Manage Payments
                         </button>
                       </td>
                     </motion.tr>
                   )})}
-                  {orders.length === 0 && (
+                  {filteredOrders.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="px-6 py-8 text-center text-sm text-slate-500">
-                        No customer orders found to track payments for.
+                      <td colSpan={7} className="px-6 py-12 text-center text-sm text-slate-500">
+                        <div className="flex flex-col items-center justify-center gap-2">
+                          <AlertCircle className="w-8 h-8 text-slate-400" />
+                          <p className="font-semibold text-slate-700">
+                            No orders found matching the {paymentFilter === 'remaining' ? 'Remaining Amount' : paymentFilter === 'unpaid' ? 'Unpaid' : paymentFilter === 'paid' ? 'Fully Paid' : ''} filter.
+                          </p>
+                          {paymentFilter !== 'all' && (
+                            <button
+                              onClick={() => setPaymentFilter('all')}
+                              className="mt-1 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-lg text-xs cursor-pointer"
+                            >
+                              Reset to All Orders
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   )}
@@ -547,44 +861,40 @@ export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {aggregatedProjects.map((po, i) => {
-                    let totalPaid = 0;
-                    po.pos.forEach((subPo: any) => {
-                      const record = vendorPayments.find(p => p.poNumber === subPo.poNumber);
-                      if (record?.phases) {
-                        record.phases.forEach(phase => {
-                          if (phase.status === 'Paid') {
-                            let phaseAmt = 0;
-                            const strVal = (phase.amount || "").toString();
-                            const pctMatch = strVal.match(/(\d[\d,]*(\.\d+)?)\s*%/);
-                            if (pctMatch && po.totalAmount > 0) {
-                              const pct = parseFloat(pctMatch[1].replace(/,/g, ""));
-                              phaseAmt = (pct / 100) * po.totalAmount;
-                            } else {
-                              const amtMatch = strVal.match(/\d[\d,]*(\.\d+)?/);
-                              phaseAmt = amtMatch ? parseFloat(amtMatch[0].replace(/,/g, "")) || 0 : 0;
-                            }
-                            totalPaid += phaseAmt;
-                          }
-                        });
-                      }
-                    });
-                    const remainingAmount = Math.max(0, po.totalAmount - totalPaid);
-                    const isFullyPaid = po.totalAmount > 0 && remainingAmount <= 0;
-                    const displayStatus = isFullyPaid ? 'Dispatched' : 'Pending';
+                  {filteredAggregatedProjects.map((po, i) => {
+                    const summary = getVendorPoPaymentSummary(po, vendorPayments);
+                    const displayStatus = summary.isFullyPaid ? 'Dispatched' : 'Pending';
 
                     return (
                     <motion.tr 
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
-                      transition={{ delay: 0.1 + i * 0.05 }}
+                      transition={{ delay: 0.05 + i * 0.02 }}
                       key={`${po.projectVendorId}-${i}`} 
                       className="hover:bg-slate-50 transition-colors"
                     >
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-blue-600">{po.projectName}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-800 font-semibold">{po.vendorName}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-800 font-bold">₹{po.totalAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-800 font-bold">₹{remainingAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        {summary.remainingAmount > 0 ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-amber-600">
+                              ₹{summary.remainingAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                            </span>
+                            <span className="text-[10px] font-bold bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded border border-amber-200">
+                              Pending
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-emerald-600">₹0.00</span>
+                            <span className="text-[10px] font-bold bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded border border-emerald-200">
+                              Settled
+                            </span>
+                          </div>
+                        )}
+                      </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <Badge variant={displayStatus === 'Dispatched' ? 'success' : 'default'}>
                           {displayStatus}
@@ -596,23 +906,36 @@ export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
                             setSelectedPO(po);
                             setIsVendorModalOpen(true);
                           }}
-                          className="inline-flex items-center px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors"
+                          className="inline-flex items-center px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors cursor-pointer"
                         >
                           <Edit className="w-3.5 h-3.5 mr-1.5" /> Manage Vendor Payments
                         </button>
                         <button 
                           onClick={() => setVendorToDelete(po)}
-                          className="inline-flex items-center px-3 py-1.5 text-xs font-bold text-red-700 bg-red-50 hover:bg-red-100 rounded-md transition-colors"
+                          className="inline-flex items-center px-3 py-1.5 text-xs font-bold text-red-700 bg-red-50 hover:bg-red-100 rounded-md transition-colors cursor-pointer"
                         >
                           <Trash className="w-3.5 h-3.5 mr-1.5" /> Delete
                         </button>
                       </td>
                     </motion.tr>
                   )})}
-                  {aggregatedProjects.length === 0 && (
+                  {filteredAggregatedProjects.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="px-6 py-8 text-center text-sm text-slate-500">
-                        No purchase orders found.
+                      <td colSpan={6} className="px-6 py-12 text-center text-sm text-slate-500">
+                        <div className="flex flex-col items-center justify-center gap-2">
+                          <AlertCircle className="w-8 h-8 text-slate-400" />
+                          <p className="font-semibold text-slate-700">
+                            No vendor purchase orders found matching the {paymentFilter === 'remaining' ? 'Remaining Amount' : paymentFilter === 'unpaid' ? 'Unpaid' : paymentFilter === 'paid' ? 'Fully Paid' : ''} filter.
+                          </p>
+                          {paymentFilter !== 'all' && (
+                            <button
+                              onClick={() => setPaymentFilter('all')}
+                              className="mt-1 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-lg text-xs cursor-pointer"
+                            >
+                              Reset to All Projects
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   )}

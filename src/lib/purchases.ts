@@ -15,6 +15,10 @@ export interface PurchaseDetails {
   poNumber?: string;
   productId?: string;
   quantity?: string;
+  measuringMetric?: string;
+  totalUnitPrice?: string;
+  perUnitPrice?: string;
+  advancePayment?: string;
   eta?: string;
   deliveryQC?: any;
 }

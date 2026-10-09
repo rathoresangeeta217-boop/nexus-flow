@@ -23,6 +23,8 @@ export interface OrderDetails {
   email?: string;
   address?: string;
   gst?: string;
+  totalAmount?: string;
+  employeeName?: string;
   quotationFileName?: string;
   quotationFileData?: string;
   poFileName?: string;
@@ -64,6 +66,8 @@ export interface Order {
   date: string;
   status: string;
   items: number;
+  project?: string;
+  employee?: string;
   dispatchAddress?: string;
   vehicleNumber?: string;
   driverName?: string;
@@ -71,6 +75,7 @@ export interface Order {
   logisticCharges?: string;
   reasonForTransport?: string;
   createdAt: any;
+  updatedAt?: any;
   details?: OrderDetails & { employeeName?: string };
 }
 

@@ -127,10 +127,10 @@ export function NewProductModal({ isOpen, onClose, onAddProduct, vendors, initia
         productName: initialData.name || initialData.productName || '',
         specification: initialData.specification || '',
         price: initialData.price || '',
-        totalUnitPrice: initialData.details?.totalUnitPrice || '',
+        totalUnitPrice: initialData.details?.totalUnitPrice || initialData.price || '',
         perUnitPrice: initialData.details?.perUnitPrice || '',
         measuringMetric: initialData.details?.measuringMetric || 'kg',
-        category: initialData.category || defaultCategory || "Workstation's",
+        category: initialData.category || defaultCategory || (mode === 'catalog' ? "Workstation's" : ''),
         vendorId: initialData.vendorId || '',
         details: initialData.details?.details || ''
       });
@@ -143,13 +143,13 @@ export function NewProductModal({ isOpen, onClose, onAddProduct, vendors, initia
         totalUnitPrice: '',
         perUnitPrice: '',
         measuringMetric: 'kg',
-        category: defaultCategory || "Workstation's",
+        category: defaultCategory || (mode === 'catalog' ? "Workstation's" : ''),
         vendorId: '',
         details: ''
       });
       setProductImage(null);
     }
-  }, [isOpen, initialData, defaultCategory]);
+  }, [isOpen, initialData, defaultCategory, mode]);
 
   const [productImage, setProductImage] = useState<File | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -181,7 +181,7 @@ export function NewProductModal({ isOpen, onClose, onAddProduct, vendors, initia
     }
   };
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     setFormData(prev => ({
       ...prev,
       [e.target.name]: e.target.value
@@ -198,6 +198,27 @@ export function NewProductModal({ isOpen, onClose, onAddProduct, vendors, initia
     });
   };
 
+  const calculateDefaultVariantPrice = (basePrice: number | string, sizeStr: string): string => {
+    const base = parseFloat(basePrice.toString().replace(/[^0-9.]/g, '')) || 14500;
+    const m = sizeStr.match(/(\d+)\s*[xX*×]\s*(\d+)/);
+    if (!m) return Math.round(base).toString();
+    const w = parseInt(m[1], 10) || 1200;
+    const d = parseInt(m[2], 10) || 600;
+    // Standard single desk reference: 1200 x 600 mm = 720,000 mm²
+    const stdArea = 1200 * 600;
+    const currentArea = w * d;
+    const areaRatio = currentArea / stdArea;
+    // Multi-seater multiplier detection (e.g., 2-Seater, 4-Seater, 6-Seater)
+    let seaterMultiplier = 1;
+    if (sizeStr.includes('6-Seater')) seaterMultiplier = 4.8;
+    else if (sizeStr.includes('4-Seater')) seaterMultiplier = 3.4;
+    else if (sizeStr.includes('2-Seater') || w >= 2400) seaterMultiplier = 1.9;
+    
+    // Proportional formula: 40% fixed engineering frame + 60% material area scaling
+    const scaled = Math.round((base * (0.4 + 0.6 * areaRatio) * (seaterMultiplier > 1 ? seaterMultiplier / areaRatio : 1)) / 100) * 100;
+    return Math.max(8000, scaled).toString();
+  };
+
   const handleGenerateWorkstationPresets = () => {
     const basePriceNum = parseFloat(formData.price || formData.totalUnitPrice || '14500') || 14500;
     const pName = formData.productName || 'Workstation';
@@ -209,15 +230,15 @@ export function NewProductModal({ isOpen, onClose, onAddProduct, vendors, initia
         size: "900 x 600 mm",
         color: "Frosty White",
         colorCode: "#F8FAFC",
-        price: Math.round(basePriceNum * 0.85).toString()
+        price: calculateDefaultVariantPrice(basePriceNum, "900 x 600 mm")
       },
       {
         id: `var_${Date.now()}_2`,
-        name: `${pName} (900 x 750 mm)`,
-        size: "900 x 750 mm",
+        name: `${pName} (1000 x 600 mm)`,
+        size: "1000 x 600 mm",
         color: "Frosty White",
         colorCode: "#F8FAFC",
-        price: Math.round(basePriceNum * 0.95).toString()
+        price: calculateDefaultVariantPrice(basePriceNum, "1000 x 600 mm")
       },
       {
         id: `var_${Date.now()}_3`,
@@ -225,7 +246,7 @@ export function NewProductModal({ isOpen, onClose, onAddProduct, vendors, initia
         size: "1200 x 600 mm",
         color: "Classic Walnut",
         colorCode: "#4E342E",
-        price: Math.round(basePriceNum).toString()
+        price: calculateDefaultVariantPrice(basePriceNum, "1200 x 600 mm")
       },
       {
         id: `var_${Date.now()}_4`,
@@ -233,7 +254,15 @@ export function NewProductModal({ isOpen, onClose, onAddProduct, vendors, initia
         size: "1500 x 600 mm",
         color: "Natural Teak",
         colorCode: "#8D6E63",
-        price: Math.round(basePriceNum * 1.2).toString()
+        price: calculateDefaultVariantPrice(basePriceNum, "1500 x 600 mm")
+      },
+      {
+        id: `var_${Date.now()}_5`,
+        name: `${pName} (2400 x 1200 mm 4-Seater Cluster)`,
+        size: "2400 x 1200 mm (4-Seater Cluster)",
+        color: "Frosty White",
+        colorCode: "#F8FAFC",
+        price: calculateDefaultVariantPrice(basePriceNum, "2400 x 1200 mm (4-Seater Cluster)")
       }
     ];
 
@@ -245,13 +274,15 @@ export function NewProductModal({ isOpen, onClose, onAddProduct, vendors, initia
     const basePrice = formData.price || formData.totalUnitPrice || '14500';
     const targetSize = chosenSize || WORKSTATION_SIZES[Math.min(variants.length, WORKSTATION_SIZES.length - 1)];
     const cleanSizeLabel = targetSize.split(' (')[0];
+    const calculatedPrice = calculateDefaultVariantPrice(basePrice, targetSize);
+    
     const newVar: ProductVariant = {
       id: `var_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       name: `${pName} (${cleanSizeLabel})`,
       size: targetSize,
       color: WORKSTATION_COLORS[variants.length % WORKSTATION_COLORS.length].name,
       colorCode: WORKSTATION_COLORS[variants.length % WORKSTATION_COLORS.length].hex,
-      price: basePrice
+      price: calculatedPrice
     };
     setVariants(prev => [...prev, newVar]);
   };

@@ -2,14 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { subscribeToProducts, Product, isCategoryMatch, saveProduct, ProductVariant } from '../lib/products';
 import { subscribeToVendors, Vendor } from '../lib/vendors';
 import { NewProductModal } from '../components/NewProductModal';
-import { ShoppingCart, Search, Menu, Star, Zap, ChevronRight, X, Upload, ImagePlus, Plus, Layers, Check, ImageIcon, RotateCw, Boxes } from 'lucide-react';
+import { ShoppingCart, Search, Menu, Star, Zap, ChevronRight, X, Upload, ImagePlus, Plus, Layers, Check, ImageIcon, RotateCw, Boxes, Maximize2, Minimize2, ZoomIn, ZoomOut, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 // custom image component defined at bottom of file
 import { getProductFile, getVariantFile } from '../lib/fileStorage';
 import { useAuth } from '../contexts/AuthContext';
 import { set, get } from 'idb-keyval';
-import { WorkstationLiveRenderer, getTableTopHex, getScreenHex, getLegHex } from '../components/WorkstationLiveRenderer';
+import { getTableTopHex, getScreenHex, getLegHex } from '../components/WorkstationLiveRenderer';
 import { Workstation3DViewer } from '../components/Workstation3DViewer';
+import { WorkstationTechnicalInfographicModal } from '../components/WorkstationTechnicalInfographicModal';
 
 export interface StorefrontCartItem {
   id: string;
@@ -32,7 +33,10 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
   const [activeImageSrc, setActiveImageSrc] = useState<string | null>(null);
   const [currentWorkstationSetup, setCurrentWorkstationSetup] = useState<any>(null);
-  const [visualizerView, setVisualizerView] = useState<'3d' | '2d' | 'photo'>('3d');
+  const [visualizerView, setVisualizerView] = useState<'3d' | 'photo'>('3d');
+  const [isPhotoFullscreen, setIsPhotoFullscreen] = useState(false);
+  const [isInfographicOpen, setIsInfographicOpen] = useState(false);
+  const [storeMiddlePartition, setStoreMiddlePartition] = useState<'Included' | 'None'>('Included');
   const { profile } = useAuth();
   useEffect(() => {
     get('storefront_banner').then(url => { if (url) setBannerUrl(url as string); });
@@ -160,7 +164,7 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
         : undefined;
 
       const setupKey = workstationSetup 
-        ? `_${workstationSetup.dimensions}_${workstationSetup.material}_${workstationSetup.thickness}_${workstationSetup.tableTopColor}_${workstationSetup.screenColor}_${workstationSetup.legColor}_${workstationSetup.legSize}_${workstationSetup.legStyle}` 
+        ? `_${workstationSetup.dimensions}_${workstationSetup.material}_${workstationSetup.thickness}_${workstationSetup.tableTopColor}_${workstationSetup.screenColor}_${workstationSetup.middlePartition}_${workstationSetup.legColor}_${workstationSetup.legSize}_${workstationSetup.legStyle}` 
         : '';
       const cartItemId = `${product.docId || product.id}_${variant?.id || 'base'}${setupKey}`;
       const existing = prev.find(item => item.id === cartItemId);
@@ -199,18 +203,17 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
 
 
   return (
-    <div className="bg-slate-50 min-h-screen font-sans flex flex-col -mx-4 -mt-4 -mb-24 sm:-mx-6 sm:-mt-6 lg:-mx-8 lg:-mt-8">
+    <div className="bg-slate-50 min-h-screen font-sans flex flex-col -mx-0 -mt-0 -mb-12">
       {/* Header */}
-      <header className="bg-white text-black sticky top-0 z-50 border-b border-slate-200 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-20 md:h-24">
+      <header className="bg-white text-slate-900 sticky top-0 z-50 border-b border-slate-200/90 shadow-2xs">
+        <div className="max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-10">
+          <div className="flex items-center justify-between h-20 md:h-22">
             <div className="flex items-center gap-6">
-              <button className="md:hidden p-2 text-black"><Menu className="w-6 h-6" /></button>
+              <button className="md:hidden p-2 text-slate-700 hover:text-slate-900"><Menu className="w-6 h-6" /></button>
               <div className="cursor-pointer flex items-center" onClick={() => setActiveTab?.('Orders')}>
-                <img src="/logo.png" alt="SRK Modular Furniture co" className="h-16 md:h-20 w-auto object-contain" />
+                <img src="/logo.png" alt="SRK Modular Furniture co" className="h-14 md:h-18 w-auto object-contain" />
               </div>
             </div>
-            
             
             <div className="hidden lg:flex items-center space-x-6 xl:space-x-8 flex-1 justify-center flex-wrap">
               {[
@@ -235,17 +238,17 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                 <div key={item.name} className="relative group">
                   <button 
                     onClick={() => setSelectedCategory(item.name)}
-                    className={`text-[11px] xl:text-xs font-bold uppercase tracking-wider transition-colors whitespace-nowrap h-20 md:h-24 flex items-center ${selectedCategory === item.name ? 'text-red-600' : 'text-slate-500 hover:text-black'}`}
+                    className={`text-[12px] font-bold uppercase tracking-wider transition-colors whitespace-nowrap h-20 md:h-22 flex items-center cursor-pointer ${selectedCategory === item.name ? 'text-red-600 font-black' : 'text-slate-600 hover:text-slate-900'}`}
                   >
                     {item.name}
                   </button>
                   {item.subItems && (
-                    <div className="absolute left-0 top-[100%] w-60 bg-white border border-slate-200 shadow-xl rounded-b-md opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 py-2 border-t-2 border-t-red-600 flex flex-col">
+                    <div className="absolute left-0 top-[100%] w-60 bg-white border border-slate-200 shadow-xl rounded-b-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 py-2 border-t-2 border-t-red-600 flex flex-col">
                       {item.subItems.map(sub => (
                         <button
                           key={sub}
                           onClick={() => setSelectedCategory(sub)}
-                          className="block w-full text-left px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-red-600 transition-colors"
+                          className="block w-full text-left px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-red-600 transition-colors cursor-pointer"
                         >
                           {sub}
                         </button>
@@ -260,27 +263,31 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
               {(profile?.role === 'admin' || profile?.role === 'super_admin' || profile?.role === 'sales_executive' || profile?.role === 'employee') && setActiveTab && (
                 <button 
                   onClick={() => { window.history.pushState({}, '', '/admin'); setActiveTab('Products'); }}
-                  className="hidden md:flex items-center gap-2 px-4 py-1.5 bg-slate-900 text-white rounded-full text-sm font-medium hover:bg-slate-800 transition-colors mr-2"
+                  className="hidden md:flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-slate-800 transition-colors shadow-2xs cursor-pointer"
                 >
                   Admin Panel
                 </button>
               )}
-              <button className="relative p-2 text-black hover:text-red-600 transition-colors" onClick={() => setIsCartOpen(true)}>
+              <button 
+                className="relative p-2.5 text-slate-700 hover:text-red-600 transition-colors rounded-xl hover:bg-slate-100 cursor-pointer" 
+                onClick={() => setIsCartOpen(true)}
+                title="View Shopping Cart"
+              >
                 <ShoppingCart className="w-5 h-5" />
                 {cart.length > 0 && (
-                  <span className="absolute top-0 right-0 w-4 h-4 bg-red-600 text-white text-[10px] font-bold flex items-center justify-center rounded-full border border-white">
+                  <span className="absolute top-1 right-1 w-4 h-4 bg-red-600 text-white text-[10px] font-bold flex items-center justify-center rounded-full border border-white">
                     {cart.reduce((sum, item) => sum + item.quantity, 0)}
                   </span>
                 )}
               </button>
               <div className="relative hidden sm:block">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input 
                   type="text" 
-                  placeholder="Search products..."
+                  placeholder="Search modular furniture..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="bg-slate-100 border border-transparent text-slate-900 rounded-full pl-9 pr-4 py-1.5 text-sm focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-colors w-48 placeholder:text-slate-500"
+                  className="bg-slate-100/90 border border-slate-200/80 text-slate-900 rounded-xl pl-9 pr-4 py-2 text-xs focus:outline-none focus:border-red-500 focus:bg-white focus:ring-2 focus:ring-red-500/20 transition-all w-52 placeholder:text-slate-400"
                 />
               </div>
             </div>
@@ -290,7 +297,7 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
 
       {/* Hero Section */}
       {!searchQuery && selectedCategory === 'All' && (
-        <div className="relative w-full overflow-hidden bg-slate-100 min-h-[200px] md:min-h-[400px] lg:min-h-[500px] flex items-center justify-center group">
+        <div className="relative w-full overflow-hidden bg-slate-100 min-h-[200px] md:min-h-[380px] lg:min-h-[460px] flex items-center justify-center group">
           {bannerUrl ? (
             <img src={bannerUrl} alt="Storefront Banner" className="w-full h-full object-cover absolute inset-0" />
           ) : (
@@ -299,31 +306,29 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
               <p className="font-medium uppercase tracking-widest text-sm opacity-50">No Banner Uploaded</p>
             </div>
           )}
-          
-
         </div>
       )}
 
       {/* Main Content */}
-      <main className="flex-1 max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-12 w-full">
+      <main className="flex-1 w-full max-w-none px-2 sm:px-4 md:px-6 lg:px-8 xl:px-10 py-4 lg:py-6">
         {selectedProduct ? (
-          <div className="w-full bg-white rounded-2xl p-6 lg:p-10 border border-slate-200">
+          <div className="w-full bg-white rounded-3xl p-4 sm:p-6 lg:p-7 xl:p-9 border border-slate-200/80 shadow-xs">
             {/* Breadcrumbs */}
-            <div className="flex items-center text-sm text-slate-500 mb-8">
-              <span className="cursor-pointer hover:text-amber-600 transition-colors" onClick={() => setSelectedProduct(null)}>Home</span>
-              <ChevronRight className="w-4 h-4 mx-2" />
-              <span className="cursor-pointer hover:text-amber-600 transition-colors" onClick={() => {
+            <div className="flex items-center text-xs font-medium text-slate-500 mb-5">
+              <span className="cursor-pointer hover:text-slate-900 transition-colors" onClick={() => setSelectedProduct(null)}>Home</span>
+              <ChevronRight className="w-3.5 h-3.5 mx-1.5 text-slate-400" />
+              <span className="cursor-pointer hover:text-slate-900 transition-colors" onClick={() => {
                 setSelectedCategory(selectedProduct.category || 'All');
                 setSelectedProduct(null);
               }}>
                 {selectedProduct.category || 'Products'}
               </span>
-              <ChevronRight className="w-4 h-4 mx-2" />
-              <span className="font-medium text-slate-900">{selectedProduct.name}</span>
+              <ChevronRight className="w-3.5 h-3.5 mx-1.5 text-slate-400" />
+              <span className="font-semibold text-slate-900 truncate">{selectedProduct.name}</span>
             </div>
 
-            <div className="flex flex-col lg:flex-row gap-12 lg:gap-16 items-start">
-              {/* Left: Images */}
+            <div className="flex flex-col lg:flex-row gap-6 xl:gap-10 items-start">
+              {/* Left: 3D Visualizer & Studio Media Column */}
               {(() => {
                 const isWorkstation = isCategoryMatch(selectedProduct.category, "Workstation");
                 const activeVariant = selectedProduct.variants?.find(v => v.id === selectedVariantId) || selectedProduct.variants?.[0];
@@ -337,21 +342,21 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
 
                 return (
                   <>
-                    <div className="w-full lg:w-3/5 flex gap-6 shrink-0 lg:sticky lg:top-28 lg:self-start z-20">
-                      {/* Thumbnails */}
-                      <div className="w-20 shrink-0 flex flex-col gap-3 max-h-[calc(100vh-140px)] overflow-y-auto custom-scrollbar pr-1">
+                    <div className="w-full lg:w-[60%] xl:w-[64%] 2xl:w-[68%] flex gap-3 sm:gap-4 shrink-0 lg:sticky lg:top-20 lg:self-start z-20">
+                      {/* Thumbnails Sidebar */}
+                      <div className="w-16 sm:w-20 shrink-0 flex flex-col gap-2.5 max-h-[calc(100vh-100px)] overflow-y-auto custom-scrollbar pr-1">
                         {/* 360 3D View Thumbnail for Workstations */}
                         {isWorkstation && (
                           <div 
                             onClick={() => setVisualizerView('3d')}
-                            className={`aspect-square rounded-lg border-2 flex flex-col items-center justify-center p-1 cursor-pointer transition-all relative overflow-hidden group ${visualizerView === '3d' ? 'border-indigo-600 bg-indigo-50 ring-2 ring-indigo-500/20 shadow-sm' : 'border-slate-200 hover:border-indigo-300 bg-slate-50'}`}
-                            title="Interactive 360° 3D View"
+                            className={`aspect-square rounded-xl border-2 flex flex-col items-center justify-center p-1 cursor-pointer transition-all relative overflow-hidden group ${visualizerView === '3d' ? 'border-indigo-600 bg-indigo-50 ring-2 ring-indigo-500/20 shadow-xs' : 'border-slate-200 hover:border-indigo-300 bg-slate-50'}`}
+                            title="Interactive 360° 3D CAD Visualizer"
                           >
-                            <div className="w-8 h-8 rounded-full bg-indigo-600/10 flex items-center justify-center text-indigo-600 group-hover:scale-110 transition-transform">
+                            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-indigo-600/10 flex items-center justify-center text-indigo-600 group-hover:scale-110 transition-transform">
                               <RotateCw className="w-4 h-4 animate-spin" style={{ animationDuration: '10s' }} />
                             </div>
                             <span className="text-[9px] font-black text-indigo-700 mt-1 uppercase tracking-tight">360° 3D</span>
-                            <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-emerald-500"></span>
+                            <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-emerald-500 shadow-2xs"></span>
                           </div>
                         )}
 
@@ -361,11 +366,11 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                             setActiveImageSrc(null);
                             setVisualizerView('photo');
                           }}
-                          className={`aspect-square rounded-lg border-2 flex items-center justify-center p-1.5 cursor-pointer transition-colors relative overflow-hidden ${visualizerView === 'photo' && !activeImageSrc ? 'border-amber-500 bg-amber-50 ring-2 ring-amber-500/20' : 'border-slate-200 hover:border-amber-300 bg-slate-50'}`}
-                          title="Base Product"
+                          className={`aspect-square rounded-xl border-2 flex items-center justify-center p-1.5 cursor-pointer transition-colors relative overflow-hidden ${visualizerView === 'photo' && !activeImageSrc ? 'border-amber-500 bg-amber-50 ring-2 ring-amber-500/20 shadow-xs' : 'border-slate-200 hover:border-amber-300 bg-slate-50'}`}
+                          title="Base Studio Photo"
                         >
                           <StorefrontProductImage productId={selectedProduct.id} productName={selectedProduct.name} />
-                          <span className="absolute top-1 left-1 bg-black/60 text-[8px] text-white px-1 py-0.2 rounded font-bold">Base</span>
+                          <span className="absolute top-1 left-1 bg-black/70 text-[8px] text-white px-1 py-0.2 rounded font-bold">Photo</span>
                         </div>
 
                         {/* Variant Thumbnails */}
@@ -378,7 +383,7 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                                 handleSelectVariant(v);
                                 setVisualizerView('photo');
                               }}
-                              className={`aspect-square rounded-lg border-2 flex items-center justify-center p-1 cursor-pointer transition-colors relative overflow-hidden group ${isSelected ? 'border-indigo-600 bg-indigo-50 ring-2 ring-indigo-500/20' : 'border-slate-200 hover:border-indigo-300 bg-slate-50'}`}
+                              className={`aspect-square rounded-xl border-2 flex items-center justify-center p-1 cursor-pointer transition-colors relative overflow-hidden group ${isSelected ? 'border-indigo-600 bg-indigo-50 ring-2 ring-indigo-500/20 shadow-xs' : 'border-slate-200 hover:border-indigo-300 bg-slate-50'}`}
                               title={`${v.name} (${v.color || v.size})`}
                             >
                               <StorefrontProductImage 
@@ -403,61 +408,78 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                         })}
                       </div>
 
-                      {/* Main Image View */}
-                      <div className="flex-1 w-full bg-slate-50 rounded-xl border border-slate-200 flex flex-col items-center justify-center p-2 sm:p-4 aspect-square max-h-[calc(100vh-140px)] relative overflow-hidden group">
-                        {/* View Toggle for Workstations */}
-                        {isWorkstation && (
+                      {/* Main Visualizer Stage Canvas */}
+                      <div className="flex-1 w-full bg-slate-900/[0.02] rounded-2xl border border-slate-200/90 shadow-xs flex flex-col items-center justify-center p-0 h-[580px] sm:h-[660px] lg:h-[740px] xl:h-[820px] 2xl:h-[880px] relative overflow-hidden group">
+                        {/* View Toggle for Workstations (Studio Photo Mode Switcher) */}
+                        {/* View Toggle for Workstations (Studio Photo Mode Switcher & Fullscreen Button) */}
+                        {visualizerView === 'photo' && (
                           <div className="absolute top-3 inset-x-3 z-20 flex items-center justify-between gap-2 pointer-events-auto">
-                            <div className="flex items-center bg-white/95 backdrop-blur-xs border border-slate-200 rounded-lg p-0.5 shadow-sm text-xs font-semibold">
+                            {isWorkstation ? (
+                              <div className="flex items-center bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-xl p-1 shadow-sm text-xs font-semibold">
+                                <button
+                                  type="button"
+                                  onClick={() => setVisualizerView('3d')}
+                                  className="px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer text-slate-600 hover:text-indigo-600 font-bold"
+                                >
+                                  <RotateCw className="w-3.5 h-3.5" />
+                                  <span>Switch to 360° 3D CAD</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setVisualizerView('photo')}
+                                  className="px-3 py-1.5 rounded-lg transition-all cursor-pointer bg-slate-900 text-white shadow-xs font-bold"
+                                >
+                                  <span>Studio Photo</span>
+                                </button>
+                              </div>
+                            ) : <div />}
+
+                            {/* Right Actions: 2D Infographic Spec Sheet & Fullscreen Photo Button */}
+                            <div className="flex items-center gap-2">
+                              {isWorkstation && (
+                                <button
+                                  type="button"
+                                  onClick={() => setIsInfographicOpen(true)}
+                                  className="px-3 py-1.5 rounded-xl bg-linear-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-md text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer hover:scale-105 active:scale-95 ring-2 ring-amber-500/20"
+                                  title="Download 2D Technical Line Drawing Infographic Specs Sheet"
+                                >
+                                  <FileText className="w-3.5 h-3.5 text-amber-100" />
+                                  <span>2D CAD & A4 PDF</span>
+                                </button>
+                              )}
+
                               <button
                                 type="button"
-                                onClick={() => setVisualizerView('3d')}
-                                className={`px-2.5 py-1 rounded-md flex items-center gap-1.5 transition-colors cursor-pointer ${visualizerView === '3d' ? 'bg-indigo-600 text-white shadow-xs font-bold' : 'text-slate-600 hover:text-indigo-600'}`}
+                                onClick={() => setIsPhotoFullscreen(true)}
+                                className="px-3 py-1.5 rounded-xl bg-white/95 backdrop-blur-md border border-slate-200/90 text-slate-800 hover:bg-slate-100 shadow-md text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer hover:scale-105 active:scale-95"
+                                title="Open Fullscreen Studio Photo"
                               >
-                                <RotateCw className="w-3.5 h-3.5" />
-                                360° 3D View
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setVisualizerView('2d')}
-                                className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${visualizerView === '2d' ? 'bg-slate-900 text-white shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900'}`}
-                              >
-                                2D Studio
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setVisualizerView('photo')}
-                                className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${visualizerView === 'photo' ? 'bg-slate-900 text-white shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900'}`}
-                              >
-                                Photo
+                                <Maximize2 className="w-3.5 h-3.5 text-indigo-600" />
+                                <span className="hidden sm:inline">Fullscreen Photo</span>
                               </button>
                             </div>
-
-                            {visualizerView !== '3d' && (
-                              <div className="hidden sm:flex bg-white/95 backdrop-blur-xs border border-slate-200 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-slate-700 shadow-xs items-center gap-1.5 flex-wrap">
-                                <span className="w-2.5 h-2.5 rounded-full border border-slate-300" style={{ backgroundColor: getTableTopHex(currentWorkstationSetup?.tableTopColor).main }} />
-                                <span>Top: {currentWorkstationSetup?.tableTopColor || 'Frosty white'}</span>
-                                <span className="text-slate-300">•</span>
-                                <span className="w-2.5 h-2.5 rounded-full border border-slate-300" style={{ backgroundColor: getScreenHex(currentWorkstationSetup?.screenColor).fill }} />
-                                <span>Screen: {currentWorkstationSetup?.screenColor || 'Blue'}</span>
-                                <span className="text-slate-300">•</span>
-                                <span className="w-2.5 h-2.5 rounded-full border border-slate-300" style={{ backgroundColor: getLegHex(currentWorkstationSetup?.legColor, currentWorkstationSetup?.legMaterial).main }} />
-                                <span>Legs: {currentWorkstationSetup?.legColor || (currentWorkstationSetup?.legMaterial === 'wooden' ? 'Natural Teak' : 'Black')}</span>
-                              </div>
-                            )}
                           </div>
                         )}
 
                         {isWorkstation && visualizerView === '3d' ? (
-                          <Workstation3DViewer setup={currentWorkstationSetup} />
-                        ) : isWorkstation && visualizerView === '2d' ? (
-                          <WorkstationLiveRenderer setup={currentWorkstationSetup} />
+                          <Workstation3DViewer 
+                            setup={currentWorkstationSetup} 
+                            onToggleMiddlePartition={() => {
+                              const nextVal = currentWorkstationSetup?.middlePartition === 'None' ? 'Included' : 'None';
+                              setStoreMiddlePartition(nextVal);
+                              setCurrentWorkstationSetup((prev: any) => prev ? { ...prev, middlePartition: nextVal } : prev);
+                            }}
+                          />
                         ) : (
-                          <>
+                          <div 
+                            className="w-full h-full flex items-center justify-center cursor-zoom-in"
+                            onClick={() => setIsPhotoFullscreen(true)}
+                            title="Click to view full screen"
+                          >
                             {activeImageSrc ? (
-                              <img src={activeImageSrc} alt={selectedProduct.name} className="w-full h-full object-contain mix-blend-multiply transition-all duration-300" />
+                              <img src={activeImageSrc} alt={selectedProduct.name} className="w-full h-full object-contain mix-blend-multiply transition-all duration-300 p-4" />
                             ) : activeVariant?.imageData ? (
-                              <img src={activeVariant.imageData} alt={activeVariant.name} className="w-full h-full object-contain mix-blend-multiply transition-all duration-300" />
+                              <img src={activeVariant.imageData} alt={activeVariant.name} className="w-full h-full object-contain mix-blend-multiply transition-all duration-300 p-4" />
                             ) : (
                               <StorefrontProductImage 
                                 variantId={activeVariant?.id} 
@@ -465,32 +487,77 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                                 productName={activeVariant?.name || selectedProduct.name} 
                               />
                             )}
-                          </>
+                          </div>
                         )}
 
-                        {/* Bottom Info Pill */}
-                        {activeVariant && (
-                          <div className="absolute bottom-3 inset-x-3 bg-white/95 backdrop-blur-xs border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-800 shadow-md flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-1.5 truncate">
-                              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
+                        {/* Bottom Info Bar for Studio Photo Mode */}
+                        {activeVariant && visualizerView !== '3d' && (
+                          <div className="absolute bottom-3 inset-x-3 bg-white/95 backdrop-blur-md border border-slate-200/90 px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-800 shadow-md flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2 truncate">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
                               <span className="truncate">
                                 {isWorkstation && currentWorkstationSetup
-                                  ? `${currentWorkstationSetup.dimensions} • ${currentWorkstationSetup.material} • ${currentWorkstationSetup.thickness}`
+                                  ? `${currentWorkstationSetup.frontScreen || 'Acrylic sheet'} · ${currentWorkstationSetup.material ? `${currentWorkstationSetup.material} Board` : 'PLPB Board'} ${currentWorkstationSetup.thickness || '25 mm'} · Modesty Included · Flip Box · ${currentWorkstationSetup.dimensions}`
                                   : (activeVariant.size || activeVariant.name)}
                               </span>
                             </div>
                             <div className="flex items-center gap-1.5 shrink-0">
-                              <span className="text-indigo-600 font-black">
+                              <span className="text-indigo-600 font-black text-sm">
                                 ₹{Number(currentPrice).toLocaleString()}
                               </span>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Fullscreen Photo Lightbox Modal */}
+                        {isPhotoFullscreen && (
+                          <div className="fixed inset-0 z-[999999] bg-black/95 backdrop-blur-md flex flex-col items-center justify-center p-4">
+                            {/* Top Bar */}
+                            <div className="absolute top-4 inset-x-4 z-10 flex items-center justify-between text-white">
+                              <div className="flex items-center gap-3">
+                                <span className="font-bold text-sm sm:text-base">{selectedProduct.name}</span>
+                                {activeVariant?.size && (
+                                  <span className="px-2 py-0.5 rounded bg-white/20 text-xs font-medium">
+                                    {activeVariant.size}
+                                  </span>
+                                )}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setIsPhotoFullscreen(false)}
+                                className="p-2.5 rounded-full bg-white/10 hover:bg-white/25 text-white transition-colors cursor-pointer"
+                                title="Close Fullscreen (Esc)"
+                              >
+                                <X className="w-6 h-6" />
+                              </button>
+                            </div>
+
+                            {/* Main Image */}
+                            <div className="w-full h-full flex items-center justify-center p-8 max-w-6xl max-h-[85vh]">
+                              {activeImageSrc ? (
+                                <img src={activeImageSrc} alt={selectedProduct.name} className="max-w-full max-h-full object-contain rounded-xl shadow-2xl" />
+                              ) : activeVariant?.imageData ? (
+                                <img src={activeVariant.imageData} alt={activeVariant.name} className="max-w-full max-h-full object-contain rounded-xl shadow-2xl" />
+                              ) : (
+                                <StorefrontProductImage 
+                                  variantId={activeVariant?.id} 
+                                  productId={selectedProduct.id} 
+                                  productName={activeVariant?.name || selectedProduct.name} 
+                                />
+                              )}
+                            </div>
+
+                            {/* Bottom Note */}
+                            <div className="absolute bottom-4 text-center text-xs text-slate-400">
+                              Press <kbd className="px-2 py-1 bg-white/10 rounded text-white font-mono">Esc</kbd> or click Close to exit
                             </div>
                           </div>
                         )}
                       </div>
                     </div>
 
-                    {/* Right: Info */}
-                    <div className="w-full lg:w-2/5 flex flex-col min-w-0">
+                    {/* Right: Product Details & Configurator Column */}
+                    <div className="w-full lg:w-[42%] xl:w-[38%] 2xl:w-[35%] flex flex-col min-w-0">
                       <div className="flex items-center gap-2 mb-3">
                         <div className="flex items-center">
                           {[1, 2, 3, 4, 5].map(star => (
@@ -630,6 +697,8 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                           activeVariant={activeVariant}
                           onSelectVariant={handleSelectVariant}
                           onColorChange={() => setVisualizerView('3d')}
+                          externalMiddlePartition={storeMiddlePartition}
+                          onMiddlePartitionChange={setStoreMiddlePartition}
                         />
                       )}
                       
@@ -1106,6 +1175,14 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
         defaultCategory={selectedCategory !== 'All' ? selectedCategory : "Workstation's"}
       />
 
+      {/* 2D Technical Infographic Specification Modal */}
+      <WorkstationTechnicalInfographicModal
+        isOpen={isInfographicOpen}
+        onClose={() => setIsInfographicOpen(false)}
+        setup={currentWorkstationSetup}
+        previewImageSrc={activeImageSrc || selectedProduct?.variants?.find(v => v.id === selectedVariantId)?.imageData || null}
+      />
+
     </div>
   );
 }
@@ -1222,10 +1299,17 @@ export const WORKSTATION_PRICING = {
     'Include Modesty Panel': 1200
   } as Record<string, number>,
   electricFunction: {
-    'Wire Raceway': 0,
-    '2 switch': 650,
-    '3 switch': 950,
-    '4 switch': 1350
+    'None': 0,
+    'Flip Box': 450,
+    'Wire Raceway': 350,
+    'Wire Raceway (1 Switch Hole)': 400,
+    'Wire Raceway (2 Switch Holes)': 550,
+    'Wire Raceway (3 Switch Holes)': 700,
+    'Flip Box with Wire Raceway': 650,
+    '1 switch': 400,
+    '2 switch': 550,
+    '3 switch': 700,
+    '4 switch': 900
   } as Record<string, number>,
   addons: {
     '3-Drawer Mobile Pedestal': 3500,
@@ -1270,18 +1354,24 @@ function WorkstationSetup({
   variants = [],
   activeVariant = null,
   onSelectVariant,
-  onColorChange
+  onColorChange,
+  externalMiddlePartition,
+  onMiddlePartitionChange
 }: { 
   onChange?: (setup: any) => void;
   variants?: ProductVariant[];
   activeVariant?: ProductVariant | null;
   onSelectVariant?: (variant: ProductVariant) => void;
   onColorChange?: () => void;
+  externalMiddlePartition?: 'Included' | 'None';
+  onMiddlePartitionChange?: (val: 'Included' | 'None') => void;
 }) {
   const [sizeType, setSizeType] = useState<'per_person' | 'total'>('per_person');
   const [width, setWidth] = useState('1000 mm');
   const [depth, setDepth] = useState('600 mm');
   const [totalSize, setTotalSize] = useState('1500L x 600W mm');
+  const [personQuantity, setPersonQuantity] = useState<number>(1);
+  const [layoutType, setLayoutType] = useState<'cluster' | 'linear'>('cluster');
   const [material, setMaterial] = useState('PLPB');
   const [thickness, setThickness] = useState('25 mm');
   const [tableTopColor, setTableTopColor] = useState('Frosty white');
@@ -1290,15 +1380,29 @@ function WorkstationSetup({
   const [legSize, setLegSize] = useState('40 x 40');
   const [legColor, setLegColor] = useState('Black');
   const [frontScreen, setFrontScreen] = useState('Acrylic sheet');
+  const [middlePartition, setMiddlePartitionState] = useState<'Included' | 'None'>(externalMiddlePartition || 'Included');
+
+  const setMiddlePartition = (val: 'Included' | 'None') => {
+    setMiddlePartitionState(val);
+    onMiddlePartitionChange?.(val);
+  };
+
+  useEffect(() => {
+    if (externalMiddlePartition && externalMiddlePartition !== middlePartition) {
+      setMiddlePartitionState(externalMiddlePartition);
+    }
+  }, [externalMiddlePartition]);
+
+  const [screenQuantity, setScreenQuantity] = useState<number>(1);
   const [screenHeight, setScreenHeight] = useState('300MM');
   const [screenColor, setScreenColor] = useState('Blue');
-  const [modesty, setModesty] = useState('None');
-  const [electricFunction, setElectricFunction] = useState('Wire Raceway');
+  const [modesty, setModesty] = useState('Include Modesty Panel');
+  const [electricFunction, setElectricFunction] = useState('None');
   const [addons, setAddons] = useState<string[]>([]);
 
   // Collect available widths and depths from variants to ensure they exist in dropdowns
   const availableWidths = React.useMemo(() => {
-    const list = new Set(['800 mm', '900 mm', '1000 mm', '1050 mm', '1200 mm', '1500 mm']);
+    const list = new Set(['800 mm', '900 mm', '1000 mm', '1050 mm', '1200 mm', '1500 mm', '1600 mm', '1800 mm', '2100 mm', '2400 mm']);
     variants.forEach(v => {
       const parsed = parseSizeDimensions(v.size);
       if (parsed.width) list.add(parsed.width);
@@ -1307,7 +1411,7 @@ function WorkstationSetup({
   }, [variants]);
 
   const availableDepths = React.useMemo(() => {
-    const list = new Set(['600 mm', '750 mm', '800 mm']);
+    const list = new Set(['600 mm', '750 mm', '800 mm', '900 mm']);
     variants.forEach(v => {
       const parsed = parseSizeDimensions(v.size);
       if (parsed.depth) list.add(parsed.depth);
@@ -1323,6 +1427,35 @@ function WorkstationSetup({
       if (parsed.depth) setDepth(parsed.depth);
     }
   }, [activeVariant]);
+
+  // Exact Seater Standard Mapping:
+  // 800 mm: 1PRS | 900 mm: 1PRS | 1050 mm: 1PRS | 1200 mm: 1PRS | 1500/1600 mm: 1PRS
+  // 1800 mm: 2PRS | 2100 mm: 2PRS | 2400 mm: 3PRS
+  const getStandardPersonsForWidth = (w: number): number => {
+    if (w >= 2400) return 3;
+    if (w >= 1800) return 2;
+    return 1;
+  };
+
+  // Determine numeric width and check if multi-person seating is allowed (>= 1800mm)
+  const widthNum = React.useMemo(() => {
+    if (sizeType === 'per_person') {
+      return parseInt(width.replace(/[^0-9]/g, ''), 10) || 1000;
+    } else {
+      const match = totalSize.match(/(\d+)L/);
+      if (match) return parseInt(match[1], 10);
+      return parseInt(totalSize.replace(/[^0-9]/g, ''), 10) || 1200;
+    }
+  }, [sizeType, width, totalSize]);
+
+  const isMultiPersonAllowed = widthNum >= 1800;
+
+  // Enforce standard person capacity rules based on width
+  useEffect(() => {
+    if (!isMultiPersonAllowed && personQuantity !== 1) {
+      setPersonQuantity(1);
+    }
+  }, [isMultiPersonAllowed, personQuantity]);
 
   // Helper to match options to a variant and trigger image update
   const tryMatchVariant = (
@@ -1388,6 +1521,9 @@ function WorkstationSetup({
 
   const handleWidthChange = (val: string) => {
     setWidth(val);
+    const num = parseInt(val.replace(/[^0-9]/g, ''), 10) || 1000;
+    const stdPersons = getStandardPersonsForWidth(num);
+    setPersonQuantity(stdPersons);
     tryMatchVariant(val, depth);
   };
 
@@ -1414,13 +1550,34 @@ function WorkstationSetup({
     tryMatchVariant(width, depth, tableTopColor, screenColor, newColor);
   };
 
-  // Base price for size (from matched variant if exists, or calculated default size price)
+  // Match specific variant for current width & depth to retrieve its custom variant price
+  const matchedSizeVariant = React.useMemo(() => {
+    if (!variants || variants.length === 0) return null;
+    const wNum = width.replace(/[^0-9]/g, '');
+    const dNum = depth.replace(/[^0-9]/g, '');
+    return variants.find(v => {
+      if (!v.size) return false;
+      const parsed = parseSizeDimensions(v.size);
+      if (parsed.width && parsed.depth) {
+        return parsed.width.replace(/[^0-9]/g, '') === wNum && parsed.depth.replace(/[^0-9]/g, '') === dNum;
+      }
+      return v.size.includes(wNum) && v.size.includes(dNum);
+    }) || activeVariant;
+  }, [variants, width, depth, activeVariant]);
+
+  // Base price for size (from matched variant's specific price, activeVariant, or calculated default size price)
   const baseSizePrice = React.useMemo(() => {
+    if (matchedSizeVariant?.price) {
+      const p = typeof matchedSizeVariant.price === 'string' 
+        ? parseFloat(matchedSizeVariant.price.replace(/[^0-9.]/g, '')) 
+        : matchedSizeVariant.price;
+      if (p && !isNaN(p)) return p;
+    }
     if (activeVariant?.price) {
       const p = typeof activeVariant.price === 'string' 
         ? parseFloat(activeVariant.price.replace(/[^0-9.]/g, '')) 
         : activeVariant.price;
-      if (p) return p;
+      if (p && !isNaN(p)) return p;
     }
     if (sizeType === 'per_person') {
       const wNum = parseInt(width) || 1000;
@@ -1434,26 +1591,30 @@ function WorkstationSetup({
       if (totalSize.includes('1500L')) return 16500;
       return 14000;
     }
-  }, [activeVariant, sizeType, width, depth, totalSize]);
+  }, [matchedSizeVariant, activeVariant, sizeType, width, depth, totalSize]);
 
   // Price adders for configurations that change price
-  const materialCost = WORKSTATION_PRICING.material[material] || 0;
-  const thicknessCost = WORKSTATION_PRICING.thickness[thickness] || 0;
-  const legsCost = (WORKSTATION_PRICING.legs[legMaterial] as any)?.[legStyle] || 0;
-  const legSizeCost = WORKSTATION_PRICING.legSize[legSize] || 0;
-  const screenCost = WORKSTATION_PRICING.frontScreen[frontScreen] || 0;
-  const screenHeightCost = WORKSTATION_PRICING.screenHeight[screenHeight] || 0;
-  const modestyCost = WORKSTATION_PRICING.modesty[modesty] || 0;
-  const electricCost = WORKSTATION_PRICING.electricFunction[electricFunction] || 0;
-  const addonsCost = addons.reduce((sum, item) => sum + (WORKSTATION_PRICING.addons[item] || 0), 0);
+  const personMultiplier = sizeType === 'per_person' ? personQuantity : 1;
+  const materialCost = (WORKSTATION_PRICING.material[material] || 0) * personMultiplier;
+  const thicknessCost = (WORKSTATION_PRICING.thickness[thickness] || 0) * personMultiplier;
+  const legsCost = ((WORKSTATION_PRICING.legs[legMaterial] as any)?.[legStyle] || 0) * (personMultiplier > 1 ? Math.ceil(personMultiplier * 0.75) : 1);
+  const legSizeCost = (WORKSTATION_PRICING.legSize[legSize] || 0) * personMultiplier;
+  const screenQty = frontScreen === 'No Screen' ? 0 : screenQuantity;
+  const screenCost = (WORKSTATION_PRICING.frontScreen[frontScreen] || 0) * screenQty * (personMultiplier > 1 ? Math.ceil(personMultiplier / 2) : 1);
+  const screenHeightCost = (WORKSTATION_PRICING.screenHeight[screenHeight] || 0) * screenQty * (personMultiplier > 1 ? Math.ceil(personMultiplier / 2) : 1);
+  const modestyCost = (WORKSTATION_PRICING.modesty[modesty] || 0) * personMultiplier;
+  const electricCost = (WORKSTATION_PRICING.electricFunction[electricFunction] || 0) * personMultiplier;
+  const addonsCost = addons.reduce((sum, item) => sum + (WORKSTATION_PRICING.addons[item] || 0), 0) * personMultiplier;
 
   // Table Top Color, Screen Colors & Legs Colour: STRICTLY ₹0 (No price change)
   const tableTopColorCost = 0;
   const screenColorCost = 0;
   const legColorCost = 0;
 
+  const effectiveBaseSizePrice = baseSizePrice * personMultiplier;
+
   const totalCalculatedPrice = Math.round(
-    baseSizePrice + 
+    effectiveBaseSizePrice + 
     materialCost + 
     thicknessCost + 
     legsCost + 
@@ -1472,7 +1633,9 @@ function WorkstationSetup({
     if (onChange) {
       onChange({
         sizeType,
-        dimensions: sizeType === 'per_person' ? `${width} x ${depth}` : totalSize,
+        dimensions: sizeType === 'per_person' ? `${width} x ${depth} (${personQuantity} Person)` : totalSize,
+        personQuantity,
+        layoutType,
         material,
         thickness,
         tableTopColor,
@@ -1481,6 +1644,8 @@ function WorkstationSetup({
         legSize,
         legColor,
         frontScreen,
+        middlePartition,
+        screenQuantity,
         screenHeight,
         screenColor,
         modesty,
@@ -1488,7 +1653,7 @@ function WorkstationSetup({
         addons,
         calculatedPrice: totalCalculatedPrice,
         priceBreakdown: {
-          baseSizePrice,
+          baseSizePrice: effectiveBaseSizePrice,
           materialCost,
           thicknessCost,
           legsCost,
@@ -1504,7 +1669,7 @@ function WorkstationSetup({
         }
       });
     }
-  }, [sizeType, width, depth, totalSize, material, thickness, tableTopColor, legMaterial, legStyle, legSize, legColor, frontScreen, screenHeight, screenColor, modesty, electricFunction, addons, totalCalculatedPrice, onChange]);
+  }, [sizeType, width, depth, totalSize, personQuantity, layoutType, material, thickness, tableTopColor, legMaterial, legStyle, legSize, legColor, frontScreen, middlePartition, screenQuantity, screenHeight, screenColor, modesty, electricFunction, addons, totalCalculatedPrice, onChange]);
 
   const toggleAddon = (item: string) => {
     setAddons(prev => prev.includes(item) ? prev.filter(x => x !== item) : [...prev, item]);
@@ -1514,78 +1679,207 @@ function WorkstationSetup({
     <div className="mb-6 p-5 bg-slate-50 rounded-xl border border-slate-200">
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-bold text-lg text-slate-900">Let's make your Setup</h3>
+        <div className="text-right">
+          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Base Variant Price</span>
+          <span className="text-sm font-black text-indigo-700">₹{Number(baseSizePrice).toLocaleString()}</span>
+        </div>
       </div>
       
       <div className="space-y-5">
-        {/* 1. Size */}
+        {/* 1. Size & Variant Pricing */}
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-2">1. Size</label>
-
-          <div className="flex bg-slate-200 p-1 rounded-lg mb-4">
-            <button 
-              type="button"
-              className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors cursor-pointer ${sizeType === 'per_person' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
-              onClick={() => setSizeType('per_person')}
-            >
-              Per Person
-            </button>
-            <button 
-              type="button"
-              className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors cursor-pointer ${sizeType === 'total' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
-              onClick={() => setSizeType('total')}
-            >
-              Total
-            </button>
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-sm font-bold text-slate-900">1. Size & Variant</label>
+            {matchedSizeVariant && (
+              <span className="text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full">
+                Selected: {matchedSizeVariant.name || `${width} x ${depth}`}
+              </span>
+            )}
           </div>
 
-          {sizeType === 'per_person' && (
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1">Width</label>
-                <select 
-                  value={width}
-                  onChange={(e) => handleWidthChange(e.target.value)}
-                  className="w-full bg-white border-slate-300 rounded-lg shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-                >
-                  {availableWidths.map(w => (
-                    <option key={w} value={w}>{w}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1">Depth</label>
-                <select 
-                  value={depth}
-                  onChange={(e) => handleDepthChange(e.target.value)}
-                  className="w-full bg-white border-slate-300 rounded-lg shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-                >
-                  {availableDepths.map(d => (
-                    <option key={d} value={d}>{d}</option>
-                  ))}
-                </select>
+          {/* Quick Size Variant Pills with Individual Prices */}
+          {variants && variants.length > 0 && (
+            <div className="mb-3.5">
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+                Workstation Size Variants (Select to apply variant price):
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {variants.filter(v => v.size).map(v => {
+                  const parsed = parseSizeDimensions(v.size);
+                  const wNum = width.replace(/[^0-9]/g, '');
+                  const dNum = depth.replace(/[^0-9]/g, '');
+                  const isSelected = (parsed.width && parsed.depth && parsed.width.replace(/[^0-9]/g, '') === wNum && parsed.depth.replace(/[^0-9]/g, '') === dNum) || activeVariant?.id === v.id;
+                  const vPrice = typeof v.price === 'string' ? parseFloat(v.price.replace(/[^0-9.]/g, '')) || 0 : v.price;
+                  return (
+                    <button
+                      key={v.id}
+                      type="button"
+                      onClick={() => {
+                        if (parsed.width) setWidth(parsed.width);
+                        if (parsed.depth) setDepth(parsed.depth);
+                        const num = parseInt((parsed.width || '').replace(/[^0-9]/g, ''), 10) || 1000;
+                        setPersonQuantity(getStandardPersonsForWidth(num));
+                        onSelectVariant?.(v);
+                      }}
+                      className={`px-3 py-2 rounded-xl text-xs border transition-all flex items-center gap-2 cursor-pointer ${
+                        isSelected
+                          ? 'border-indigo-600 bg-indigo-50 text-indigo-950 font-bold shadow-xs ring-2 ring-indigo-500/20'
+                          : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span className="font-semibold">{v.size?.replace(' mm', '')}</span>
+                      <span className={`font-black text-xs px-1.5 py-0.5 rounded ${isSelected ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-800'}`}>
+                        ₹{vPrice.toLocaleString()}
+                      </span>
+                      {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600" />}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
 
-          {sizeType === 'total' && (
+          <div className="grid grid-cols-2 gap-4">
             <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Custom Width</label>
               <select 
-                value={totalSize}
-                onChange={(e) => setTotalSize(e.target.value)}
-                className="w-full bg-white border-slate-300 rounded-lg shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                value={width}
+                onChange={(e) => handleWidthChange(e.target.value)}
+                className="w-full bg-white border-slate-300 rounded-lg shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 font-medium text-sm"
               >
-                <option>1200L x 600W mm</option>
-                <option>1500L x 600W mm</option>
-                <option>1800L x 750W mm</option>
-                <option>2400L x 1200W mm</option>
+                {availableWidths.map(w => (
+                  <option key={w} value={w}>{w}</option>
+                ))}
               </select>
             </div>
-          )}
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Custom Depth</label>
+              <select 
+                value={depth}
+                onChange={(e) => handleDepthChange(e.target.value)}
+                className="w-full bg-white border-slate-300 rounded-lg shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 font-medium text-sm"
+              >
+                {availableDepths.map(d => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+            </div>
+          </div>
         </div>
 
-        {/* 2. Material */}
+        {/* 2. Person Quantity (Workstation Seater Capacity) */}
+        {isMultiPersonAllowed && (
+          <div className="pt-3 border-t border-slate-200">
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm font-bold text-slate-900">
+                2. Person Quantity
+              </label>
+              <span className="text-xs font-bold px-2.5 py-1 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200">
+                {personQuantity} {personQuantity === 1 ? 'Person' : `${personQuantity} Persons`}
+              </span>
+            </div>
+
+            {/* Preset Seater Buttons */}
+            <div className="grid grid-cols-4 sm:grid-cols-8 gap-1.5 mb-2.5">
+              {[1, 2, 3, 4, 6, 8, 10, 12].map(qty => (
+                <button
+                  key={qty}
+                  type="button"
+                  onClick={() => setPersonQuantity(qty)}
+                  className={`py-2 px-1 text-xs font-bold rounded-lg border transition-all flex flex-col items-center gap-0.5 cursor-pointer ${
+                    personQuantity === qty
+                      ? 'border-indigo-600 bg-indigo-50 text-indigo-950 ring-2 ring-indigo-500/25 shadow-xs font-black'
+                      : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300'
+                  }`}
+                >
+                  <span className="font-bold text-sm">{qty}P</span>
+                  <span className="text-[9px] text-slate-500 font-medium">
+                    {qty === 1 ? 'Single' : qty === 2 ? '2-Pod' : qty === 3 ? '3-Pod' : qty === 4 ? '4-Pod' : `${qty}P`}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            {/* Stepper for custom person count & Pod Footprint Preview */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
+              <div className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-slate-200 text-xs">
+                <span className="font-semibold text-slate-700">Custom Seater Count:</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPersonQuantity(prev => Math.max(1, prev - 1))}
+                    className="w-7 h-7 rounded-md border border-slate-300 flex items-center justify-center font-black text-slate-700 hover:bg-slate-100 cursor-pointer"
+                    title="Decrease person count"
+                  >
+                    -
+                  </button>
+                  <input
+                    type="number"
+                    min="1"
+                    max="48"
+                    value={personQuantity}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      if (!isNaN(val) && val >= 1 && val <= 48) {
+                        setPersonQuantity(val);
+                      }
+                    }}
+                    className="w-10 text-center font-black text-sm text-slate-900 border border-slate-200 rounded py-0.5"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setPersonQuantity(prev => Math.min(48, prev + 1))}
+                    className="w-7 h-7 rounded-md border border-slate-300 flex items-center justify-center font-black text-slate-700 hover:bg-slate-100 cursor-pointer"
+                    title="Increase person count"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              {/* Calculated Pod Footprint */}
+              <div className="bg-indigo-50/60 border border-indigo-100 p-2.5 rounded-lg text-xs flex flex-col justify-center">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-indigo-600 mb-0.5">
+                  Table Layout
+                </span>
+                <div className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+                  <span>
+                    {personQuantity > 1 ? `Shared ${widthNum} mm Table • ${personQuantity} Workstations` : `Single ${widthNum} mm Desk`}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Layout arrangement selector if 2 or more persons */}
+            {personQuantity > 1 && (
+              <div className="mt-2 flex items-center gap-2 bg-slate-100 p-1.5 rounded-lg">
+                <span className="text-[11px] font-bold text-slate-700 ml-1">Arrangement:</span>
+                <button
+                  type="button"
+                  onClick={() => setLayoutType('linear')}
+                  className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
+                    layoutType === 'linear' ? 'bg-white text-indigo-700 shadow-xs ring-1 ring-slate-200 font-bold' : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <span>➡️ Side-by-Side on {widthNum}mm Table</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLayoutType('cluster')}
+                  className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
+                    layoutType === 'cluster' ? 'bg-white text-indigo-700 shadow-xs ring-1 ring-slate-200 font-bold' : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <span>👥 Face-to-Face Pods</span>
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 3. Material */}
         <div className="pt-2 border-t border-slate-200">
-          <label className="block text-sm font-medium text-slate-700 mb-1.5">2. Material</label>
+          <label className="block text-sm font-medium text-slate-700 mb-1.5">3. Material</label>
           <select 
             value={material}
             onChange={(e) => setMaterial(e.target.value)}
@@ -1598,9 +1892,9 @@ function WorkstationSetup({
           </select>
         </div>
 
-        {/* 3. Thickness */}
+        {/* 4. Thickness */}
         <div className="pt-2 border-t border-slate-200">
-          <label className="block text-sm font-medium text-slate-700 mb-1.5">3. Thickness</label>
+          <label className="block text-sm font-medium text-slate-700 mb-1.5">4. Thickness</label>
           <select 
             value={thickness}
             onChange={(e) => setThickness(e.target.value)}
@@ -1612,11 +1906,11 @@ function WorkstationSetup({
           </select>
         </div>
 
-        {/* 4. Table Top Colour */}
+        {/* 5. Table Top Colour */}
         <div className="pt-2 border-t border-slate-200">
           <label className="block text-sm font-medium text-slate-700 mb-1.5 flex items-center justify-between">
             <span className="flex items-center gap-1.5">
-              4. Table Top Colour
+              5. Table Top Colour
               <span 
                 className="w-3 h-3 rounded-full border border-slate-300 inline-block shadow-xs" 
                 style={{ backgroundColor: getTableTopHex(tableTopColor).main }} 
@@ -1636,9 +1930,9 @@ function WorkstationSetup({
           </select>
         </div>
 
-        {/* 5. Legs */}
+        {/* 6. Legs */}
         <div className="pt-2 border-t border-slate-200">
-          <label className="block text-sm font-medium text-slate-700 mb-2">5. Legs</label>
+          <label className="block text-sm font-medium text-slate-700 mb-2">6. Legs</label>
           <div className="flex bg-slate-200 p-1 rounded-lg mb-4">
             <button 
               type="button"
@@ -1722,94 +2016,327 @@ function WorkstationSetup({
           </div>
         </div>
         
-        {/* 6. Front Screen's */}
+        {/* 7. Front & Side Screen's */}
         <div className="pt-2 border-t border-slate-200">
-          <label className="block text-sm font-medium text-slate-700 mb-1.5">6. Front Screen's</label>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="block text-sm font-semibold text-slate-800">7. Screen Type (Privacy Partition)</label>
+            <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+              {frontScreen} • {screenHeight} {screenQuantity > 1 && `(${screenQuantity} Screens)`}
+            </span>
+          </div>
           <select 
             value={frontScreen}
             onChange={(e) => setFrontScreen(e.target.value)}
-            className="w-full bg-white border-slate-300 rounded-lg shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+            className="w-full bg-white border-slate-300 rounded-lg shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 font-medium"
           >
-            <option value="Acrylic sheet">Acrylic sheet</option>
-            <option value="Pin up board">Pin up board</option>
-            <option value="Aluminium framing">Aluminium framing</option>
+            <option value="Acrylic sheet">Acrylic sheet (Privacy Screen)</option>
+            <option value="Pin up board">Pin up board (Fabric Acoustic)</option>
+            <option value="Aluminium framing">Aluminium framing (Framed Glass/Acrylic)</option>
             <option value="Magnetic glass">Magnetic glass</option>
             <option value="Wooden">Wooden</option>
+            <option value="No Screen">No Screen</option>
           </select>
+
+          {/* Screen Quantity Option */}
+          {frontScreen !== 'No Screen' && (
+            <div className="mt-3 bg-white p-3 rounded-lg border border-slate-200">
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide">
+                  Screen Quantity & Placement:
+                </label>
+                <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">
+                  {screenQuantity === 1 ? '1 Screen (Front)' : screenQuantity === 2 ? '2 Screens (Front + 1 Side)' : '3 Screens (U-Shape Cubicle)'}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setScreenQuantity(1)}
+                  className={`py-2 px-2 text-xs font-bold rounded-lg border transition-all flex flex-col items-center gap-0.5 cursor-pointer ${
+                    screenQuantity === 1
+                      ? 'border-indigo-600 bg-indigo-50 text-indigo-900 ring-2 ring-indigo-500/20 shadow-xs'
+                      : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  <span className="font-black text-sm">1 Screen</span>
+                  <span className="text-[10px] text-slate-500 font-normal">Front Only</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScreenQuantity(2)}
+                  className={`py-2 px-2 text-xs font-bold rounded-lg border transition-all flex flex-col items-center gap-0.5 cursor-pointer ${
+                    screenQuantity === 2
+                      ? 'border-indigo-600 bg-indigo-50 text-indigo-900 ring-2 ring-indigo-500/20 shadow-xs'
+                      : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  <span className="font-black text-sm">2 Screens</span>
+                  <span className="text-[10px] text-slate-500 font-normal">Front + 1 Side</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScreenQuantity(3)}
+                  className={`py-2 px-2 text-xs font-bold rounded-lg border transition-all flex flex-col items-center gap-0.5 cursor-pointer ${
+                    screenQuantity === 3
+                      ? 'border-indigo-600 bg-indigo-50 text-indigo-900 ring-2 ring-indigo-500/20 shadow-xs'
+                      : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  <span className="font-black text-sm">3 Screens</span>
+                  <span className="text-[10px] text-slate-500 font-normal">U-Shape Cubicle</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Vertical Middle Partition Option (Divider Between Seaters) */}
+          {frontScreen !== 'No Screen' && (
+            <div className="mt-3 bg-white p-3 rounded-lg border border-slate-200">
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide">
+                    Vertical Middle Partition (Divider Between Seaters):
+                  </label>
+                  <p className="text-[11px] text-slate-500">
+                    Perpendicular divider partition running front-to-back between workstations for individual privacy
+                  </p>
+                </div>
+                <span className={`text-[11px] font-bold px-2 py-0.5 rounded border ${
+                  middlePartition === 'Included' 
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200' 
+                    : 'bg-slate-100 text-slate-600 border-slate-200'
+                }`}>
+                  {middlePartition === 'Included' ? 'Middle Partition: Included' : 'No Middle Partition'}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setMiddlePartition('Included')}
+                  className={`py-2 px-3 rounded-lg text-xs font-bold border transition-all text-left flex items-center justify-between cursor-pointer ${
+                    middlePartition === 'Included'
+                      ? 'border-indigo-600 bg-indigo-50 text-indigo-900 ring-2 ring-indigo-500/20 shadow-xs'
+                      : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  <div className="flex flex-col">
+                    <span className="font-black text-xs">✓ Include Vertical Middle Partition</span>
+                    <span className="text-[10px] text-slate-500 font-normal">Cross-divider with clamp mounts</span>
+                  </div>
+                  {middlePartition === 'Included' && <Check className="w-4 h-4 text-indigo-600 shrink-0 ml-1" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMiddlePartition('None')}
+                  className={`py-2 px-3 rounded-lg text-xs font-bold border transition-all text-left flex items-center justify-between cursor-pointer ${
+                    middlePartition === 'None'
+                      ? 'border-slate-600 bg-slate-100 text-slate-900 ring-2 ring-slate-400/30 shadow-xs'
+                      : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  <div className="flex flex-col">
+                    <span className="font-black text-xs">No Middle Partition (Optional)</span>
+                    <span className="text-[10px] text-slate-500 font-normal">Open continuous workspace</span>
+                  </div>
+                  {middlePartition === 'None' && <Check className="w-4 h-4 text-slate-600 shrink-0 ml-1" />}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* 7. Front Screen Height */}
+        {/* 8. Front Screen Height */}
         <div className="pt-2 border-t border-slate-200">
-          <label className="block text-sm font-medium text-slate-700 mb-1.5">7. Front Screen Height</label>
+          <label className="block text-sm font-medium text-slate-700 mb-1.5">8. Front Screen Height</label>
           <select 
             value={screenHeight}
             onChange={(e) => setScreenHeight(e.target.value)}
-            className="w-full bg-white border-slate-300 rounded-lg shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+            className="w-full bg-white border-slate-300 rounded-lg shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 font-medium"
           >
-            <option value="300MM">300MM</option>
-            <option value="400MM">400MM</option>
-            <option value="450MM">450MM</option>
+            <option value="300MM">300MM (Standard)</option>
+            <option value="400MM">400MM (Medium)</option>
+            <option value="450MM">450MM (Tall Privacy)</option>
           </select>
         </div>
 
-        {/* 8. Screen Colours */}
+        {/* 9. Screen Colours */}
         <div className="pt-2 border-t border-slate-200">
           <label className="block text-sm font-medium text-slate-700 mb-1.5 flex items-center justify-between">
-            <span className="flex items-center gap-1.5">
-              8. Screen Colours (Acrylic / Partition)
+            <span className="flex items-center gap-1.5 font-semibold text-slate-800">
+              9. Screen Colours (Acrylic / Partition)
               <span 
                 className="w-3 h-3 rounded-full border border-slate-300 inline-block shadow-xs" 
                 style={{ backgroundColor: getScreenHex(screenColor).fill }} 
               />
             </span>
+            <span className="text-xs font-bold text-slate-500">{screenColor}</span>
           </label>
           <select 
             value={screenColor}
             onChange={(e) => handleScreenColorChange(e.target.value)}
             className="w-full bg-white border-slate-300 rounded-lg shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 font-medium"
           >
-            <option value="Blue">Blue</option>
-            <option value="Grey">Grey</option>
-            <option value="Green">Green</option>
-            <option value="Red">Red</option>
-            <option value="Orange">Orange</option>
+            <option value="Blue">Blue (Standard Translucent)</option>
+            <option value="Grey">Grey (Frosted Smoke)</option>
+            <option value="Green">Green (Fresh Tint)</option>
+            <option value="Red">Red (Ruby Tint)</option>
+            <option value="Orange">Orange (Amber Tint)</option>
             <option value="Custom Colour">Custom Colour</option>
           </select>
         </div>
 
-        {/* 9. Modesty */}
+        {/* 10. Modesty Panel */}
         <div className="pt-2 border-t border-slate-200">
-          <label className="block text-sm font-medium text-slate-700 mb-1.5">
-            9. Modesty <span className="text-slate-400 font-normal">(Optional)</span>
-          </label>
-          <select 
-            value={modesty}
-            onChange={(e) => setModesty(e.target.value)}
-            className="w-full bg-white border-slate-300 rounded-lg shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-          >
-            <option value="None">None</option>
-            <option value="Include Modesty Panel">Include Modesty Panel</option>
-          </select>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="block text-sm font-semibold text-slate-800">
+              10. Modesty Panel (Under-Desk Privacy Board)
+            </label>
+            <span className={`text-[11px] font-bold px-2 py-0.5 rounded border ${modesty === 'None' ? 'bg-slate-100 text-slate-600 border-slate-200' : 'bg-emerald-50 text-emerald-800 border-emerald-200'}`}>
+              {modesty === 'None' ? 'Not Included' : 'Included in Workstation'}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-2 mb-2">
+            <button
+              type="button"
+              onClick={() => setModesty('Include Modesty Panel')}
+              className={`py-2 px-3 rounded-lg text-xs font-bold border transition-all text-left flex items-center justify-between cursor-pointer ${
+                modesty !== 'None'
+                  ? 'border-emerald-500 bg-emerald-50 text-emerald-900 ring-1 ring-emerald-500'
+                  : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+              }`}
+            >
+              <span>Include Modesty Panel</span>
+              {modesty !== 'None' && <Check className="w-3.5 h-3.5 text-emerald-600" />}
+            </button>
+            <button
+              type="button"
+              onClick={() => setModesty('None')}
+              className={`py-2 px-3 rounded-lg text-xs font-bold border transition-all text-left flex items-center justify-between cursor-pointer ${
+                modesty === 'None'
+                  ? 'border-slate-500 bg-slate-100 text-slate-900 ring-1 ring-slate-400'
+                  : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+              }`}
+            >
+              <span>No Modesty Panel</span>
+              {modesty === 'None' && <Check className="w-3.5 h-3.5 text-slate-600" />}
+            </button>
+          </div>
+          <p className="text-[11px] text-slate-500">
+            A 18mm modesty board installed beneath the desktop for legroom privacy and cable concealment.
+          </p>
         </div>
 
-        {/* 10. Electric Function */}
+        {/* 11. Flip Box / Wire Raceway (Only one: Either Flip Box OR Wire Raceway OR None) */}
         <div className="pt-2 border-t border-slate-200">
-          <label className="block text-sm font-medium text-slate-700 mb-1.5">10. Electric Function</label>
-          <select 
-            value={electricFunction}
-            onChange={(e) => setElectricFunction(e.target.value)}
-            className="w-full bg-white border-slate-300 rounded-lg shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-          >
-            <option value="Wire Raceway">Wire Raceway</option>
-            <option value="2 switch">2 switch</option>
-            <option value="3 switch">3 switch</option>
-            <option value="4 switch">4 switch</option>
-          </select>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="block text-sm font-semibold text-slate-800">
+              11. Flip Box / Wire Raceway
+            </label>
+            <span className={`text-[11px] font-bold px-2 py-0.5 rounded border ${
+              electricFunction === 'None'
+                ? 'bg-slate-100 text-slate-600 border-slate-200'
+                : electricFunction === 'Flip Box'
+                  ? 'bg-cyan-50 text-cyan-800 border-cyan-200'
+                  : 'bg-amber-50 text-amber-800 border-amber-200'
+            }`}>
+              {electricFunction === 'None' ? 'None (Plain Top)' : electricFunction}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            <button
+              type="button"
+              onClick={() => setElectricFunction('None')}
+              className={`py-2 px-2 rounded-lg text-xs font-bold border transition-all text-center flex flex-col items-center justify-center gap-1 cursor-pointer ${
+                electricFunction === 'None'
+                  ? 'border-indigo-600 bg-indigo-50 text-indigo-950 ring-1 ring-indigo-500'
+                  : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+              }`}
+            >
+              <span>🚫 None</span>
+              <span className="text-[10px] text-slate-400 font-normal">Plain Tabletop</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setElectricFunction('Flip Box')}
+              className={`py-2 px-2 rounded-lg text-xs font-bold border transition-all text-center flex flex-col items-center justify-center gap-1 cursor-pointer ${
+                electricFunction === 'Flip Box'
+                  ? 'border-cyan-500 bg-cyan-50 text-cyan-950 ring-1 ring-cyan-500'
+                  : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+              }`}
+            >
+              <span>🔌 Flip Box</span>
+              <span className="text-[10px] text-slate-400 font-normal">1 Box / Person</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (!electricFunction.startsWith('Wire Raceway')) {
+                  setElectricFunction('Wire Raceway (2 Switch Holes)');
+                }
+              }}
+              className={`py-2 px-2 rounded-lg text-xs font-bold border transition-all text-center flex flex-col items-center justify-center gap-1 cursor-pointer ${
+                electricFunction.startsWith('Wire Raceway')
+                  ? 'border-amber-500 bg-amber-50 text-amber-950 ring-1 ring-amber-500'
+                  : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+              }`}
+            >
+              <span>⚡ Wire Raceway</span>
+              <span className="text-[10px] text-slate-400 font-normal">1 Tray / Person</span>
+            </button>
+          </div>
+
+          {/* Wire Raceway Switch Cutout Holes Sub-Options (1, 2, or 3 Holes per person) */}
+          {electricFunction.startsWith('Wire Raceway') && (
+            <div className="mt-2.5 p-2.5 bg-amber-50/60 rounded-lg border border-amber-200">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-xs font-semibold text-amber-950 flex items-center gap-1">
+                  <span>⚡ Switch Cutout Holes (Per Person):</span>
+                </span>
+                <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded">
+                  1 Tray Each
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-1.5">
+                {[
+                  { id: 'Wire Raceway (1 Switch Hole)', label: '1 Switch Hole', desc: '1 Module / Skt' },
+                  { id: 'Wire Raceway (2 Switch Holes)', label: '2 Switch Holes', desc: '2 Modules (Std)' },
+                  { id: 'Wire Raceway (3 Switch Holes)', label: '3 Switch Holes', desc: '3 Modules' },
+                ].map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setElectricFunction(opt.id)}
+                    className={`p-1.5 rounded-md text-xs font-bold border transition-all text-center flex flex-col items-center justify-center cursor-pointer ${
+                      electricFunction === opt.id || (electricFunction === 'Wire Raceway' && opt.id === 'Wire Raceway (2 Switch Holes)')
+                        ? 'border-amber-600 bg-amber-600 text-white shadow-xs'
+                        : 'border-amber-200 bg-white text-amber-900 hover:bg-amber-100/50'
+                    }`}
+                  >
+                    <span>{opt.label}</span>
+                    <span className={`text-[9px] font-normal ${
+                      electricFunction === opt.id || (electricFunction === 'Wire Raceway' && opt.id === 'Wire Raceway (2 Switch Holes)')
+                        ? 'text-amber-100'
+                        : 'text-amber-700'
+                    }`}>
+                      {opt.desc}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <p className="text-[11px] text-slate-500 mt-1.5">
+            Each person gets their own dedicated Flip Box on top or Under-Desk Wire Raceway tray with custom switch cutouts.
+          </p>
         </div>
         
-        {/* 11. Add-ons */}
+        {/* 12. Add-ons */}
         <div className="pt-2 border-t border-slate-200">
-          <label className="block text-sm font-medium text-slate-700 mb-2">11. Add-ons</label>
+          <label className="block text-sm font-medium text-slate-700 mb-2">12. Add-ons</label>
           <div className="space-y-2">
             <label className="flex items-center gap-2 cursor-pointer">
               <input 
@@ -1829,14 +2356,17 @@ function WorkstationSetup({
               />
               <span className="text-sm text-slate-700">Keyboard Tray</span>
             </label>
-            <label className="flex items-center gap-2 cursor-pointer">
+            <label className="flex items-start gap-2.5 cursor-pointer">
               <input 
                 type="checkbox" 
                 checked={addons.includes('CPU Stand')}
                 onChange={() => toggleAddon('CPU Stand')}
-                className="rounded border-slate-300 text-amber-500 focus:ring-amber-500" 
+                className="mt-0.5 rounded border-slate-300 text-amber-500 focus:ring-amber-500" 
               />
-              <span className="text-sm text-slate-700">CPU Stand</span>
+              <div>
+                <span className="text-sm font-medium text-slate-800">Mobile Metal CPU Stand on Wheels</span>
+                <p className="text-[11px] text-slate-500">Adjustable black steel dolly with 4 swivel caster wheels & protective rubber side grips.</p>
+              </div>
             </label>
           </div>
         </div>

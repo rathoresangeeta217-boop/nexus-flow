@@ -60,9 +60,20 @@ export default function App() {
     setSearchQuery('');
   }, [activeTab]);
 
-  if (loading) { return null; }
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4">
+        <div className="w-12 h-12 rounded-2xl bg-indigo-600 flex items-center justify-center shadow-lg animate-pulse mb-3">
+          <div className="w-6 h-6 rounded-lg bg-white transform rotate-45" />
+        </div>
+        <p className="text-slate-700 font-bold text-sm tracking-wide">SRK Modular Furniture co.</p>
+        <span className="text-xs text-slate-400 mt-1">Starting showroom visualizer...</span>
+      </div>
+    );
+  }
 
-  if (!user || !profile || !profile.isActive) {
+  // Only gate internal admin tabs behind authentication; Storefront is accessible
+  if (activeTab !== 'Storefront' && (!user || !profile || !profile.isActive)) {
     return <AuthView />;
   }
 
@@ -75,16 +86,15 @@ export default function App() {
   }
 
   // Handle active tab fallback if a role doesn't have access to current tab
-  // Handle active tab fallback if a role doesn't have access to current tab
   let currentTab = activeTab;
-  if (profile.role === 'employee' && activeTab !== 'Installation') {
-     currentTab = 'Installation';
-  } else if (profile.role === 'sales_executive' && (activeTab === 'Purchase' || activeTab === 'Production' || activeTab === 'Analytics' || activeTab === 'Users')) { 
-     currentTab = 'Orders';
-  } else if (profile.role === 'admin' && (activeTab === 'Analytics' || activeTab === 'Users')) { 
-     currentTab = 'Orders';
-  } else if (profile.role === 'admin' && (activeTab === 'Analytics' || activeTab === 'Users')) {
-     currentTab = 'Orders';
+  if (profile) {
+    if (profile.role === 'employee' && activeTab !== 'Installation' && activeTab !== 'Storefront') {
+       currentTab = 'Installation';
+    } else if (profile.role === 'sales_executive' && (activeTab === 'Purchase' || activeTab === 'Production' || activeTab === 'Analytics' || activeTab === 'Users')) { 
+       currentTab = 'Orders';
+    } else if (profile.role === 'admin' && (activeTab === 'Analytics' || activeTab === 'Users')) { 
+       currentTab = 'Orders';
+    }
   }
 
   return (
@@ -96,8 +106,8 @@ export default function App() {
       )}
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
         {currentTab !== 'Storefront' && <Header activeTab={currentTab} searchQuery={searchQuery} onSearchChange={setSearchQuery} />}
-        <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 pb-24 lg:pb-8 custom-scrollbar">
-          <div className="max-w-[1600px] mx-auto min-h-full">
+        <main className={`flex-1 overflow-y-auto ${currentTab === 'Storefront' ? 'p-0 pb-12' : 'p-4 md:p-6 lg:p-8 pb-24 lg:pb-8'} custom-scrollbar`}>
+          <div className={`${currentTab === 'Storefront' ? 'w-full' : 'max-w-[1600px] mx-auto'} min-h-full`}>
             {currentTab === 'Orders' && (profile.role === 'super_admin' || profile.role === 'admin' || profile.role === 'sales_executive') && <OrdersTab searchQuery={searchQuery} />}
             {currentTab === 'Purchase' && (profile.role === 'super_admin' || profile.role === 'admin') && <PurchaseTab searchQuery={searchQuery} />}
             {currentTab === 'Products' && (profile.role === 'super_admin' || profile.role === 'admin') && <ProductsTab searchQuery={searchQuery} />}

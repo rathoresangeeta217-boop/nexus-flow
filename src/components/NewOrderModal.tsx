@@ -190,6 +190,7 @@ export function NewOrderModal({ isOpen, onClose, fileName, fileData, onAddOrder,
     } else if (!isOpen) {
       setFormData({
         employeeName: '',
+        orderDate: '',
         customerName: '',
         companyName: '',
         mobileNumber: '',
@@ -200,7 +201,8 @@ export function NewOrderModal({ isOpen, onClose, fileName, fileData, onAddOrder,
         totalAmount: '₹0.00',
         advancePayment: '',
         transportationCharges: '',
-        installationCharges: ''
+        installationCharges: '',
+        bankDetails: ''
       });
       setPoFile(null);
       setDrawingFile(null);

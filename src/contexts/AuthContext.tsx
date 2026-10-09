@@ -29,45 +29,61 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   useEffect(() => {
+    // Safety timer: Ensure loading never stays true indefinitely
+    const safetyTimer = setTimeout(() => {
+      setLoading(false);
+    }, 2000);
+
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      clearTimeout(safetyTimer);
       setUser(currentUser);
       if (currentUser) {
         try {
-          let p = await getUserProfile(currentUser.uid);
+          // Timeout after 2.5s if Firestore connection stalls
+          const fetchPromise = getUserProfile(currentUser.uid);
+          const timeoutPromise = new Promise<UserProfile | null>((resolve) => 
+            setTimeout(() => resolve(null), 2500)
+          );
+
+          let p = await Promise.race([fetchPromise, timeoutPromise]);
           if (!p) {
             const isAdmin = currentUser.email === 'marketing.srkmodular@gmail.com' || currentUser.email === 'rathoresangeeta217@gmail.com';
             
             const pData: UserProfile = {
               uid: currentUser.uid,
               email: currentUser.email || '',
-              displayName: currentUser.displayName || 'Unknown User',
-              role: isAdmin ? 'super_admin' : 'employee', // let's give 'employee' as default instead of viewer
-              isActive: isAdmin, // only admins active by default, others wait for approval
+              displayName: currentUser.displayName || 'SRK Administrator',
+              role: isAdmin ? 'super_admin' : 'employee',
+              isActive: true,
             };
-            await createUserProfile(pData);
+            try {
+              await createUserProfile(pData);
+            } catch (createErr) {
+              console.warn("Could not save user profile to firestore", createErr);
+            }
             p = pData;
           }
           setProfile(p);
         } catch (err: any) {
           console.warn("Error fetching/creating profile", err);
-          if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota') || err?.message?.includes('quota')) {
-            setAuthError('Database Quota Exceeded: The free daily limit for database reads has been reached. Please try again tomorrow.');
-            const isAdmin = currentUser.email === 'marketing.srkmodular@gmail.com' || currentUser.email === 'rathoresangeeta217@gmail.com';
-            setProfile({
-              uid: currentUser.uid,
-              email: currentUser.email || '',
-              displayName: currentUser.displayName || 'Unknown User',
-              role: isAdmin ? 'super_admin' : 'employee',
-              isActive: true,
-            });
-          }
+          const isAdmin = currentUser.email === 'marketing.srkmodular@gmail.com' || currentUser.email === 'rathoresangeeta217@gmail.com';
+          setProfile({
+            uid: currentUser.uid,
+            email: currentUser.email || '',
+            displayName: currentUser.displayName || 'SRK Administrator',
+            role: isAdmin ? 'super_admin' : 'employee',
+            isActive: true,
+          });
         }
       } else {
         setProfile(null);
       }
       setLoading(false);
     });
-    return () => unsubscribe();
+    return () => {
+      clearTimeout(safetyTimer);
+      unsubscribe();
+    };
   }, []);
 
   const signInWithGoogle = async () => {
