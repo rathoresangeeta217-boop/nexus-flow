@@ -18,7 +18,8 @@ import * as XLSX from 'xlsx';
 export type PaymentFilterType = 'all' | 'remaining' | 'unpaid' | 'paid';
 
 export function getOrderPaymentSummary(order: Order, customerPayments: PaymentRecord[]) {
-  const match = (order.amount || "").toString().match(/\d[\d,]*(\.\d+)?/);
+  const rawAmt = (order.amount || order.details?.totalAmount || "").toString();
+  const match = rawAmt.match(/\d[\d,]*(\.\d+)?/);
   const orderAmt = match ? parseFloat(match[0].replace(/,/g, "")) : 0;
   const paymentRecord = customerPayments.find(p => p.orderId === order.id || p.orderId === order.docId);
 
@@ -639,7 +640,7 @@ export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
                   </div>
                 </div>
                 <p className="text-2xl font-black text-amber-600">
-                  ₹${vendorMetrics.totalRemaining.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                  ₹{vendorMetrics.totalRemaining.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                 </p>
                 <div className="mt-2 text-xs flex items-center justify-between text-slate-500 font-medium">
                   <span className="text-amber-700 font-bold">{vendorMetrics.remainingCount} POs with balance</span>

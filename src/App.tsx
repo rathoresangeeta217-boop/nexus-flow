@@ -14,6 +14,7 @@ import { InstallationTab } from './tabs/InstallationTab';
 import { PaymentsTab } from './tabs/PaymentsTab';
 import { AnalyticsTab } from './tabs/AnalyticsTab';
 import { VendorQuoteForm } from './components/VendorQuoteForm';
+import { InventoryTab } from './tabs/InventoryTab';
 import { TabName } from './types';
 import { AdminApprovalView } from './components/AdminApprovalView';
 import { useAuth } from './contexts/AuthContext';
@@ -90,7 +91,7 @@ export default function App() {
   if (profile) {
     if (profile.role === 'employee' && activeTab !== 'Installation' && activeTab !== 'Storefront') {
        currentTab = 'Installation';
-    } else if (profile.role === 'sales_executive' && (activeTab === 'Purchase' || activeTab === 'Production' || activeTab === 'Analytics' || activeTab === 'Users')) { 
+    } else if (profile.role === 'sales_executive' && (activeTab === 'Purchase' || activeTab === 'Inventory' || activeTab === 'Production' || activeTab === 'Analytics' || activeTab === 'Users')) { 
        currentTab = 'Orders';
     } else if (profile.role === 'admin' && (activeTab === 'Analytics' || activeTab === 'Users')) { 
        currentTab = 'Orders';
@@ -110,6 +111,7 @@ export default function App() {
           <div className={`${currentTab === 'Storefront' ? 'w-full' : 'max-w-[1600px] mx-auto'} min-h-full`}>
             {currentTab === 'Orders' && (profile.role === 'super_admin' || profile.role === 'admin' || profile.role === 'sales_executive') && <OrdersTab searchQuery={searchQuery} />}
             {currentTab === 'Purchase' && (profile.role === 'super_admin' || profile.role === 'admin') && <PurchaseTab searchQuery={searchQuery} />}
+            {currentTab === 'Inventory' && (profile.role === 'super_admin' || profile.role === 'admin') && <InventoryTab searchQuery={searchQuery} />}
             {currentTab === 'Products' && (profile.role === 'super_admin' || profile.role === 'admin') && <ProductsTab searchQuery={searchQuery} />}
             {currentTab === 'Quotations' && (profile.role === 'super_admin' || profile.role === 'admin') && <QuotationsTab searchQuery={searchQuery} setActiveTab={setActiveTab} />}
             {currentTab === 'Storefront' && <StorefrontTab setActiveTab={setActiveTab} />}
