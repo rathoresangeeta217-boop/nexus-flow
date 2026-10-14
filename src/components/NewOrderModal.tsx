@@ -389,8 +389,9 @@ export function NewOrderModal({ isOpen, onClose, fileName, fileData, onAddOrder,
                       </div>
                       
                       <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Total Amount</label>
-                        <input type="text" name="totalAmount" value={formData.totalAmount} onChange={handleChange} className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Total Amount (Grand Total)</label>
+                        <input type="text" name="totalAmount" value={formData.totalAmount} onChange={handleChange} className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-bold text-slate-900" placeholder="₹0.00" />
+                        <span className="text-[11px] text-slate-500 mt-0.5 block">Includes products, GST, transportation, and installation.</span>
                       </div>
 
                       <div>
@@ -406,19 +407,22 @@ export function NewOrderModal({ isOpen, onClose, fileName, fileData, onAddOrder,
                   </div>
                   
                   <div className="pt-4 mt-6 border-t border-slate-100">
-                     <h3 className="text-sm font-semibold text-slate-800 uppercase tracking-wider mb-4">Payment & Terms</h3>
+                     <div className="flex items-center justify-between mb-2">
+                       <h3 className="text-sm font-semibold text-slate-800 uppercase tracking-wider">Payment & Terms</h3>
+                       <span className="text-xs text-indigo-600 font-medium">Grand Total is all-inclusive (no extra addition)</span>
+                     </div>
                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div>
                           <label className="block text-sm font-medium text-slate-700 mb-1">Advance Payment</label>
-                          <input type="text" name="advancePayment" value={formData.advancePayment} onChange={handleChange} className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" placeholder="e.g. 50% or ₹1000" />
+                          <input type="text" name="advancePayment" value={formData.advancePayment} onChange={handleChange} className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" placeholder="e.g. 50% or ₹10,000" />
                         </div>
                         <div>
                           <label className="block text-sm font-medium text-slate-700 mb-1">Transportation Charges</label>
-                          <input type="text" name="transportationCharges" value={formData.transportationCharges} onChange={handleChange} className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" placeholder="e.g. Extra or ₹500" />
+                          <input type="text" name="transportationCharges" value={formData.transportationCharges} onChange={handleChange} className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" placeholder="e.g. Included in Grand Total" />
                         </div>
                         <div>
                           <label className="block text-sm font-medium text-slate-700 mb-1">Installation Charges</label>
-                          <input type="text" name="installationCharges" value={formData.installationCharges} onChange={handleChange} className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" placeholder="e.g. Included" />
+                          <input type="text" name="installationCharges" value={formData.installationCharges} onChange={handleChange} className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" placeholder="e.g. Included in Grand Total" />
                         </div>
                      </div>
                   </div>

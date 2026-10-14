@@ -476,9 +476,6 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
                            return match ? parseFloat(match[0].replace(/,/g, "")) || 0 : 0;
                         };
                         const grandTotal = parseVal(record.grandTotal);
-                        const advance = parseVal(record.advancePayment || record.advanceRequirement, grandTotal);
-                        const transport = parseVal(record.transportationCharges || record.loadingCharges, grandTotal);
-                        const install = parseVal(record.installationCharges, grandTotal);
                         
                         let receivedPhasesTotal = 0;
                         (record.phases || []).forEach(p => {
@@ -486,7 +483,7 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
                             receivedPhasesTotal += parseVal(p.amount, grandTotal);
                           }
                         });
-                        const remaining = (grandTotal + transport + install) - receivedPhasesTotal;
+                        const remaining = grandTotal - receivedPhasesTotal;
                         return remaining >= 0 ? `₹${remaining.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : `-₹${Math.abs(remaining).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
                       })()}</span>
                     </div>

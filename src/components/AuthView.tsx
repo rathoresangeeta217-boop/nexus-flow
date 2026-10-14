@@ -113,7 +113,17 @@ export function AuthView() {
           </button>
         </form>
 
-        <div className="mt-8 pt-6 border-t border-slate-100">
+        <div className="mt-8 pt-6 border-t border-slate-100 flex flex-col items-center gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              window.history.pushState({}, '', '/');
+              window.location.reload();
+            }}
+            className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 transition-colors cursor-pointer"
+          >
+            ← Return to Public Storefront Showroom
+          </button>
           <button
             type="button"
             onClick={async () => {

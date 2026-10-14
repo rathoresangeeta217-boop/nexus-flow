@@ -36,6 +36,31 @@ export async function deleteProductFile(productId: string) {
   await del(`product_file_${productId}`);
 }
 
+export async function saveProductImages(productId: string, images: string[]) {
+  await set(`product_images_${productId}`, images);
+}
+
+export async function getProductImages(productId: string): Promise<string[]> {
+  return (await get(`product_images_${productId}`)) || [];
+}
+
+export async function deleteProductImages(productId: string) {
+  await del(`product_images_${productId}`);
+}
+
+export async function saveProduct360(productId: string, frames: string[]) {
+  await set(`product_360_${productId}`, frames);
+}
+
+export async function getProduct360(productId: string): Promise<string[]> {
+  return (await get(`product_360_${productId}`)) || [];
+}
+
+export async function deleteProduct360(productId: string) {
+  await del(`product_360_${productId}`);
+}
+
+
 export async function saveVariantFile(variantId: string, fileData: string) {
   await set(`variant_file_${variantId}`, fileData);
 }

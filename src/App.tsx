@@ -109,18 +109,35 @@ export default function App() {
         {currentTab !== 'Storefront' && <Header activeTab={currentTab} searchQuery={searchQuery} onSearchChange={setSearchQuery} />}
         <main className={`flex-1 overflow-y-auto ${currentTab === 'Storefront' ? 'p-0 pb-12' : 'p-4 md:p-6 lg:p-8 pb-24 lg:pb-8'} custom-scrollbar`}>
           <div className={`${currentTab === 'Storefront' ? 'w-full' : 'max-w-[1600px] mx-auto'} min-h-full`}>
-            {currentTab === 'Orders' && (profile.role === 'super_admin' || profile.role === 'admin' || profile.role === 'sales_executive') && <OrdersTab searchQuery={searchQuery} />}
-            {currentTab === 'Purchase' && (profile.role === 'super_admin' || profile.role === 'admin') && <PurchaseTab searchQuery={searchQuery} />}
-            {currentTab === 'Inventory' && (profile.role === 'super_admin' || profile.role === 'admin') && <InventoryTab searchQuery={searchQuery} />}
-            {currentTab === 'Products' && (profile.role === 'super_admin' || profile.role === 'admin') && <ProductsTab searchQuery={searchQuery} />}
-            {currentTab === 'Quotations' && (profile.role === 'super_admin' || profile.role === 'admin') && <QuotationsTab searchQuery={searchQuery} setActiveTab={setActiveTab} />}
+            {currentTab === 'Orders' && (profile?.role === 'super_admin' || profile?.role === 'admin' || profile?.role === 'sales_executive') && <OrdersTab searchQuery={searchQuery} />}
+            {currentTab === 'Purchase' && (profile?.role === 'super_admin' || profile?.role === 'admin') && <PurchaseTab searchQuery={searchQuery} />}
+            {currentTab === 'Inventory' && (profile?.role === 'super_admin' || profile?.role === 'admin') && <InventoryTab searchQuery={searchQuery} />}
+            {currentTab === 'Products' && (profile?.role === 'super_admin' || profile?.role === 'admin') && <ProductsTab searchQuery={searchQuery} />}
+            {currentTab === 'Quotations' && (profile?.role === 'super_admin' || profile?.role === 'admin') && <QuotationsTab searchQuery={searchQuery} setActiveTab={setActiveTab} />}
             {currentTab === 'Storefront' && <StorefrontTab setActiveTab={setActiveTab} />}
-            {currentTab === 'Production' && (profile.role === 'super_admin' || profile.role === 'admin') && <ProductionTab searchQuery={searchQuery} />}
+            {currentTab === 'Production' && (profile?.role === 'super_admin' || profile?.role === 'admin') && <ProductionTab searchQuery={searchQuery} />}
             {currentTab === 'Installation' && <InstallationTab searchQuery={searchQuery} />}
-            {currentTab === 'Dispatched' && (profile.role === 'super_admin' || profile.role === 'admin' || profile.role === 'sales_executive') && <DispatchedTab searchQuery={searchQuery} />}
-            {currentTab === 'Payments' && (profile.role === 'super_admin' || profile.role === 'admin' || profile.role === 'sales_executive') && <PaymentsTab searchQuery={searchQuery} />}
-            {currentTab === 'Analytics' && profile.role === 'super_admin' && <AnalyticsTab />}
-            {currentTab === 'Users' as any && profile.role === 'super_admin' && <UsersTab />}
+            {currentTab === 'Dispatched' && (profile?.role === 'super_admin' || profile?.role === 'admin' || profile?.role === 'sales_executive') && <DispatchedTab searchQuery={searchQuery} />}
+            {currentTab === 'Payments' && (profile?.role === 'super_admin' || profile?.role === 'admin' || profile?.role === 'sales_executive') && <PaymentsTab searchQuery={searchQuery} />}
+            {currentTab === 'Analytics' && profile?.role === 'super_admin' && <AnalyticsTab />}
+            {currentTab === 'Users' as any && profile?.role === 'super_admin' && <UsersTab />}
+
+            {/* Fallback if user's role does not have access to the selected tab */}
+            {currentTab !== 'Storefront' && currentTab !== 'Installation' && (!profile || (profile.role !== 'super_admin' && profile.role !== 'admin' && profile.role !== 'sales_executive')) && (
+              <div className="bg-white rounded-2xl p-8 border border-slate-200 text-center max-w-lg mx-auto mt-12 shadow-sm">
+                <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-3">
+                  <span className="text-xl font-bold">!</span>
+                </div>
+                <h3 className="text-lg font-bold text-slate-800 mb-1">Access Restricted</h3>
+                <p className="text-sm text-slate-500 mb-6">Your current role does not have permission to view the {currentTab} portal.</p>
+                <button
+                  onClick={() => setActiveTab('Storefront')}
+                  className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-colors shadow-sm cursor-pointer"
+                >
+                  Return to Storefront
+                </button>
+              </div>
+            )}
           </div>
         </main>
         <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200">

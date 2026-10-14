@@ -127,10 +127,11 @@ export function CartModal({ isOpen, onClose, cart, updateQuantity, removeFromCar
           const amount = numericPrice * item.quantity;
           totalAmount += amount;
 
+          const typedProductDesc = (item.product as any).description || item.product.details?.details || item.product.details?.description || '';
           tableBody.push([
             (index + 1).toString(),
             '', // Empty string for image cell, ID fetched via index in didDrawCell
-            `\n${item.product.name}\n${item.product.details?.details || (item.product as any).description ? (item.product.details?.details || (item.product as any).description) + '\n' : ''}${item.product.specification ? `Size/Spec: ${item.product.specification}` : ''}`.trim(),
+            `\n${item.product.name}${typedProductDesc ? '\n' + typedProductDesc : ''}`.trim(),
             item.product.details?.measuringMetric || '-',
             numericPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
             item.quantity.toString(),

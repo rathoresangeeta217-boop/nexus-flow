@@ -48,7 +48,7 @@ export function RequestQuoteModal({ isOpen, onClose, products, vendors }: Reques
           const p = products.find(p => p.id === value || p.docId === value);
           if (p) {
             updated.productName = p.name;
-            updated.specification = p.specification || '';
+            updated.specification = p.description || p.details?.details || p.details?.description || p.specification || '';
           }
         }
         return updated;

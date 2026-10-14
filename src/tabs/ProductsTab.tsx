@@ -38,13 +38,23 @@ export function ProductsTab({ searchQuery = '' }: { searchQuery?: string }) {
     }
   };
 
-  const handleDeleteProduct = async (docId: string, variants?: any[]) => {
-    if (confirm("Are you sure you want to delete this product?")) {
-      try {
-        await deleteProduct(docId, variants);
-      } catch (error) {
-        console.error("Error deleting product:", error);
-      }
+  const [productToDelete, setProductToDelete] = useState<Product | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleDeleteProduct = (product: Product) => {
+    setProductToDelete(product);
+  };
+
+  const confirmDeleteProduct = async () => {
+    if (!productToDelete || !productToDelete.docId) return;
+    setIsDeleting(true);
+    try {
+      await deleteProduct(productToDelete.docId, productToDelete.variants);
+      setProductToDelete(null);
+    } catch (error) {
+      console.error("Error deleting product:", error);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -96,25 +106,50 @@ export function ProductsTab({ searchQuery = '' }: { searchQuery?: string }) {
                            <Package className="w-5 h-5 text-slate-400" />
                          )}
                       </div>
-                      <div className="flex flex-col">
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-slate-800">{product.name || (product as any).productName || 'Untitled'}</span>
+                      <div className="flex flex-col max-w-md">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-slate-800 text-sm">{product.name || (product as any).productName || 'Untitled'}</span>
                           {product.variants && product.variants.length > 0 && (
                             <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
                               {product.variants.length} variants
                             </span>
                           )}
+                          {product.images && product.images.length > 1 && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                              📷 {product.images.length} photos
+                            </span>
+                          )}
+                          {product.images && product.images.length >= 4 && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              📐 {product.images.length} Angles
+                            </span>
+                          )}
                         </div>
+
+                        {/* Typed Product Description (Only actual user typed description) */}
+                        {(() => {
+                          const typedDesc = product.description || product.details?.details || product.details?.description;
+                          if (typedDesc) {
+                            return (
+                              <p className="text-xs text-slate-500 line-clamp-1 mt-0.5" title={typedDesc}>
+                                {typedDesc}
+                              </p>
+                            );
+                          }
+                          return null;
+                        })()}
+
+                        {/* Color Variants with Individual Prices */}
                         {product.variants && product.variants.length > 0 && (
-                          <div className="text-xs text-slate-400 mt-0.5 flex items-center gap-1.5">
-                            {product.variants.slice(0, 3).map((v, vi) => (
-                              <span key={vi} className="inline-flex items-center gap-1">
+                          <div className="text-xs text-slate-400 mt-1 flex items-center gap-1.5 flex-wrap">
+                            {product.variants.slice(0, 4).map((v, vi) => (
+                              <span key={vi} className="inline-flex items-center gap-1 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200 text-[10px] font-medium text-slate-700">
                                 {v.colorCode && <span className="w-2 h-2 rounded-full border border-slate-300" style={{ backgroundColor: v.colorCode }} />}
-                                {v.size || v.color}
-                                {vi < Math.min(product.variants!.length, 3) - 1 ? '•' : ''}
+                                <span>{v.color || v.size}</span>
+                                {v.price && <span className="text-indigo-600 font-bold">₹{typeof v.price === 'string' ? v.price : Number(v.price).toLocaleString()}</span>}
                               </span>
                             ))}
-                            {product.variants.length > 3 && <span>+{product.variants.length - 3}</span>}
+                            {product.variants.length > 4 && <span className="text-[10px] font-semibold text-slate-400">+{product.variants.length - 4} more</span>}
                           </div>
                         )}
                       </div>
@@ -146,8 +181,8 @@ export function ProductsTab({ searchQuery = '' }: { searchQuery?: string }) {
                       <Edit className="w-4 h-4" />
                     </button>
                     <button 
-                      onClick={() => product.docId && handleDeleteProduct(product.docId, product.variants)}
-                      className="text-red-600 hover:text-red-900"
+                      onClick={() => handleDeleteProduct(product)}
+                      className="text-red-600 hover:text-red-900 cursor-pointer"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -175,6 +210,43 @@ export function ProductsTab({ searchQuery = '' }: { searchQuery?: string }) {
         onAddProduct={handleAddProduct}
         initialData={selectedProduct}
       />
+
+      {/* Delete Confirmation Modal */}
+      {productToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden">
+            <div className="p-6">
+              <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600 mb-4">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-black text-slate-900 mb-1">
+                Delete Product?
+              </h3>
+              <p className="text-sm text-slate-600 mb-4">
+                Are you sure you want to delete <strong className="text-slate-900 font-bold">"{productToDelete.name || (productToDelete as any).productName}"</strong>? This action cannot be undone.
+              </p>
+            </div>
+            <div className="bg-slate-50 px-6 py-4 flex items-center justify-end gap-3 border-t border-slate-100">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => setProductToDelete(null)}
+                className="px-4 py-2 rounded-xl text-slate-700 hover:bg-slate-200/80 font-bold text-xs transition-colors cursor-pointer disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={confirmDeleteProduct}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs transition-colors shadow-sm flex items-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                {isDeleting ? "Deleting..." : "Delete Product"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

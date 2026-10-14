@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { subscribeToProducts, Product, isCategoryMatch, saveProduct, ProductVariant } from '../lib/products';
 import { subscribeToVendors, Vendor } from '../lib/vendors';
 import { NewProductModal } from '../components/NewProductModal';
-import { ShoppingCart, Search, Menu, Star, Zap, ChevronRight, X, Upload, ImagePlus, Plus, Layers, Check, ImageIcon, RotateCw, Boxes, Maximize2, Minimize2, ZoomIn, ZoomOut, FileText } from 'lucide-react';
+import { ShoppingCart, Search, Menu, Star, Zap, ChevronRight, X, Upload, ImagePlus, Plus, Layers, Check, ImageIcon, RotateCw, Boxes, Maximize2, Minimize2, ZoomIn, ZoomOut, FileText, Sparkles, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 // custom image component defined at bottom of file
 import { getProductFile, getVariantFile } from '../lib/fileStorage';
@@ -33,13 +33,15 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
   const [activeImageSrc, setActiveImageSrc] = useState<string | null>(null);
   const [currentWorkstationSetup, setCurrentWorkstationSetup] = useState<any>(null);
-  const [visualizerView, setVisualizerView] = useState<'3d' | 'photo'>('3d');
+  const [visualizerView, setVisualizerView] = useState<'3d' | 'photo'>('photo');
   const [isPhotoFullscreen, setIsPhotoFullscreen] = useState(false);
   const [isInfographicOpen, setIsInfographicOpen] = useState(false);
   const [storeMiddlePartition, setStoreMiddlePartition] = useState<'Included' | 'None'>('Included');
   const { profile } = useAuth();
   useEffect(() => {
-    get('storefront_banner').then(url => { if (url) setBannerUrl(url as string); });
+    get('storefront_banner')
+      .then(url => { if (url) setBannerUrl(url as string); })
+      .catch(err => console.warn('Could not read cached banner:', err));
   }, []);
 
   const handleBannerUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -81,7 +83,7 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
 
   const allProductCategories = Array.from(new Set([
     ...products.map(p => p.category || p.details?.category).filter(Boolean),
-    "Office Studio", "Workstation's", "Workstation", "Executive Table", "Conference Table", "Storages", "Reception's", "Seating Series",
+    "Office Studio", "Workstation's", "Workstation", "Executive Table", "Conference Table", "Storages", "Reception's", "Seating Series", "Sitting Series",
     "Homes", "Sofa/couch", "Armchairs/recliners", "Coffee table", "TV unit/entertainment console", "Side/end tables", "Dining sets", "Beds", "Wardrobes", "Desks",
     "Educational & Institutional", "School desks & chairs", "Library furniture", "Admin Furniture",
     "Factories & Warehouses", "Racks", "Lockers", "Customize",
@@ -90,23 +92,68 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
   const categories = ['All', ...allProductCategories];
   
   let filteredProducts = products.filter(p => {
+    if (!p) return false;
     const pName = p.name || (p as any).productName || '';
+    const pSpec = p.specification || '';
     const matchesSearch = pName.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                          (p.specification?.toLowerCase().includes(searchQuery.toLowerCase()));
+                          pSpec.toLowerCase().includes(searchQuery.toLowerCase());
     const c = p.category || p.details?.category;
     const matchesCategory = selectedCategory === 'All' || isCategoryMatch(c, selectedCategory);
-    return matchesSearch && matchesCategory;
+    return Boolean(matchesSearch && matchesCategory);
   });
 
-  // Inject preview products if category has no products
-  const hasRealProductsInCategory = products.some(p => isCategoryMatch(p.category || p.details?.category, selectedCategory));
-  if (filteredProducts.length === 0 && selectedCategory !== 'All' && !searchQuery && !hasRealProductsInCategory) {
-    filteredProducts = [
-      { id: 'dummy1', name: `Premium ${selectedCategory} Alpha`, specification: 'Ergonomic modular design with premium finish.', price: '14500', salesRate: 14500, category: selectedCategory },
-      { id: 'dummy2', name: `Signature ${selectedCategory} Pro`, specification: 'Modern aesthetics with heavy-duty metal base.', price: '22000', salesRate: 22000, category: selectedCategory },
-      { id: 'dummy3', name: `Compact ${selectedCategory} Lite`, specification: 'Space-saving layout for modern high-productivity offices.', price: '8500', salesRate: 8500, category: selectedCategory },
-      { id: 'dummy4', name: `Executive ${selectedCategory} Elite`, specification: 'Top-tier materials and wire-raceway management.', price: '35000', salesRate: 35000, category: selectedCategory }
-    ] as any;
+  // Inject preview products if category has no products or if database has no products yet
+  const hasRealProductsInCategory = products.some(p => p && isCategoryMatch(p.category || p.details?.category, selectedCategory));
+  if (filteredProducts.length === 0 && !searchQuery && (!hasRealProductsInCategory || products.length === 0)) {
+    const defaultProducts: Product[] = [
+      { 
+        id: 'dummy1', 
+        name: `Premium ${selectedCategory === 'All' ? "Workstation's" : selectedCategory} Alpha`, 
+        specification: 'Ergonomic modular design with premium finish and wire-raceway management.', 
+        price: '14500', 
+        salesRate: 14500, 
+        category: selectedCategory === 'All' ? "Workstation's" : selectedCategory,
+        variants: [
+          { id: 'v1', name: '1200 x 600 mm', size: '1200 x 600 mm', color: 'Classic Walnut', colorCode: '#78350F', price: 14500 },
+          { id: 'v2', name: '1350 x 600 mm', size: '1350 x 600 mm', color: 'Warm Oak', colorCode: '#D97706', price: 17500 }
+        ]
+      } as any,
+      { 
+        id: 'dummy2', 
+        name: `Signature ${selectedCategory === 'All' ? 'Executive Table' : selectedCategory} Pro`, 
+        specification: 'Modern aesthetics with heavy-duty metal base and flip box power module.', 
+        price: '22000', 
+        salesRate: 22000, 
+        category: selectedCategory === 'All' ? 'Executive Table' : selectedCategory,
+        variants: [
+          { id: 'v3', name: '1500 x 750 mm', size: '1500 x 750 mm', color: 'Smoked Walnut', colorCode: '#451A03', price: 22000 }
+        ]
+      } as any,
+      { 
+        id: 'dummy3', 
+        name: `ErgoMesh ${selectedCategory === 'All' ? 'Sitting Series' : selectedCategory} Lite`, 
+        specification: 'Space-saving layout and breathable mesh for modern high-productivity offices.', 
+        price: '8500', 
+        salesRate: 8500, 
+        category: selectedCategory === 'All' ? 'Sitting Series' : selectedCategory,
+        variants: [
+          { id: 'v4', name: 'Jet Black Mesh', color: 'Jet Black', colorCode: '#0F172A', price: 8500 },
+          { id: 'v5', name: 'Slate Grey Mesh', color: 'Slate Grey', colorCode: '#64748B', price: 8900 }
+        ]
+      } as any,
+      { 
+        id: 'dummy4', 
+        name: `Conference ${selectedCategory === 'All' ? 'Conference Table' : selectedCategory} Elite`, 
+        specification: 'Top-tier commercial laminates and dual pop-up flip connectivity boxes.', 
+        price: '35000', 
+        salesRate: 35000, 
+        category: selectedCategory === 'All' ? 'Conference Table' : selectedCategory,
+        variants: [
+          { id: 'v6', name: '2400 x 1200 mm', size: '2400 x 1200 mm', color: 'Bavarian Beech', colorCode: '#CA8A04', price: 35000 }
+        ]
+      } as any
+    ];
+    filteredProducts = defaultProducts.filter(p => selectedCategory === 'All' || isCategoryMatch(p.category, selectedCategory));
   }
 
   const searchMatchingCategories = searchQuery 
@@ -155,6 +202,8 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
       }
     }
   };
+
+
 
   const addToCart = (product: Product, workstationSetup?: any, variant?: ProductVariant) => {
     setCart(prev => {
@@ -219,7 +268,7 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
               {[
                 {
                   name: 'Office Studio',
-                  subItems: ["Workstation's", "Executive Table", "Conference Table", "Storages", "Reception's", "Seating Series"]
+                  subItems: ["Workstation's", "Executive Table", "Conference Table", "Storages", "Reception's", "Seating Series", "Sitting Series"]
                 },
                 {
                   name: 'Homes',
@@ -343,7 +392,7 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                 return (
                   <>
                     <div className="w-full lg:w-[60%] xl:w-[64%] 2xl:w-[68%] flex gap-3 sm:gap-4 shrink-0 lg:sticky lg:top-20 lg:self-start z-20">
-                      {/* Thumbnails Sidebar */}
+                      {/* Thumbnails Sidebar (Left Corner 5 Product Angles) */}
                       <div className="w-16 sm:w-20 shrink-0 flex flex-col gap-2.5 max-h-[calc(100vh-100px)] overflow-y-auto custom-scrollbar pr-1">
                         {/* 360 3D View Thumbnail for Workstations */}
                         {isWorkstation && (
@@ -360,107 +409,146 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                           </div>
                         )}
 
-                        {/* Base Product Image Thumbnail */}
-                        <div 
-                          onClick={() => {
-                            setActiveImageSrc(null);
-                            setVisualizerView('photo');
-                          }}
-                          className={`aspect-square rounded-xl border-2 flex items-center justify-center p-1.5 cursor-pointer transition-colors relative overflow-hidden ${visualizerView === 'photo' && !activeImageSrc ? 'border-amber-500 bg-amber-50 ring-2 ring-amber-500/20 shadow-xs' : 'border-slate-200 hover:border-amber-300 bg-slate-50'}`}
-                          title="Base Studio Photo"
-                        >
-                          <StorefrontProductImage productId={selectedProduct.id} productName={selectedProduct.name} />
-                          <span className="absolute top-1 left-1 bg-black/70 text-[8px] text-white px-1 py-0.2 rounded font-bold">Photo</span>
-                        </div>
+                        {/* 5 Product Angles Thumbnails in Left Corner */}
+                        {(() => {
+                          const angleImages: string[] = [];
+                          if (selectedProduct.details?.productImageData) angleImages.push(selectedProduct.details.productImageData);
+                          if (Array.isArray(selectedProduct.images)) angleImages.push(...selectedProduct.images);
+                          if (Array.isArray(selectedProduct.details?.images)) angleImages.push(...selectedProduct.details.images);
+                          const uniqueAngles = Array.from(new Set(angleImages.filter(Boolean))).slice(0, 5);
 
-                        {/* Variant Thumbnails */}
-                        {selectedProduct.variants?.map((v, vIdx) => {
-                          const isSelected = visualizerView === 'photo' && activeVariant?.id === v.id;
-                          return (
-                            <div 
-                              key={v.id || vIdx} 
-                              onClick={() => {
-                                handleSelectVariant(v);
-                                setVisualizerView('photo');
-                              }}
-                              className={`aspect-square rounded-xl border-2 flex items-center justify-center p-1 cursor-pointer transition-colors relative overflow-hidden group ${isSelected ? 'border-indigo-600 bg-indigo-50 ring-2 ring-indigo-500/20 shadow-xs' : 'border-slate-200 hover:border-indigo-300 bg-slate-50'}`}
-                              title={`${v.name} (${v.color || v.size})`}
-                            >
-                              <StorefrontProductImage 
-                                variantId={v.id} 
-                                customSrc={v.imageData} 
-                                productId={selectedProduct.id} 
-                                productName={v.name} 
-                              />
-                              {v.size && (
+                          if (uniqueAngles.length === 0) {
+                            return (
+                              <div 
+                                onClick={() => {
+                                  setActiveImageSrc(null);
+                                  setVisualizerView('photo');
+                                }}
+                                className={`aspect-square rounded-xl border-2 flex items-center justify-center p-1.5 cursor-pointer transition-colors relative overflow-hidden ${visualizerView === 'photo' && !activeImageSrc ? 'border-amber-500 bg-amber-50 ring-2 ring-amber-500/20 shadow-xs' : 'border-slate-200 hover:border-amber-300 bg-slate-50'}`}
+                                title="Base Studio Photo"
+                              >
+                                <StorefrontProductImage productId={selectedProduct.id} productName={selectedProduct.name} />
+                                <span className="absolute top-1 left-1 bg-black/70 text-[8px] text-white px-1 py-0.2 rounded font-bold">Photo</span>
+                              </div>
+                            );
+                          }
+
+                          return uniqueAngles.map((src, aIdx) => {
+                            const isSelected = visualizerView === 'photo' && activeImageSrc === src;
+                            const labels = ['Front', 'Side', '3/4 View', 'Back', 'Detail'];
+                            return (
+                              <div 
+                                key={aIdx} 
+                                onClick={() => {
+                                  setActiveImageSrc(src);
+                                  setVisualizerView('photo');
+                                }}
+                                className={`aspect-square rounded-xl border-2 flex items-center justify-center p-1 cursor-pointer transition-all relative overflow-hidden group ${
+                                  isSelected 
+                                    ? 'border-indigo-600 bg-indigo-50 ring-2 ring-indigo-500/20 shadow-xs' 
+                                    : 'border-slate-200 hover:border-indigo-300 bg-slate-50'
+                                }`}
+                                title={`Angle ${aIdx + 1}: ${labels[aIdx] || 'View'}`}
+                              >
+                                <img src={src} alt={`Angle ${aIdx + 1}`} className="w-full h-full object-contain mix-blend-multiply" />
                                 <span className="absolute bottom-0 inset-x-0 bg-slate-900/85 backdrop-blur-xs text-[8px] text-white text-center py-0.5 truncate font-bold group-hover:bg-indigo-600 transition-colors">
-                                  {v.size.replace(' mm', '').replace(' (1-Seater)', '').replace(' (1-Seater Standard)', '')}
+                                  Angle {aIdx + 1}
                                 </span>
-                              )}
-                              {v.colorCode && (
-                                <span 
-                                  className="absolute top-1 right-1 w-2.5 h-2.5 rounded-full border border-white shadow-xs" 
-                                  style={{ backgroundColor: v.colorCode }} 
-                                />
-                              )}
-                            </div>
-                          );
-                        })}
+                              </div>
+                            );
+                          });
+                        })()}
+
+                        {/* Active Color Variant Thumbnail (Only visible when color option with photo is selected) */}
+                        {activeVariant?.imageData && (
+                          <div 
+                            onClick={() => {
+                              setActiveImageSrc(activeVariant.imageData!);
+                              setVisualizerView('photo');
+                            }}
+                            className={`aspect-square rounded-xl border-2 flex items-center justify-center p-1 cursor-pointer transition-all relative overflow-hidden group ${
+                              activeImageSrc === activeVariant.imageData
+                                ? 'border-amber-500 bg-amber-50 ring-2 ring-amber-500/20 shadow-xs'
+                                : 'border-slate-200 hover:border-amber-300 bg-slate-50'
+                            }`}
+                            title={`Color Variant: ${activeVariant.color || activeVariant.name}`}
+                          >
+                            <img src={activeVariant.imageData} alt={activeVariant.name} className="w-full h-full object-contain mix-blend-multiply" />
+                            {activeVariant.colorCode && (
+                              <span 
+                                className="absolute top-1 right-1 w-2.5 h-2.5 rounded-full border border-white shadow-xs" 
+                                style={{ backgroundColor: activeVariant.colorCode }} 
+                              />
+                            )}
+                            <span className="absolute bottom-0 inset-x-0 bg-amber-600 text-[8px] text-white text-center py-0.5 truncate font-bold">
+                              {activeVariant.color || 'Color'}
+                            </span>
+                          </div>
+                        )}
                       </div>
 
                       {/* Main Visualizer Stage Canvas */}
                       <div className="flex-1 w-full bg-slate-900/[0.02] rounded-2xl border border-slate-200/90 shadow-xs flex flex-col items-center justify-center p-0 h-[580px] sm:h-[660px] lg:h-[740px] xl:h-[820px] 2xl:h-[880px] relative overflow-hidden group">
                         {/* View Toggle for Workstations (Studio Photo Mode Switcher) */}
                         {/* View Toggle for Workstations (Studio Photo Mode Switcher & Fullscreen Button) */}
-                        {visualizerView === 'photo' && (
-                          <div className="absolute top-3 inset-x-3 z-20 flex items-center justify-between gap-2 pointer-events-auto">
-                            {isWorkstation ? (
-                              <div className="flex items-center bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-xl p-1 shadow-sm text-xs font-semibold">
-                                <button
-                                  type="button"
-                                  onClick={() => setVisualizerView('3d')}
-                                  className="px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer text-slate-600 hover:text-indigo-600 font-bold"
-                                >
-                                  <RotateCw className="w-3.5 h-3.5" />
-                                  <span>Switch to 360° 3D CAD</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setVisualizerView('photo')}
-                                  className="px-3 py-1.5 rounded-lg transition-all cursor-pointer bg-slate-900 text-white shadow-xs font-bold"
-                                >
-                                  <span>Studio Photo</span>
-                                </button>
-                              </div>
-                            ) : <div />}
+                        {/* Top Visualizer Mode Switcher Toolbar */}
+                        <div className="absolute top-3 inset-x-3 z-20 flex items-center justify-between gap-2 pointer-events-auto">
+                          <div className="flex items-center bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-xl p-1 shadow-sm text-xs font-semibold gap-1">
+                            <button
+                              type="button"
+                              onClick={() => setVisualizerView('photo')}
+                              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer font-bold ${
+                                visualizerView === 'photo' 
+                                  ? 'bg-slate-900 text-white shadow-xs' 
+                                  : 'text-slate-600 hover:text-slate-900'
+                              }`}
+                            >
+                              <span>Studio Photos & Angles</span>
+                            </button>
 
-                            {/* Right Actions: 2D Infographic Spec Sheet & Fullscreen Photo Button */}
-                            <div className="flex items-center gap-2">
-                              {isWorkstation && (
-                                <button
-                                  type="button"
-                                  onClick={() => setIsInfographicOpen(true)}
-                                  className="px-3 py-1.5 rounded-xl bg-linear-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-md text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer hover:scale-105 active:scale-95 ring-2 ring-amber-500/20"
-                                  title="Download 2D Technical Line Drawing Infographic Specs Sheet"
-                                >
-                                  <FileText className="w-3.5 h-3.5 text-amber-100" />
-                                  <span>2D CAD & A4 PDF</span>
-                                </button>
-                              )}
-
+                            {isWorkstation && (
                               <button
                                 type="button"
-                                onClick={() => setIsPhotoFullscreen(true)}
-                                className="px-3 py-1.5 rounded-xl bg-white/95 backdrop-blur-md border border-slate-200/90 text-slate-800 hover:bg-slate-100 shadow-md text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer hover:scale-105 active:scale-95"
-                                title="Open Fullscreen Studio Photo"
+                                onClick={() => setVisualizerView('3d')}
+                                className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer font-bold ${
+                                  visualizerView === '3d' 
+                                    ? 'bg-slate-900 text-white shadow-xs' 
+                                    : 'text-slate-600 hover:text-indigo-600'
+                                }`}
                               >
-                                <Maximize2 className="w-3.5 h-3.5 text-indigo-600" />
-                                <span className="hidden sm:inline">Fullscreen Photo</span>
+                                <Boxes className="w-3.5 h-3.5" />
+                                <span>3D CAD</span>
                               </button>
-                            </div>
+                            )}
                           </div>
-                        )}
 
+                          {/* Right Actions: 2D Infographic Spec Sheet & Fullscreen Photo Button */}
+                          <div className="flex items-center gap-2">
+                            {isWorkstation && (
+                              <button
+                                type="button"
+                                onClick={() => setIsInfographicOpen(true)}
+                                className="px-3 py-1.5 rounded-xl bg-linear-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-md text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer hover:scale-105 active:scale-95 ring-2 ring-amber-500/20"
+                                title="Download 2D Technical Line Drawing Infographic Specs Sheet"
+                              >
+                                <FileText className="w-3.5 h-3.5 text-amber-100" />
+                                <span>2D CAD & A4 PDF</span>
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => setIsPhotoFullscreen(true)}
+                              className="px-3 py-1.5 rounded-xl bg-white/95 backdrop-blur-md border border-slate-200/90 text-slate-800 hover:bg-slate-100 shadow-md text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer hover:scale-105 active:scale-95"
+                              title="Open Fullscreen Studio Photo"
+                            >
+                              <Maximize2 className="w-3.5 h-3.5 text-indigo-600" />
+                              <span className="hidden sm:inline">Fullscreen Photo</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Stage Body */}
                         {isWorkstation && visualizerView === '3d' ? (
                           <Workstation3DViewer 
                             setup={currentWorkstationSetup} 
@@ -471,22 +559,59 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                             }}
                           />
                         ) : (
-                          <div 
-                            className="w-full h-full flex items-center justify-center cursor-zoom-in"
-                            onClick={() => setIsPhotoFullscreen(true)}
-                            title="Click to view full screen"
-                          >
-                            {activeImageSrc ? (
-                              <img src={activeImageSrc} alt={selectedProduct.name} className="w-full h-full object-contain mix-blend-multiply transition-all duration-300 p-4" />
-                            ) : activeVariant?.imageData ? (
-                              <img src={activeVariant.imageData} alt={activeVariant.name} className="w-full h-full object-contain mix-blend-multiply transition-all duration-300 p-4" />
-                            ) : (
-                              <StorefrontProductImage 
-                                variantId={activeVariant?.id} 
-                                productId={selectedProduct.id} 
-                                productName={activeVariant?.name || selectedProduct.name} 
-                              />
-                            )}
+                          <div className="w-full h-full flex flex-col items-center justify-center relative">
+                            {(() => {
+                              const extraImages: string[] = [];
+                              if (selectedProduct.details?.productImageData) extraImages.push(selectedProduct.details.productImageData);
+                              if (Array.isArray(selectedProduct.images)) extraImages.push(...selectedProduct.images);
+                              if (selectedProduct.variants) {
+                                selectedProduct.variants.forEach(v => {
+                                  if (v.imageData && !extraImages.includes(v.imageData)) extraImages.push(v.imageData);
+                                });
+                              }
+                              const uniqueImgs = Array.from(new Set(extraImages));
+
+                              return (
+                                <>
+                                  {/* Center Main Photo Stage */}
+                                  <div 
+                                    className="w-full flex-1 flex items-center justify-center cursor-zoom-in p-4"
+                                    onClick={() => setIsPhotoFullscreen(true)}
+                                    title="Click to view full screen"
+                                  >
+                                    {activeImageSrc ? (
+                                      <img src={activeImageSrc} alt={selectedProduct.name} className="w-full h-full object-contain mix-blend-multiply transition-all duration-300 p-4" />
+                                    ) : activeVariant?.imageData ? (
+                                      <img src={activeVariant.imageData} alt={activeVariant.name} className="w-full h-full object-contain mix-blend-multiply transition-all duration-300 p-4" />
+                                    ) : (
+                                      <StorefrontProductImage 
+                                        variantId={activeVariant?.id} 
+                                        productId={selectedProduct.id} 
+                                        productName={activeVariant?.name || selectedProduct.name} 
+                                      />
+                                    )}
+                                  </div>
+
+                                  {/* Multiple Images Thumbnail Strip Below Main Photo */}
+                                  {uniqueImgs.length > 1 && (
+                                    <div className="absolute bottom-4 inset-x-4 bg-white/95 backdrop-blur-md rounded-xl p-2 border border-slate-200/90 shadow-md flex items-center justify-center gap-2 overflow-x-auto z-10 custom-scrollbar">
+                                      {uniqueImgs.map((src, i) => (
+                                        <button
+                                          key={i}
+                                          type="button"
+                                          onClick={() => setActiveImageSrc(src)}
+                                          className={`relative w-11 h-11 rounded-lg border overflow-hidden p-0.5 bg-white shrink-0 transition-all cursor-pointer ${
+                                            activeImageSrc === src ? 'border-indigo-600 ring-2 ring-indigo-500/25 shadow-xs scale-105' : 'border-slate-200 opacity-70 hover:opacity-100'
+                                          }`}
+                                        >
+                                          <img src={src} alt={`Product Photo ${i + 1}`} className="w-full h-full object-contain mix-blend-multiply" />
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                </>
+                              );
+                            })()}
                           </div>
                         )}
 
@@ -573,9 +698,17 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                       </div>
 
                       <h1 className="text-3xl font-black text-slate-900 mb-2">{selectedProduct.name}</h1>
-                      <p className="text-slate-500 mb-6 leading-relaxed">
-                        {selectedProduct.specification || 'Premium quality modular furniture designed for modern spaces. Features ergonomic design, durable materials, and a sleek aesthetic.'}
-                      </p>
+                      {(() => {
+                        const typedDesc = selectedProduct.description || selectedProduct.details?.details || selectedProduct.details?.description;
+                        if (typedDesc) {
+                          return (
+                            <p className="text-slate-600 mb-6 leading-relaxed whitespace-pre-wrap text-sm bg-slate-50/80 p-3.5 rounded-xl border border-slate-200/70">
+                              {typedDesc}
+                            </p>
+                          );
+                        }
+                        return null;
+                      })()}
 
                       {/* Pricing with dynamic variant price update */}
                       <div className="mb-6 p-4 bg-slate-50 rounded-xl border border-slate-200">
@@ -595,43 +728,55 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                         </p>
                       </div>
 
-                      {/* Variants: Size Selector (for non-workstations only, workstation sizes are in Let's make your Setup) */}
-                      {!isCategoryMatch(selectedProduct.category, "Workstation") && availableSizes.length > 0 && (
-                        <div className="mb-5">
-                          <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">
-                            Select Size: <span className="text-indigo-600 font-bold">{activeVariant?.size || 'Standard'}</span>
-                          </label>
-                          <div className="flex flex-wrap gap-2">
-                            {availableSizes.map(size => {
-                              const isSelected = activeVariant?.size === size;
-                              const matchedVariant = selectedProduct.variants!.find(v => v.size === size);
-                              return (
-                                <button
-                                  key={size}
-                                  type="button"
-                                  onClick={() => {
-                                    if (matchedVariant) handleSelectVariant(matchedVariant);
-                                  }}
-                                  className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all ${
-                                    isSelected
-                                      ? 'border-indigo-600 bg-indigo-50 text-indigo-900 shadow-sm ring-1 ring-indigo-600'
-                                      : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
-                                  }`}
-                                >
-                                  {size}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
+                      {/* Variants: Size Selector (for non-workstations only; hidden for Sitting Series since Sitting Series has ONLY color variants) */}
+                      {(() => {
+                        const isSittingSeriesProduct = 
+                          selectedProduct.category?.toLowerCase().includes('sitting') ||
+                          selectedProduct.category?.toLowerCase().includes('seating') ||
+                          selectedProduct.name?.toLowerCase().includes('chair');
+
+                        if (!isCategoryMatch(selectedProduct.category, "Workstation") && !isSittingSeriesProduct && availableSizes.length > 0) {
+                          return (
+                            <div className="mb-5">
+                              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">
+                                Select Size: <span className="text-indigo-600 font-bold">{activeVariant?.size || 'Standard'}</span>
+                              </label>
+                              <div className="flex flex-wrap gap-2">
+                                {availableSizes.map(size => {
+                                  const isSelected = activeVariant?.size === size;
+                                  const matchedVariant = selectedProduct.variants!.find(v => v.size === size);
+                                  return (
+                                    <button
+                                      key={size}
+                                      type="button"
+                                      onClick={() => {
+                                        if (matchedVariant) handleSelectVariant(matchedVariant);
+                                      }}
+                                      className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all ${
+                                        isSelected
+                                          ? 'border-indigo-600 bg-indigo-50 text-indigo-900 shadow-sm ring-1 ring-indigo-600'
+                                          : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
+                                      }`}
+                                    >
+                                      {size}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()}
 
 
-                      {/* Variants: Colour / Finish Selector (for non-workstations only; workstations choose colors in Let's make your Setup) */}
+                      {/* Variants: Colour / Finish Selector (For Sitting Series: shows ONLY color variants & their distinct prices) */}
                       {!isCategoryMatch(selectedProduct.category, "Workstation") && availableColors.length > 0 && (
                         <div className="mb-6">
                           <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">
-                            Choose Colour / Finish: <span className="text-indigo-600 font-semibold">{activeVariant?.color || 'Selected'}</span>
+                            {(selectedProduct.category?.toLowerCase().includes('sit') || selectedProduct.category?.toLowerCase().includes('seat') || selectedProduct.name?.toLowerCase().includes('chair'))
+                              ? 'Sitting Series Color Variants & Pricing:'
+                              : 'Choose Colour / Finish:'} <span className="text-indigo-600 font-semibold">{activeVariant?.color || 'Selected'}</span>
                           </label>
                           <div className="flex flex-wrap gap-2.5">
                             {availableColors.map(color => {
@@ -644,7 +789,13 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                                   onClick={() => {
                                     const matched = selectedProduct.variants!.find(v => v.color === color && (activeVariant?.size ? v.size === activeVariant.size : true))
                                       || selectedProduct.variants!.find(v => v.color === color);
-                                    if (matched) handleSelectVariant(matched);
+                                    if (matched) {
+                                      handleSelectVariant(matched);
+                                      if (matched.imageData) {
+                                        setActiveImageSrc(matched.imageData);
+                                      }
+                                      setVisualizerView('photo');
+                                    }
                                   }}
                                   className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-medium transition-all ${
                                     isSelected 
@@ -661,6 +812,11 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                                     <span className="w-4 h-4 rounded-full bg-slate-300 shrink-0" />
                                   )}
                                   <span>{color}</span>
+                                  {matchingVariant?.price && (
+                                    <span className="text-indigo-600 font-bold text-[11px] ml-1 bg-white px-2 py-0.5 rounded border border-indigo-100 shadow-2xs">
+                                      ₹{Number(matchingVariant.price).toLocaleString()}
+                                    </span>
+                                  )}
                                   {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600 ml-0.5" />}
                                 </button>
                               );
@@ -897,9 +1053,11 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 md:gap-8">
                     {filteredProducts.map((product, i) => {
-                      const hasVariants = Boolean(product.variants && product.variants.length > 0);
+                      if (!product) return null;
+                      const validVariants = (product.variants || []).filter(Boolean);
+                      const hasVariants = validVariants.length > 0;
                       const lowestPrice = hasVariants
-                        ? Math.min(...product.variants!.map(v => typeof v.price === 'string' ? parseFloat(v.price.replace(/[^0-9.]/g, '')) || 0 : v.price))
+                        ? Math.min(...validVariants.map(v => typeof v?.price === 'string' ? parseFloat(v.price.replace(/[^0-9.]/g, '')) || 0 : (Number(v?.price) || 0)))
                         : (product.salesRate || (typeof product.price === 'string' ? parseFloat(product.price.replace(/[^0-9.]/g, '')) : product.price) || 14500);
 
                       return (
@@ -917,7 +1075,7 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                             </div>
                             {hasVariants && (
                               <span className="absolute top-2 right-2 bg-indigo-600/90 backdrop-blur-xs text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-xs">
-                                {product.variants!.length} Options
+                                {validVariants.length} Options
                               </span>
                             )}
                           </div>
@@ -935,8 +1093,8 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                             
                             {hasVariants ? (
                               <div className="flex items-center gap-1.5 mb-2 mt-1">
-                                {Array.from(new Set(product.variants!.map(v => v.colorCode || v.color))).slice(0, 4).map((c, ci) => {
-                                  const vMatch = product.variants!.find(v => v.colorCode === c || v.color === c);
+                                {Array.from(new Set(validVariants.map(v => v?.colorCode || v?.color).filter(Boolean))).slice(0, 4).map((c, ci) => {
+                                  const vMatch = validVariants.find(v => v && (v.colorCode === c || v.color === c));
                                   return (
                                     <span 
                                       key={ci} 
@@ -946,8 +1104,8 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                                     />
                                   );
                                 })}
-                                {product.variants!.length > 4 && (
-                                  <span className="text-[10px] text-slate-400 font-medium">+{product.variants!.length - 4}</span>
+                                {validVariants.length > 4 && (
+                                  <span className="text-[10px] text-slate-400 font-medium">+{validVariants.length - 4}</span>
                                 )}
                               </div>
                             ) : (
@@ -960,7 +1118,7 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                             
                             <div className="text-xs text-slate-500 mb-3">
                               {hasVariants ? (
-                                <span>Sizes: <strong className="text-slate-700">{Array.from(new Set(product.variants!.map(v => v.size).filter(Boolean))).join(', ')}</strong></span>
+                                <span>Sizes: <strong className="text-slate-700">{Array.from(new Set(validVariants.map(v => v?.size).filter(Boolean))).join(', ')}</strong></span>
                               ) : (
                                 <span>Size: <strong className="text-slate-700">Standard</strong></span>
                               )}

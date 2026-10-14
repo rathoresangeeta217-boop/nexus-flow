@@ -183,7 +183,7 @@ async function startServer() {
           "installationCharges": "...",
           "bankDetails": "..."
         }
-        Extract the FINAL GRAND TOTAL or TOTAL AMOUNT of the invoice/quotation into the "totalAmount" field as a string (include currency symbols like ₹ or Rs. if present). IF THE GRAND TOTAL IS NOT EXPLICITLY WRITTEN, you MUST calculate it by multiplying the quantity by the rate/price for each item and adding them up, including any GST/taxes. Look for any mention of advance payment requirements, transportation/freight/loading charges, or installation charges, and extract their string values. Extract any bank details mentioned (Bank Name, Account Number, IFSC Code) into "bankDetails".
+        Extract the FINAL GRAND TOTAL or TOTAL AMOUNT of the invoice/quotation into the "totalAmount" field as a string (include currency symbols like ₹ or Rs. if present). CRITICAL BUSINESS RULE: The Grand Total written on the quotation is ALREADY the final net total and ALREADY includes all products, GST/taxes, transportation, and installation charges. IF THE GRAND TOTAL IS NOT EXPLICITLY WRITTEN, calculate it by adding all product line amounts + GST + any transportation/installation. Look for any mention of advance payment requirements, transportation/freight/loading charges (e.g. "Included" or specific amount), or installation charges, and extract their string values. Extract any bank details mentioned (Bank Name, Account Number, IFSC Code) into "bankDetails".
         CRITICAL INSTRUCTION FOR PRODUCTS: 
         1. Extract the EXACT product title verbatim from the text of the quotation for the "name" field. Do NOT alter, summarize, or translate the text.
         2. Extract any detailed description verbatim into the "description" field.
@@ -231,6 +231,82 @@ async function startServer() {
       }
       
       res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/parse-raw-material-invoice", async (req, res) => {
+    try {
+      const { fileData } = req.body;
+      if (!fileData) {
+        return res.status(400).json({ error: "Missing file data" });
+      }
+
+      const match = fileData.match(/^data:([^;]+);base64,(.+)$/);
+      if (!match) {
+        return res.status(400).json({ error: "Invalid data URL format" });
+      }
+
+      const mimeType = match[1];
+      const base64Data = match[2];
+
+      const prompt = `
+        Analyze this raw material purchase invoice, bill, tax invoice, purchase order, or delivery challan document.
+        Extract all raw material inventory line items, vendor details, and reference metadata.
+
+        Return ONLY a valid JSON object matching this structure:
+        {
+          "vendorName": "Vendor or Supplier Company Name if present",
+          "invoiceNumber": "Invoice / Bill / Reference number",
+          "invoiceDate": "Date of invoice/bill (YYYY-MM-DD or formatted string)",
+          "totalAmount": "Grand total invoice amount as string",
+          "items": [
+            {
+              "name": "Full descriptive item name, e.g. 18mm Action TESA HDHMR Board (8x4)",
+              "category": "One of: 'Plywood & Boards', 'Hardware & Fasteners', 'Edge Banding', 'Laminates & Veneers', 'Channels & Hinges', 'Metals & Tubes', 'Adhesives & Chemicals', 'Glass & Acrylic', 'General Consumables'",
+              "sku": "Item code or part number if mentioned",
+              "specs": "Detailed specifications string",
+              "quantity": 10,
+              "unit": "One of: 'Sheet', 'Nos', 'Kg', 'Box', 'Roll', 'Meter', 'Pack', 'Set', 'Liter', 'Pair'",
+              "unitCost": 1250,
+              "boardClassification": "Plain, Pre-Laminated, Plywood, or PLPB",
+              "boardType": "PLPB, MDF, HDHMR, Commercial Plywood, Marine / BWP Plywood, BWR Plywood, Flexible Plywood",
+              "boardCompany": "Brand or Company name, e.g. Action TESA, CenturyPly, Greenlam, Merino, Archidply, Trojan, etc.",
+              "boardThickness": "Thickness in mm, e.g. 18 mm, 12 mm, 19 mm, 4 mm",
+              "boardSize": "Size in ft, e.g. 8 x 4, 8 x 6, 9 x 6, 6 x 3, 6 x 4",
+              "colorCode": "Color code, shade, or laminate finish if mentioned, e.g. SF 101, Frosty White"
+            }
+          ]
+        }
+
+        CRITICAL INSTRUCTIONS:
+        1. Extract EVERY individual raw material item line in the document table.
+        2. For boards, plywood, laminates, and timber, extract boardClassification, boardType, boardCompany, boardThickness, boardSize, and colorCode accurately.
+        3. Quantities MUST be returned as positive numbers.
+      `;
+
+      const response = await callGeminiWithRetry({
+        model: 'gemini-3.1-flash-lite',
+        input: [
+          { type: 'text', text: prompt },
+          {
+            type: mimeType.startsWith('image/') ? 'image' : 'document',
+            mime_type: mimeType,
+            data: base64Data
+          }
+        ]
+      });
+
+      const text = response.output_text;
+      if (!text) {
+        throw new Error("No output returned from Gemini AI vision parser.");
+      }
+
+      console.log("Raw Material Invoice Scan Output:", text);
+      const parsed = parseJsonOutput(text);
+      res.json(parsed);
+    } catch (error: any) {
+      console.error("Error parsing raw material invoice:", error);
+      res.status(500).json({ error: error.message || "Failed to scan invoice." });
     }
   });
 

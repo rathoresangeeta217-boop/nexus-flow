@@ -467,10 +467,8 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
     if (!paymentRecord) return orderAmt;
 
     const grandTotal = parseVal(paymentRecord.grandTotal) || orderAmt;
-    const transport = parseVal(paymentRecord.transportationCharges || paymentRecord.loadingCharges, grandTotal);
-    const install = parseVal(paymentRecord.installationCharges, grandTotal);
-    
-    const displayTotalAmt = grandTotal + transport + install;
+    // Grand Total ALREADY includes transportation, installation, and taxes
+    const displayTotalAmt = grandTotal;
 
     let receivedPhasesTotal = 0;
     if (paymentRecord.phases) {

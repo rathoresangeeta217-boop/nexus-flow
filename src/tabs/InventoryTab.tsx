@@ -17,9 +17,10 @@ import {
   CheckCircle2, 
   Building2, 
   Clock, 
-  FileSpreadsheet,
   Eye,
-  X
+  Loader2,
+  X,
+  Sparkles
 } from 'lucide-react';
 import { 
   RawMaterialItem, 
@@ -27,15 +28,14 @@ import {
   subscribeToRawMaterials, 
   subscribeToInventoryHistory, 
   deleteRawMaterialItem,
-  clearAllRawMaterials,
   deleteInventoryHistoryEntry,
   clearAllInventoryHistory 
 } from '../lib/inventory';
 import { AddRawMaterialModal } from '../components/AddRawMaterialModal';
 import { ReceiveMaterialModal } from '../components/ReceiveMaterialModal';
 import { DispatchMaterialModal } from '../components/DispatchMaterialModal';
+import { ScanInvoiceModal } from '../components/ScanInvoiceModal';
 import { StatCard } from '../components/StatCard';
-import * as XLSX from 'xlsx';
 
 interface InventoryTabProps {
   searchQuery?: string;
@@ -59,9 +59,16 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isReceiveModalOpen, setIsReceiveModalOpen] = useState(false);
   const [isDispatchModalOpen, setIsDispatchModalOpen] = useState(false);
+  const [isScanInvoiceModalOpen, setIsScanInvoiceModalOpen] = useState(false);
   const [selectedProductForAction, setSelectedProductForAction] = useState<RawMaterialItem | null>(null);
   const [editingItem, setEditingItem] = useState<RawMaterialItem | null>(null);
   const [previewImage, setPreviewImage] = useState<{ url: string; name: string } | null>(null);
+
+  // In-app Delete Confirmation Modals (bypasses window.confirm which is blocked in iframes)
+  const [materialToDelete, setMaterialToDelete] = useState<RawMaterialItem | null>(null);
+  const [historyToDelete, setHistoryToDelete] = useState<InventoryHistoryEntry | null>(null);
+  const [isClearHistoryModalOpen, setIsClearHistoryModalOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Success toast notification
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
@@ -218,103 +225,68 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
     setIsAddModalOpen(true);
   };
 
-  const handleDelete = async (item: RawMaterialItem) => {
-    const confirmed = window.confirm(`Are you sure you want to delete raw material "${item.name}"?`);
-    if (!confirmed) return;
+  const handleDelete = (item: RawMaterialItem) => {
+    setMaterialToDelete(item);
+  };
+
+  const confirmDeleteMaterial = async () => {
+    if (!materialToDelete) return;
+    const item = materialToDelete;
+    setIsDeleting(true);
 
     try {
+      // Optimistically update UI immediately
+      setMaterials(prev => prev.filter(m => m.id !== item.id && (!item.docId || m.docId !== item.docId)));
       await deleteRawMaterialItem(item.id, item.docId);
       showNotification(`Deleted "${item.name}" from inventory.`, 'info');
+      setMaterialToDelete(null);
     } catch (err) {
       console.error('Delete failed', err);
+      showNotification(`Failed to delete "${item.name}".`, 'error');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
-  const handleClearAllMaterials = async () => {
-    const confirmed = window.confirm(
-      'Are you sure you want to remove ALL products from the inventory? This will clear all items so you can add them manually.'
-    );
-    if (!confirmed) return;
-
-    try {
-      await clearAllRawMaterials();
-      showNotification('All products removed from inventory. Ready for manual entry.', 'success');
-    } catch (err) {
-      console.error('Failed to clear inventory', err);
-      showNotification('Failed to clear all inventory products.', 'error');
-    }
+  const handleDeleteHistory = (entry: InventoryHistoryEntry) => {
+    setHistoryToDelete(entry);
   };
 
-  const handleDeleteHistory = async (entry: InventoryHistoryEntry) => {
-    const confirmed = window.confirm(
-      `Are you sure you want to remove this ${entry.type} entry for "${entry.materialName}"?`
-    );
-    if (!confirmed) return;
+  const confirmDeleteHistory = async () => {
+    if (!historyToDelete) return;
+    const entry = historyToDelete;
+    setIsDeleting(true);
 
     try {
+      setHistoryList(prev => prev.filter(h => h.id !== entry.id && (!entry.docId || h.docId !== entry.docId)));
       await deleteInventoryHistoryEntry(entry.id, entry.docId);
       showNotification('Transaction record deleted successfully.', 'info');
+      setHistoryToDelete(null);
     } catch (err: any) {
       console.error('Failed to delete history record', err);
       showNotification('Failed to delete transaction record.', 'error');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
-  const handleClearAllHistory = async () => {
-    const confirmed = window.confirm(
-      'Are you sure you want to remove ALL transaction history entries? This cannot be undone.'
-    );
-    if (!confirmed) return;
+  const handleClearAllHistory = () => {
+    setIsClearHistoryModalOpen(true);
+  };
 
+  const confirmClearAllHistory = async () => {
+    setIsDeleting(true);
     try {
+      setHistoryList([]);
       await clearAllInventoryHistory();
       showNotification('All transaction history records have been cleared.', 'info');
+      setIsClearHistoryModalOpen(false);
     } catch (err: any) {
       console.error('Failed to clear all history', err);
       showNotification('Failed to clear transaction history.', 'error');
+    } finally {
+      setIsDeleting(false);
     }
-  };
-
-  // Export to Excel
-  const handleExportExcel = () => {
-    const wb = XLSX.utils.book_new();
-
-    // Sheet 1: Raw Materials Stock
-    const stockData = materials.map(m => ({
-      "SKU": m.sku || '',
-      "Material Name": m.name,
-      "Category": m.category,
-      "Specifications": m.specs,
-      "Available Stock": m.availableQuantity,
-      "Unit": m.unit,
-      "Min Alert Threshold": m.minThreshold ?? 10,
-      "Total Received": m.totalReceived,
-      "Total Dispatched": m.totalDispatched,
-      "Storage Location": m.notes || ''
-    }));
-    const wsStock = XLSX.utils.json_to_sheet(stockData);
-    XLSX.utils.book_append_sheet(wb, wsStock, "Inventory Stock");
-
-    // Sheet 2: Movement History Ledger
-    const ledgerData = historyList.map(h => ({
-      "Date & Time": h.timestamp,
-      "Type": h.type,
-      "Material Name": h.materialName,
-      "Quantity": h.quantity,
-      "Unit": h.materialUnit || '',
-      "Project Name": h.projectName || 'N/A',
-      "Previous Stock": h.previousQuantity,
-      "New Stock": h.newQuantity,
-      "Received From / Dispatched To": h.type === 'RECEIVED' ? (h.receivedFrom || '') : (h.dispatchedTo || ''),
-      "PO / Challan No": h.challanOrPoNo || '',
-      "Notes": h.notes || '',
-      "Handled By": h.performedBy || ''
-    }));
-    const wsLedger = XLSX.utils.json_to_sheet(ledgerData);
-    XLSX.utils.book_append_sheet(wb, wsLedger, "Movement History");
-
-    XLSX.writeFile(wb, `SRK_Inventory_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
-    showNotification('Inventory report downloaded successfully!');
   };
 
   return (
@@ -356,8 +328,17 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
           </div>
         </div>
 
-        {/* 3 Main Action Buttons Requested by User */}
+        {/* Main Action Buttons */}
         <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto">
+          {/* 0. Scan Invoice / Bill Button */}
+          <button
+            onClick={() => setIsScanInvoiceModalOpen(true)}
+            className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs transition-all shadow-md shadow-amber-500/20 cursor-pointer"
+          >
+            <Sparkles className="w-4 h-4 text-slate-950 animate-pulse" />
+            <span>Scan Invoice / Bill</span>
+          </button>
+
           {/* 1. Add Raw Material Button */}
           <button
             onClick={() => {
@@ -386,27 +367,6 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
           >
             <ArrowUpRight className="w-4 h-4" />
             <span>Dispatch Raw Material</span>
-          </button>
-
-          {/* Clear All Products Button (only when there are items) */}
-          {materials.length > 0 && (
-            <button
-              onClick={handleClearAllMaterials}
-              title="Remove all products to add manually"
-              className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold transition-all shadow-xs cursor-pointer"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>Clear All</span>
-            </button>
-          )}
-
-          {/* Export Report */}
-          <button
-            onClick={handleExportExcel}
-            title="Download Excel Report"
-            className="p-2.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
-          >
-            <FileSpreadsheet className="w-4 h-4 text-emerald-700" />
           </button>
         </div>
       </div>
@@ -696,9 +656,31 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
                                 <p className="font-bold text-slate-900 text-sm leading-snug">
                                   {item.name}
                                 </p>
-                                <span className="inline-block text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md mt-0.5">
-                                  {item.sku || 'RM'}
-                                </span>
+                                <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                                  <span className="inline-block text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md">
+                                    {item.sku || 'RM'}
+                                  </span>
+                                  {item.boardCompany && (
+                                    <span className="text-[10px] font-extrabold text-amber-900 bg-amber-100 px-1.5 py-0.5 rounded-md border border-amber-200">
+                                      {item.boardCompany}
+                                    </span>
+                                  )}
+                                  {item.boardThickness && (
+                                    <span className="text-[10px] font-bold text-slate-800 bg-slate-100 px-1.5 py-0.5 rounded-md border border-slate-200">
+                                      {item.boardThickness}
+                                    </span>
+                                  )}
+                                  {item.boardSize && (
+                                    <span className="text-[10px] font-bold text-slate-800 bg-slate-100 px-1.5 py-0.5 rounded-md border border-slate-200">
+                                      {item.boardSize} ft
+                                    </span>
+                                  )}
+                                  {item.colorCode && (
+                                    <span className="text-[10px] font-bold text-purple-800 bg-purple-50 px-1.5 py-0.5 rounded-md border border-purple-200">
+                                      Color: {item.colorCode}
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                             </div>
                           </td>
@@ -1085,6 +1067,222 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
           </div>
         </div>
       )}
+
+      {/* CONFIRM DELETE RAW MATERIAL MODAL */}
+      <AnimatePresence>
+        {materialToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden"
+            >
+              <div className="p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600">
+                    <Trash2 className="w-6 h-6" />
+                  </div>
+                  <button
+                    onClick={() => setMaterialToDelete(null)}
+                    disabled={isDeleting}
+                    className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 cursor-pointer disabled:opacity-50"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                <h3 className="text-lg font-black text-slate-900 mb-1">
+                  Delete Raw Material?
+                </h3>
+                <p className="text-sm text-slate-600 mb-3">
+                  Are you sure you want to delete <strong className="text-slate-900 font-bold">"{materialToDelete.name}"</strong>?
+                </p>
+                {materialToDelete.availableQuantity > 0 && (
+                  <div className="mb-3 p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs">
+                    <p className="font-bold flex items-center gap-1.5">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span>Stock Remaining: {materialToDelete.availableQuantity} {materialToDelete.unit}</span>
+                    </p>
+                    <p className="mt-0.5 text-amber-700">Deleting this will remove the product and its current stock balance.</p>
+                  </div>
+                )}
+                <p className="text-xs text-slate-400">
+                  This action cannot be undone and will permanently remove this material from inventory.
+                </p>
+              </div>
+
+              <div className="bg-slate-50 px-6 py-4 flex items-center justify-end gap-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={() => setMaterialToDelete(null)}
+                  className="px-4 py-2 rounded-xl text-slate-700 hover:bg-slate-200/80 font-bold text-xs transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={confirmDeleteMaterial}
+                  className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs transition-colors shadow-sm flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {isDeleting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Deleting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4" />
+                      <span>Yes, Delete Raw Material</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* CONFIRM DELETE HISTORY ENTRY MODAL */}
+      <AnimatePresence>
+        {historyToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden"
+            >
+              <div className="p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600">
+                    <Trash2 className="w-6 h-6" />
+                  </div>
+                  <button
+                    onClick={() => setHistoryToDelete(null)}
+                    disabled={isDeleting}
+                    className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 cursor-pointer disabled:opacity-50"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                <h3 className="text-lg font-black text-slate-900 mb-1">
+                  Delete Transaction Record?
+                </h3>
+                <p className="text-sm text-slate-600 mb-2">
+                  Are you sure you want to remove this <span className="font-bold text-slate-900">{historyToDelete.type}</span> record for <strong className="text-slate-900 font-bold">"{historyToDelete.materialName}"</strong>?
+                </p>
+                <p className="text-xs text-slate-400">
+                  Timestamp: {historyToDelete.timestamp} • Movement: {historyToDelete.type === 'RECEIVED' ? '+' : '-'}{historyToDelete.quantity} {historyToDelete.materialUnit || 'Nos'}
+                </p>
+              </div>
+
+              <div className="bg-slate-50 px-6 py-4 flex items-center justify-end gap-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={() => setHistoryToDelete(null)}
+                  className="px-4 py-2 rounded-xl text-slate-700 hover:bg-slate-200/80 font-bold text-xs transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={confirmDeleteHistory}
+                  className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs transition-colors shadow-sm flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {isDeleting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Deleting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4" />
+                      <span>Delete Record</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* CONFIRM CLEAR ALL HISTORY MODAL */}
+      <AnimatePresence>
+        {isClearHistoryModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden"
+            >
+              <div className="p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600">
+                    <AlertTriangle className="w-6 h-6" />
+                  </div>
+                  <button
+                    onClick={() => setIsClearHistoryModalOpen(false)}
+                    disabled={isDeleting}
+                    className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 cursor-pointer disabled:opacity-50"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                <h3 className="text-lg font-black text-slate-900 mb-1">
+                  Clear All History Records?
+                </h3>
+                <p className="text-sm text-slate-600 mb-4">
+                  Are you sure you want to permanently clear all transaction history records? This cannot be undone.
+                </p>
+              </div>
+
+              <div className="bg-slate-50 px-6 py-4 flex items-center justify-end gap-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={() => setIsClearHistoryModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-slate-700 hover:bg-slate-200/80 font-bold text-xs transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={confirmClearAllHistory}
+                  className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs transition-colors shadow-sm flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {isDeleting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Clearing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4" />
+                      <span>Clear All History</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* SCAN INVOICE MODAL */}
+      <ScanInvoiceModal
+        isOpen={isScanInvoiceModalOpen}
+        onClose={() => setIsScanInvoiceModalOpen(false)}
+        onBatchAdded={(count) => {
+          showNotification(`Successfully extracted and added ${count} raw material item(s) to inventory!`, 'success');
+        }}
+      />
     </div>
   );
 };

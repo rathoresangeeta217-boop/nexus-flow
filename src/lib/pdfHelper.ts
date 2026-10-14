@@ -625,10 +625,8 @@ export const generatePaymentReminderPDF = async (order: any, paymentRecord?: any
     const orderAmt = matchOrder ? parseFloat(matchOrder[0].replace(/,/g, "")) : 0;
 
     const grandTotal = parseVal(paymentRecord.grandTotal) || orderAmt;
-    const transport = parseVal(paymentRecord.transportationCharges || paymentRecord.loadingCharges, grandTotal);
-    const install = parseVal(paymentRecord.installationCharges, grandTotal);
-    
-    const displayTotalAmt = grandTotal + transport + install;
+    // Grand Total ALREADY includes transportation, installation, and taxes
+    const displayTotalAmt = grandTotal;
 
     const receivedPhases = paymentRecord.phases.filter((p: any) => p.status === 'Received');
     let advanceReceived = 0;

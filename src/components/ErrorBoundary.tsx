@@ -39,14 +39,30 @@ export class ErrorBoundary extends Component<Props, State> {
           <p className="text-slate-600 max-w-md mb-6 text-sm">
             {this.state.error?.message || 'An unexpected error occurred while loading the application.'}
           </p>
-          <button
-            onClick={() => {
-              window.location.reload();
-            }}
-            className="px-6 py-2.5 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition-colors shadow-sm cursor-pointer"
-          >
-            Reload Application
-          </button>
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <button
+              onClick={() => {
+                try {
+                  sessionStorage.clear();
+                } catch (e) {}
+                window.location.reload();
+              }}
+              className="px-5 py-2.5 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition-colors shadow-sm cursor-pointer text-sm"
+            >
+              Reload Application
+            </button>
+            <button
+              onClick={() => {
+                try {
+                  sessionStorage.clear();
+                } catch (e) {}
+                window.location.href = '/';
+              }}
+              className="px-5 py-2.5 bg-slate-200 text-slate-800 font-semibold rounded-xl hover:bg-slate-300 transition-colors shadow-sm cursor-pointer text-sm"
+            >
+              Go to Storefront
+            </button>
+          </div>
         </div>
       );
     }

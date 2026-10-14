@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { X, Upload, Package, AlertCircle, Sparkles, Image as ImageIcon, Camera, CameraOff, RefreshCw, Check } from 'lucide-react';
 import { RawMaterialItem, saveRawMaterialItem } from '../lib/inventory';
 import { compressImageFile } from '../lib/fileStorage';
+import { ScanInvoiceModal } from './ScanInvoiceModal';
 
 interface AddRawMaterialModalProps {
   isOpen: boolean;
@@ -44,6 +45,49 @@ const QUICK_PRESETS = [
   { label: 'Hinges', url: 'https://images.unsplash.com/photo-1513694203232-719a280e022f?w=300&q=80' },
 ];
 
+const BOARD_COMPANIES = [
+  'Action TESA',
+  'CenturyPly',
+  'Greenlam',
+  'Merino',
+  'Archidply',
+  'Sharon',
+  'Duro',
+  'Austin Ply',
+  'Associate',
+  'Trojan',
+  'Crossbond',
+  'Greenpanel'
+];
+
+const BOARD_THICKNESSES = [
+  '4 mm',
+  '9 mm',
+  '12 mm',
+  '16 mm',
+  '18 mm',
+  '19 mm',
+  '25 mm'
+];
+
+const BOARD_SIZES = [
+  '8 x 4',
+  '8 x 6',
+  '9 x 6',
+  '6 x 3',
+  '6 x 4'
+];
+
+const COLOR_PRESETS = [
+  'SF 101 White',
+  'SF 202 Off-White',
+  'SF 305 Teak Wood',
+  'Oak Finish',
+  'Dark Walnut',
+  'Frosty White',
+  'Grey Metallic'
+];
+
 export const AddRawMaterialModal: React.FC<AddRawMaterialModalProps> = ({
   isOpen,
   onClose,
@@ -52,12 +96,12 @@ export const AddRawMaterialModal: React.FC<AddRawMaterialModalProps> = ({
 }) => {
   const [name, setName] = useState(initialItem?.name || '');
   const [sku, setSku] = useState(initialItem?.sku || '');
-  const [category, setCategory] = useState(initialItem?.category || 'Hardware & Fasteners');
+  const [category, setCategory] = useState(initialItem?.category || 'Plywood & Boards');
   const [specs, setSpecs] = useState(initialItem?.specs || '');
   const [availableQuantity, setAvailableQuantity] = useState(
     initialItem ? String(initialItem.availableQuantity) : '100'
   );
-  const [unit, setUnit] = useState(initialItem?.unit || 'Nos');
+  const [unit, setUnit] = useState(initialItem?.unit || 'Sheet');
   const [minThreshold, setMinThreshold] = useState(
     initialItem?.minThreshold !== undefined ? String(initialItem.minThreshold) : '20'
   );
@@ -65,6 +109,30 @@ export const AddRawMaterialModal: React.FC<AddRawMaterialModalProps> = ({
   const [imageName, setImageName] = useState(initialItem?.imageName || '');
   const [notes, setNotes] = useState(initialItem?.notes || '');
   
+  // Custom board fields state
+  const [boardClassification, setBoardClassification] = useState<string>(
+    initialItem?.boardClassification || 'Plain'
+  );
+  const [boardType, setBoardType] = useState<string>(
+    initialItem?.boardType || 'HDHMR'
+  );
+  const [boardCompany, setBoardCompany] = useState<string>(
+    initialItem?.boardCompany || 'Action TESA'
+  );
+  const [customCompany, setCustomCompany] = useState<string>('');
+  const [boardThickness, setBoardThickness] = useState<string>(
+    initialItem?.boardThickness || '18 mm'
+  );
+  const [boardSize, setBoardSize] = useState<string>(
+    initialItem?.boardSize || '8 x 4'
+  );
+  const [colorCode, setColorCode] = useState<string>(
+    initialItem?.colorCode || ''
+  );
+
+  const isBoardCategory = category === 'Plywood & Boards' || category.toLowerCase().includes('board') || category.toLowerCase().includes('plywood');
+
+  const [isScanModalOpen, setIsScanModalOpen] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -215,6 +283,8 @@ export const AddRawMaterialModal: React.FC<AddRawMaterialModalProps> = ({
 
       const generatedSku = sku.trim() || `RM-${name.trim().substring(0, 4).toUpperCase().replace(/[^A-Z]/g, '')}-${Math.floor(100 + Math.random() * 900)}`;
 
+      const effectiveComp = boardCompany === 'Custom' ? customCompany : boardCompany;
+
       const materialData: Partial<RawMaterialItem> = {
         ...(initialItem?.id ? { id: initialItem.id, docId: initialItem.docId } : {}),
         name: name.trim(),
@@ -228,7 +298,13 @@ export const AddRawMaterialModal: React.FC<AddRawMaterialModalProps> = ({
         imageName,
         notes: notes.trim(),
         totalReceived: initialItem?.totalReceived ?? qty,
-        totalDispatched: initialItem?.totalDispatched ?? 0
+        totalDispatched: initialItem?.totalDispatched ?? 0,
+        boardClassification: isBoardCategory ? boardClassification : undefined,
+        boardType: isBoardCategory ? boardType : undefined,
+        boardCompany: isBoardCategory ? effectiveComp : undefined,
+        boardThickness: isBoardCategory ? boardThickness : undefined,
+        boardSize: isBoardCategory ? boardSize : undefined,
+        colorCode: isBoardCategory ? colorCode : undefined
       };
 
       await saveRawMaterialItem(materialData);
@@ -243,6 +319,16 @@ export const AddRawMaterialModal: React.FC<AddRawMaterialModalProps> = ({
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  // Helper function to auto-compose product name and specifications from board inputs
+  const applyBoardAutoFill = () => {
+    const effectiveComp = boardCompany === 'Custom' ? customCompany : boardCompany;
+    const computedName = `${boardThickness} ${effectiveComp ? effectiveComp + ' ' : ''}${boardClassification !== 'Plywood' && boardClassification !== 'PLPB' ? boardClassification + ' ' : ''}${boardType} (${boardSize})${colorCode ? ` - ${colorCode}` : ''}`.trim();
+    const computedSpecs = `Class: ${boardClassification} | Type: ${boardType} | Company: ${effectiveComp || 'Standard'} | Thickness: ${boardThickness} | Size: ${boardSize} ft${colorCode ? ` | Color: ${colorCode}` : ''}`;
+    
+    setName(computedName);
+    setSpecs(computedSpecs);
   };
 
   return (
@@ -263,15 +349,29 @@ export const AddRawMaterialModal: React.FC<AddRawMaterialModalProps> = ({
               </p>
             </div>
           </div>
-          <button
-            onClick={() => {
-              stopCamera();
-              onClose();
-            }}
-            className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsScanModalOpen(true)}
+              className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer shadow-md"
+              title="Scan purchase invoice or bill with camera / file upload to auto-fill material fields"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-slate-950" />
+              <span className="hidden sm:inline">Scan Invoice &amp; Auto-Fill</span>
+              <span className="sm:hidden">Scan Bill</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                stopCamera();
+                onClose();
+              }}
+              className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Form Body */}
@@ -280,6 +380,271 @@ export const AddRawMaterialModal: React.FC<AddRawMaterialModalProps> = ({
             <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{error}</span>
+            </div>
+          )}
+
+          {/* Category & Unit Selection (First as requested) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-indigo-50/50 p-4 rounded-xl border border-indigo-100">
+            <div>
+              <label className="block text-xs font-bold text-indigo-950 uppercase tracking-wider mb-1.5">
+                Category <span className="text-rose-500">*</span>
+              </label>
+              <select
+                value={category}
+                onChange={(e) => {
+                  const newCat = e.target.value;
+                  setCategory(newCat);
+                  if (newCat === 'Plywood & Boards' || newCat.toLowerCase().includes('board') || newCat.toLowerCase().includes('plywood')) {
+                    setUnit('Sheet');
+                  }
+                }}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-indigo-200 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 text-sm font-bold text-slate-900 bg-white"
+              >
+                {CATEGORIES.map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-indigo-950 uppercase tracking-wider mb-1.5">
+                Measuring Unit <span className="text-rose-500">*</span>
+              </label>
+              <select
+                value={unit}
+                onChange={(e) => setUnit(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-indigo-200 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 text-sm font-bold text-slate-900 bg-white"
+              >
+                {UNITS.map(u => (
+                  <option key={u} value={u}>{u}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* CUSTOM FIELDS FOR PLYWOOD & BOARD CATEGORY */}
+          {isBoardCategory && (
+            <div className="p-4 bg-amber-50/60 border-2 border-amber-300/80 rounded-2xl space-y-4 shadow-xs">
+              <div className="flex items-center justify-between pb-2 border-b border-amber-200">
+                <div className="flex items-center gap-2">
+                  <span className="p-1.5 rounded-lg bg-amber-500 text-white font-black text-xs">
+                    BOARD
+                  </span>
+                  <div>
+                    <h4 className="text-xs font-bold text-amber-950 uppercase tracking-wider">
+                      Plywood & Board Custom Fields
+                    </h4>
+                    <p className="text-[11px] text-amber-800">
+                      Configure board classification, type, brand, thickness, size, and color code
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={applyBoardAutoFill}
+                  className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  title="Auto-generate product name and specifications from these board selections"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Auto-Fill Name &amp; Specs</span>
+                </button>
+              </div>
+
+              {/* 1. Board Classification & Board Type */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-amber-900 uppercase tracking-wider mb-1">
+                    Board Category / Finish ("First")
+                  </label>
+                  <select
+                    value={boardClassification}
+                    onChange={(e) => {
+                      const newCls = e.target.value;
+                      setBoardClassification(newCls);
+                      if (newCls === 'Plywood') {
+                        setBoardType('Commercial Plywood');
+                      } else if (newCls === 'PLPB') {
+                        setBoardType('PLPB');
+                      } else {
+                        setBoardType('HDHMR');
+                      }
+                    }}
+                    className="w-full px-3 py-2 rounded-xl border border-amber-300 text-xs font-bold text-slate-900 bg-white"
+                  >
+                    <option value="Plain">1. Plain Category</option>
+                    <option value="Pre-Laminated">2. Pre-Laminated Category</option>
+                    <option value="Plywood">3. Plywood Category</option>
+                    <option value="PLPB">4. PLPB (Standard Board)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-amber-900 uppercase tracking-wider mb-1">
+                    Board Type
+                  </label>
+                  <select
+                    value={boardType}
+                    onChange={(e) => setBoardType(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-amber-300 text-xs font-bold text-slate-900 bg-white"
+                  >
+                    {boardClassification === 'Plywood' ? (
+                      <>
+                        <option value="Commercial Plywood">Commercial Plywood</option>
+                        <option value="Marine / BWP Plywood">Marine / BWP Plywood</option>
+                        <option value="BWR Plywood">BWR Plywood</option>
+                        <option value="Flexible Plywood">Flexible Plywood</option>
+                        <option value="Calibrated Plywood">Calibrated Plywood</option>
+                      </>
+                    ) : boardClassification === 'PLPB' ? (
+                      <option value="PLPB">PLPB Board</option>
+                    ) : (
+                      <>
+                        <option value="PLPB">PLPB Board</option>
+                        <option value="MDF">MDF Board</option>
+                        <option value="HDHMR">HDHMR Board</option>
+                      </>
+                    )}
+                  </select>
+                </div>
+              </div>
+
+              {/* 2. Company / Brand Field */}
+              <div>
+                <label className="block text-xs font-bold text-amber-900 uppercase tracking-wider mb-1">
+                  Board Company / Brand Name
+                </label>
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {BOARD_COMPANIES.map(comp => (
+                    <button
+                      key={comp}
+                      type="button"
+                      onClick={() => {
+                        setBoardCompany(comp);
+                        setCustomCompany('');
+                      }}
+                      className={`text-xs px-2.5 py-1 rounded-lg font-semibold transition-all cursor-pointer ${
+                        boardCompany === comp
+                          ? 'bg-amber-700 text-white shadow-xs'
+                          : 'bg-white text-slate-700 hover:bg-amber-100 border border-amber-200'
+                      }`}
+                    >
+                      {comp}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setBoardCompany('Custom')}
+                    className={`text-xs px-2.5 py-1 rounded-lg font-semibold transition-all cursor-pointer ${
+                      boardCompany === 'Custom'
+                        ? 'bg-amber-700 text-white shadow-xs'
+                        : 'bg-white text-amber-900 hover:bg-amber-100 border border-amber-300'
+                    }`}
+                  >
+                    + Custom Company
+                  </button>
+                </div>
+
+                {(boardCompany === 'Custom' || !BOARD_COMPANIES.includes(boardCompany)) && (
+                  <input
+                    type="text"
+                    value={customCompany}
+                    onChange={(e) => setCustomCompany(e.target.value)}
+                    placeholder="Type board company name (e.g. Greenply, Century, Action TESA...)"
+                    className="w-full px-3 py-2 rounded-xl border border-amber-300 text-xs font-semibold text-slate-900 bg-white"
+                  />
+                )}
+              </div>
+
+              {/* 3. Thickness Selection */}
+              <div>
+                <label className="block text-xs font-bold text-amber-900 uppercase tracking-wider mb-1">
+                  Board Thickness
+                </label>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {BOARD_THICKNESSES.map(th => (
+                    <button
+                      key={th}
+                      type="button"
+                      onClick={() => setBoardThickness(th)}
+                      className={`text-xs px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                        boardThickness === th
+                          ? 'bg-slate-900 text-white shadow-xs'
+                          : 'bg-white text-slate-700 hover:bg-amber-100 border border-amber-200'
+                      }`}
+                    >
+                      {th}
+                    </button>
+                  ))}
+                  <input
+                    type="text"
+                    value={boardThickness}
+                    onChange={(e) => setBoardThickness(e.target.value)}
+                    placeholder="Custom mm"
+                    className="w-24 px-2.5 py-1 rounded-lg border border-amber-300 text-xs font-semibold text-slate-900 bg-white"
+                  />
+                </div>
+              </div>
+
+              {/* 4. Board Size Selection */}
+              <div>
+                <label className="block text-xs font-bold text-amber-900 uppercase tracking-wider mb-1">
+                  Board Size (Feet)
+                </label>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {BOARD_SIZES.map(sz => (
+                    <button
+                      key={sz}
+                      type="button"
+                      onClick={() => setBoardSize(sz)}
+                      className={`text-xs px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                        boardSize === sz
+                          ? 'bg-slate-900 text-white shadow-xs'
+                          : 'bg-white text-slate-700 hover:bg-amber-100 border border-amber-200'
+                      }`}
+                    >
+                      {sz} ft
+                    </button>
+                  ))}
+                  <input
+                    type="text"
+                    value={boardSize}
+                    onChange={(e) => setBoardSize(e.target.value)}
+                    placeholder="Custom size"
+                    className="w-28 px-2.5 py-1 rounded-lg border border-amber-300 text-xs font-semibold text-slate-900 bg-white"
+                  />
+                </div>
+              </div>
+
+              {/* 5. Color Code or Color Options Field */}
+              <div>
+                <label className="block text-xs font-bold text-amber-900 uppercase tracking-wider mb-1">
+                  Color Code / Finish / Shade
+                </label>
+                <div className="flex flex-wrap gap-1.5 mb-1.5">
+                  {COLOR_PRESETS.map(clr => (
+                    <button
+                      key={clr}
+                      type="button"
+                      onClick={() => setColorCode(clr)}
+                      className={`text-[11px] px-2 py-1 rounded-md font-medium transition-all cursor-pointer ${
+                        colorCode === clr
+                          ? 'bg-amber-800 text-white'
+                          : 'bg-white text-slate-700 border border-amber-200 hover:bg-amber-100'
+                      }`}
+                    >
+                      {clr}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  type="text"
+                  value={colorCode}
+                  onChange={(e) => setColorCode(e.target.value)}
+                  placeholder="Enter color code or shade (e.g. SF 101, Frosty White, 402 Walnut...)"
+                  className="w-full px-3 py-2 rounded-xl border border-amber-300 text-xs font-medium text-slate-900 bg-white"
+                />
+              </div>
             </div>
           )}
 
@@ -293,7 +658,7 @@ export const AddRawMaterialModal: React.FC<AddRawMaterialModalProps> = ({
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Nails, 25mm Drywall Screws, PVC Tape"
+                placeholder="e.g. 18mm Action TESA Plain HDHMR Board (8 x 4)"
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 text-sm font-medium text-slate-900"
                 required
               />
@@ -306,60 +671,24 @@ export const AddRawMaterialModal: React.FC<AddRawMaterialModalProps> = ({
                 type="text"
                 value={sku}
                 onChange={(e) => setSku(e.target.value)}
-                placeholder="e.g. RM-NAIL-01"
+                placeholder="e.g. RM-BOARD-18"
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 text-sm font-medium text-slate-900"
               />
-            </div>
-          </div>
-
-          {/* Category & Unit */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                Category
-              </label>
-              <select
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 text-sm font-medium text-slate-900 bg-white"
-              >
-                {CATEGORIES.map(cat => (
-                  <option key={cat} value={cat}>{cat}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                Measuring Unit <span className="text-rose-500">*</span>
-              </label>
-              <select
-                value={unit}
-                onChange={(e) => setUnit(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 text-sm font-medium text-slate-900 bg-white"
-              >
-                {UNITS.map(u => (
-                  <option key={u} value={u}>{u}</option>
-                ))}
-              </select>
             </div>
           </div>
 
           {/* Specifications */}
           <div>
             <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-              Specifications & Technical Details
+              Specifications &amp; Technical Details
             </label>
             <textarea
               rows={2}
               value={specs}
               onChange={(e) => setSpecs(e.target.value)}
-              placeholder="e.g. 50mm wire nail, galvanized steel finish, 10 Gauge, 100 pcs per box"
+              placeholder="e.g. Class: Plain | Type: HDHMR | Company: Action TESA | Thickness: 18 mm | Size: 8 x 4 ft"
               className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 text-sm font-medium text-slate-900"
             />
-            <span className="text-[11px] text-slate-400 mt-1 block">
-              Include size, thickness, material grade, coating, packing size, etc.
-            </span>
           </div>
 
           {/* Quantities */}
@@ -669,6 +998,27 @@ export const AddRawMaterialModal: React.FC<AddRawMaterialModalProps> = ({
           </div>
         </form>
       </div>
+
+      {/* SCAN INVOICE SUB-MODAL */}
+      <ScanInvoiceModal
+        isOpen={isScanModalOpen}
+        onClose={() => setIsScanModalOpen(false)}
+        onApplyToSingleItem={(scannedItem, vendor, invNo) => {
+          if (scannedItem.name) setName(scannedItem.name);
+          if (scannedItem.category) setCategory(scannedItem.category);
+          if (scannedItem.sku) setSku(scannedItem.sku);
+          if (scannedItem.specs) setSpecs(scannedItem.specs);
+          if (scannedItem.quantity) setAvailableQuantity(String(scannedItem.quantity));
+          if (scannedItem.unit) setUnit(scannedItem.unit);
+          if (scannedItem.boardClassification) setBoardClassification(scannedItem.boardClassification);
+          if (scannedItem.boardType) setBoardType(scannedItem.boardType);
+          if (scannedItem.boardCompany) setBoardCompany(scannedItem.boardCompany);
+          if (scannedItem.boardThickness) setBoardThickness(scannedItem.boardThickness);
+          if (scannedItem.boardSize) setBoardSize(scannedItem.boardSize);
+          if (scannedItem.colorCode) setColorCode(scannedItem.colorCode);
+          if (vendor || invNo) setNotes(`Vendor: ${vendor || ''} | Bill Ref: ${invNo || ''}`);
+        }}
+      />
     </div>
   );
 };

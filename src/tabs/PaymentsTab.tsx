@@ -39,10 +39,8 @@ export function getOrderPaymentSummary(order: Order, customerPayments: PaymentRe
   let displayTotalAmt = orderAmt;
   if (paymentRecord) {
     const grandTotal = parseVal(paymentRecord.grandTotal) || orderAmt;
-    const transport = parseVal(paymentRecord.transportationCharges || paymentRecord.loadingCharges, grandTotal);
-    const install = parseVal(paymentRecord.installationCharges, grandTotal);
-    
-    displayTotalAmt = grandTotal + transport + install;
+    // Grand Total ALREADY includes transportation, installation, and taxes
+    displayTotalAmt = grandTotal;
 
     let receivedPhasesTotal = 0;
     if (paymentRecord.phases) {

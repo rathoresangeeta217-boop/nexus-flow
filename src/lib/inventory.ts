@@ -32,6 +32,13 @@ export interface RawMaterialItem {
   unitCost?: number;
   totalReceived: number;
   totalDispatched: number;
+  // Custom fields for Plywood & Board category
+  boardClassification?: string; // 'Plain' | 'Pre-Laminated' | 'Plywood' | 'PLPB'
+  boardType?: string; // 'PLPB' | 'MDF' | 'HDHMR' | 'Plywood'
+  boardCompany?: string; // e.g. Action TESA, CenturyPly
+  boardThickness?: string; // e.g. '18 mm'
+  boardSize?: string; // e.g. '8 x 4'
+  colorCode?: string; // e.g. 'SF 101'
   createdAt: any;
   updatedAt?: any;
 }
@@ -258,6 +265,12 @@ export async function saveRawMaterialItem(material: Partial<RawMaterialItem>): P
     unitCost: material.unitCost ? Number(material.unitCost) : undefined,
     totalReceived: Number(material.totalReceived || material.availableQuantity || 0),
     totalDispatched: Number(material.totalDispatched || 0),
+    boardClassification: material.boardClassification || '',
+    boardType: material.boardType || '',
+    boardCompany: material.boardCompany || '',
+    boardThickness: material.boardThickness || '',
+    boardSize: material.boardSize || '',
+    colorCode: material.colorCode || '',
     createdAt: material.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
@@ -302,12 +315,24 @@ export async function deleteRawMaterialItem(id: string, docId?: string): Promise
   const current = getLocalRawMaterials().filter(x => x.id !== id && (!docId || x.docId !== docId));
   setLocalRawMaterials(current);
 
-  if (docId) {
-    try {
+  try {
+    if (docId) {
       await deleteDoc(doc(db, 'raw_materials', docId));
-    } catch (err) {
-      console.warn('Firestore deleteRawMaterialItem error:', err);
     }
+    if (id) {
+      try {
+        await deleteDoc(doc(db, 'raw_materials', id));
+      } catch (_) {
+        // Document with this exact ID might not exist directly
+      }
+
+      const q = query(getRawMaterialsCol(), where('id', '==', id));
+      const snap = await getDocs(q);
+      const deletePromises = snap.docs.map(d => deleteDoc(d.ref));
+      await Promise.all(deletePromises);
+    }
+  } catch (err) {
+    console.warn('Firestore deleteRawMaterialItem error:', err);
   }
 }
 
