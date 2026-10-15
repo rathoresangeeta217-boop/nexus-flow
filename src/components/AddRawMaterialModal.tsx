@@ -108,6 +108,8 @@ export const AddRawMaterialModal: React.FC<AddRawMaterialModalProps> = ({
   const [imageUrl, setImageUrl] = useState(initialItem?.imageUrl || '');
   const [imageName, setImageName] = useState(initialItem?.imageName || '');
   const [notes, setNotes] = useState(initialItem?.notes || '');
+  const [challanOrPoNo, setChallanOrPoNo] = useState(initialItem?.challanOrPoNo || '');
+  const [receivedFrom, setReceivedFrom] = useState(initialItem?.receivedFrom || '');
   
   // Custom board fields state
   const [boardClassification, setBoardClassification] = useState<string>(
@@ -173,7 +175,23 @@ export const AddRawMaterialModal: React.FC<AddRawMaterialModalProps> = ({
       setMinThreshold(initialItem?.minThreshold !== undefined ? String(initialItem.minThreshold) : '20');
       setImageUrl(initialItem?.imageUrl || '');
       setImageName(initialItem?.imageName || '');
+      const extractRef = (n?: string) => {
+        if (!n) return '';
+        const match = n.match(/(?:Ref|Invoice|Bill|Challan|PO|No)[\s:]*([A-Za-z0-9_\-\/]+)/i);
+        return match ? match[1] : '';
+      };
+      const extractVendor = (n?: string) => {
+        if (!n) return '';
+        const match = n.match(/Vendor[\s:]*([^|]+)/i);
+        return match ? match[1].trim() : '';
+      };
+
+      const initInv = initialItem?.challanOrPoNo || extractRef(initialItem?.notes);
+      const initVendor = initialItem?.receivedFrom || extractVendor(initialItem?.notes);
+
       setNotes(initialItem?.notes || '');
+      setChallanOrPoNo(initInv || '');
+      setReceivedFrom(initVendor || '');
       setBoardClassification(initialItem?.boardClassification || 'Plain');
       setBoardType(initialItem?.boardType || 'HDHMR');
       setBoardCompany(initialItem?.boardCompany || 'Action TESA');
@@ -327,7 +345,9 @@ export const AddRawMaterialModal: React.FC<AddRawMaterialModalProps> = ({
         boardCompany: isBoardCategory ? effectiveComp : undefined,
         boardThickness: isBoardCategory ? boardThickness : undefined,
         boardSize: isBoardCategory ? boardSize : undefined,
-        colorCode: isBoardCategory ? colorCode : undefined
+        colorCode: isBoardCategory ? colorCode : undefined,
+        challanOrPoNo: challanOrPoNo.trim(),
+        receivedFrom: receivedFrom.trim()
       };
 
       await saveRawMaterialItem(materialData);
@@ -990,6 +1010,34 @@ export const AddRawMaterialModal: React.FC<AddRawMaterialModalProps> = ({
             </div>
           </div>
 
+          {/* Supplier & Invoice Reference (Recorded in Stock Movement Ledger) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-amber-50/40 p-3.5 rounded-xl border border-amber-200">
+            <div>
+              <label className="block text-xs font-bold text-amber-950 uppercase tracking-wider mb-1">
+                Vendor / Supplier Name
+              </label>
+              <input
+                type="text"
+                value={receivedFrom}
+                onChange={(e) => setReceivedFrom(e.target.value)}
+                placeholder="e.g. Action TESA / CenturyPly Dealer"
+                className="w-full px-3 py-2 rounded-xl border border-amber-300 text-xs font-semibold text-slate-900 bg-white"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-amber-950 uppercase tracking-wider mb-1">
+                Invoice / Bill / Challan No.
+              </label>
+              <input
+                type="text"
+                value={challanOrPoNo}
+                onChange={(e) => setChallanOrPoNo(e.target.value)}
+                placeholder="e.g. INV-2026-904"
+                className="w-full px-3 py-2 rounded-xl border border-amber-300 text-xs font-semibold text-slate-900 bg-white"
+              />
+            </div>
+          </div>
+
           {/* Notes / Storage Location */}
           <div>
             <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
@@ -1052,6 +1100,8 @@ export const AddRawMaterialModal: React.FC<AddRawMaterialModalProps> = ({
           if (scannedItem.boardThickness) setBoardThickness(scannedItem.boardThickness);
           if (scannedItem.boardSize) setBoardSize(scannedItem.boardSize);
           if (scannedItem.colorCode) setColorCode(scannedItem.colorCode);
+          if (vendor) setReceivedFrom(vendor);
+          if (invNo) setChallanOrPoNo(invNo);
           if (vendor || invNo) setNotes(`Vendor: ${vendor || ''} | Bill Ref: ${invNo || ''}`);
         }}
       />

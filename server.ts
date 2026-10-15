@@ -162,14 +162,22 @@ async function startServer() {
         return res.status(400).json({ error: "Missing file data" });
       }
 
-      // fileData is a data URL like "data:application/pdf;base64,..."
+      let mimeType = 'image/jpeg';
+      let base64Data = fileData;
+
       const match = fileData.match(/^data:([^;]+);base64,(.+)$/);
-      if (!match) {
-        return res.status(400).json({ error: "Invalid data URL format" });
+      if (match) {
+        mimeType = match[1];
+        base64Data = match[2];
+      } else if (fileData.includes(';base64,')) {
+        const parts = fileData.split(';base64,');
+        mimeType = parts[0].replace('data:', '') || 'image/jpeg';
+        base64Data = parts[1];
       }
 
-      const mimeType = match[1];
-      const base64Data = match[2];
+      if (mimeType.toLowerCase().includes('pdf') || mimeType === 'application/octet-stream') {
+        mimeType = 'application/pdf';
+      }
 
       const prompt = `
         Analyze this file and extract the following order details in JSON format.
@@ -261,6 +269,10 @@ async function startServer() {
         const parts = fileData.split(';base64,');
         mimeType = parts[0].replace('data:', '') || 'image/jpeg';
         base64Data = parts[1];
+      }
+
+      if (mimeType.toLowerCase().includes('pdf') || mimeType === 'application/octet-stream') {
+        mimeType = 'application/pdf';
       }
 
       const prompt = `

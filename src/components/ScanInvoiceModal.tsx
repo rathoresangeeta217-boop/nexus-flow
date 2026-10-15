@@ -18,8 +18,9 @@ import {
   CheckCircle2,
   Package
 } from 'lucide-react';
-import { RawMaterialItem, saveRawMaterialItem, receiveRawMaterialStock } from '../lib/inventory';
+import { RawMaterialItem, saveRawMaterialItem, receiveRawMaterialStock, getLocalRawMaterials, findMatchingItemIndex } from '../lib/inventory';
 import { compressImageFile } from '../lib/fileStorage';
+import { convertPdfToImage, isPdfFile } from '../lib/pdfUtils';
 
 export interface ScannedInvoiceItem {
   id: string;
@@ -181,14 +182,11 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
       if (file.type.startsWith('image/')) {
         setFileType('image');
         dataUrl = await compressImageFile(file, 1200, 0.88);
-      } else if (file.type === 'application/pdf') {
+      } else if (isPdfFile(file)) {
         setFileType('pdf');
-        dataUrl = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
+        setIsScanning(true);
+        setScanStep('Rendering PDF document pages...');
+        dataUrl = await convertPdfToImage(file);
       } else {
         setError('Please select an Image (JPG, PNG) or PDF document.');
         return;
@@ -199,6 +197,7 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
     } catch (err) {
       console.error('File process error:', err);
       setError('Could not process the selected file.');
+      setIsScanning(false);
     } finally {
       e.target.value = '';
     }
@@ -245,24 +244,35 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
         }
       }
 
-      const formattedItems: ScannedInvoiceItem[] = rawItems.map((it: any, idx: number) => ({
-        id: `scanned-${Date.now()}-${idx}`,
-        name: it.name || it.description || it.itemName || `Scanned Material #${idx + 1}`,
-        category: it.category || 'Plywood & Boards',
-        sku: it.sku || `RM-SCAN-${Math.floor(100 + Math.random() * 900)}`,
-        specs: it.specs || it.specification || '',
-        quantity: typeof it.quantity === 'number' && it.quantity > 0 ? it.quantity : (parseFloat(it.quantity) || 1),
-        unit: it.unit || 'Sheet',
-        unitCost: typeof it.unitCost === 'number' ? it.unitCost : (parseFloat(it.unitCost || it.rate) || undefined),
-        boardClassification: it.boardClassification || 'Plain',
-        boardType: it.boardType || 'HDHMR',
-        boardCompany: it.boardCompany || 'Action TESA',
-        boardThickness: it.boardThickness || '18 mm',
-        boardSize: it.boardSize || '8 x 4',
-        colorCode: it.colorCode || '',
-        notes: it.notes || '',
-        selected: true
-      }));
+      const formattedItems: ScannedInvoiceItem[] = rawItems.map((it: any, idx: number) => {
+        const name = it.name || it.description || it.itemName || `Scanned Material #${idx + 1}`;
+        const category = it.category || 'General Consumables';
+        const catLower = category.toLowerCase();
+        const nameLower = name.toLowerCase();
+
+        const isBoardCategory = catLower.includes('board') || catLower.includes('plywood') ||
+                                nameLower.includes('plywood') || nameLower.includes('board') ||
+                                nameLower.includes('mdf') || nameLower.includes('hdhmr') || nameLower.includes('plpb');
+
+        return {
+          id: `scanned-${Date.now()}-${idx}`,
+          name,
+          category: isBoardCategory ? (it.category || 'Plywood & Boards') : category,
+          sku: it.sku || `RM-SCAN-${Math.floor(100 + Math.random() * 900)}`,
+          specs: it.specs || it.specification || '',
+          quantity: typeof it.quantity === 'number' && it.quantity > 0 ? it.quantity : (parseFloat(it.quantity) || 1),
+          unit: it.unit || (isBoardCategory ? 'Sheet' : 'Nos'),
+          unitCost: typeof it.unitCost === 'number' ? it.unitCost : (parseFloat(it.unitCost || it.rate) || undefined),
+          boardClassification: isBoardCategory ? (it.boardClassification || 'Plain') : undefined,
+          boardType: isBoardCategory ? (it.boardType || 'HDHMR') : undefined,
+          boardCompany: isBoardCategory ? (it.boardCompany || '') : undefined,
+          boardThickness: isBoardCategory ? (it.boardThickness || '') : undefined,
+          boardSize: isBoardCategory ? (it.boardSize || '') : undefined,
+          colorCode: isBoardCategory ? (it.colorCode || '') : undefined,
+          notes: it.notes || '',
+          selected: true
+        };
+      });
 
       setScannedData({
         vendorName: result.vendorName || result.companyName || '',
@@ -320,6 +330,12 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
       for (const item of selectedItems) {
         const generatedSku = item.sku || `RM-SCAN-${Math.floor(100 + Math.random() * 900)}`;
 
+        const catLower = (item.category || '').toLowerCase();
+        const nameLower = (item.name || '').toLowerCase();
+        const isBoardCategory = catLower.includes('board') || catLower.includes('plywood') ||
+                                nameLower.includes('plywood') || nameLower.includes('board') ||
+                                nameLower.includes('mdf') || nameLower.includes('hdhmr') || nameLower.includes('plpb');
+
         const itemPayload: Partial<RawMaterialItem> = {
           name: item.name,
           sku: generatedSku,
@@ -333,12 +349,14 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
           unitCost: item.unitCost,
           totalReceived: item.quantity,
           totalDispatched: 0,
-          boardClassification: item.boardClassification,
-          boardType: item.boardType,
-          boardCompany: item.boardCompany,
-          boardThickness: item.boardThickness,
-          boardSize: item.boardSize,
-          colorCode: item.colorCode
+          boardClassification: isBoardCategory ? item.boardClassification : undefined,
+          boardType: isBoardCategory ? item.boardType : undefined,
+          boardCompany: isBoardCategory ? item.boardCompany : undefined,
+          boardThickness: isBoardCategory ? item.boardThickness : undefined,
+          boardSize: isBoardCategory ? item.boardSize : undefined,
+          colorCode: isBoardCategory ? item.colorCode : undefined,
+          challanOrPoNo: scannedData.invoiceNumber || '',
+          receivedFrom: scannedData.vendorName || ''
         };
 
         await saveRawMaterialItem(itemPayload);
@@ -630,34 +648,50 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200">
-                        {scannedData.items.map((item) => (
-                          <tr key={item.id} className={`hover:bg-slate-50 transition-colors ${item.selected ? 'bg-indigo-50/30' : 'opacity-60'}`}>
-                            {/* Checkbox */}
-                            <td className="p-3 text-center">
-                              <input
-                                type="checkbox"
-                                checked={item.selected}
-                                onChange={() => handleToggleSelectItem(item.id)}
-                                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                              />
-                            </td>
+                        {(() => {
+                          const existingInventory = getLocalRawMaterials();
+                          return scannedData.items.map((item) => {
+                            const matchIdx = findMatchingItemIndex(item, existingInventory);
+                            const matchedItem = matchIdx >= 0 ? existingInventory[matchIdx] : null;
 
-                            {/* Name & Specs */}
-                            <td className="p-3">
-                              <input
-                                type="text"
-                                value={item.name}
-                                onChange={(e) => handleUpdateItem(item.id, 'name', e.target.value)}
-                                className="font-bold text-slate-900 border border-slate-200 rounded-lg px-2 py-1 w-full text-xs"
-                              />
-                              <input
-                                type="text"
-                                value={item.specs}
-                                onChange={(e) => handleUpdateItem(item.id, 'specs', e.target.value)}
-                                placeholder="Specifications..."
-                                className="text-[11px] text-slate-600 border border-slate-200 rounded-lg px-2 py-0.5 w-full mt-1 bg-slate-50"
-                              />
-                            </td>
+                            return (
+                              <tr key={item.id} className={`hover:bg-slate-50 transition-colors ${item.selected ? 'bg-indigo-50/30' : 'opacity-60'}`}>
+                                {/* Checkbox */}
+                                <td className="p-3 text-center">
+                                  <input
+                                    type="checkbox"
+                                    checked={item.selected}
+                                    onChange={() => handleToggleSelectItem(item.id)}
+                                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                  />
+                                </td>
+
+                                {/* Name & Specs */}
+                                <td className="p-3">
+                                  <input
+                                    type="text"
+                                    value={item.name}
+                                    onChange={(e) => handleUpdateItem(item.id, 'name', e.target.value)}
+                                    className="font-bold text-slate-900 border border-slate-200 rounded-lg px-2 py-1 w-full text-xs"
+                                  />
+                                  <input
+                                    type="text"
+                                    value={item.specs}
+                                    onChange={(e) => handleUpdateItem(item.id, 'specs', e.target.value)}
+                                    placeholder="Specifications..."
+                                    className="text-[11px] text-slate-600 border border-slate-200 rounded-lg px-2 py-0.5 w-full mt-1 bg-slate-50"
+                                  />
+                                  {matchedItem ? (
+                                    <div className="mt-1 flex items-center gap-1.5 text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                                      <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                                      <span>Matches: <strong className="underline">{matchedItem.name}</strong> (+Qty will be added)</span>
+                                    </div>
+                                  ) : (
+                                    <div className="mt-1 text-[10px] font-medium text-slate-400 italic">
+                                      + Will create new product in inventory
+                                    </div>
+                                  )}
+                                </td>;
 
                             {/* Category */}
                             <td className="p-3">
@@ -693,15 +727,24 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
                             </td>
 
                             {/* Board Attributes */}
-                            <td className="p-3">
-                              <div className="flex flex-col gap-1 text-[10px]">
-                                <span className="font-bold text-amber-900 bg-amber-100 px-1.5 py-0.5 rounded-md truncate max-w-[120px]">
-                                  {item.boardCompany || 'Generic Brand'}
-                                </span>
-                                <span className="text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded-md">
-                                  {item.boardThickness || '18 mm'} | {item.boardSize || '8x4'}
-                                </span>
-                              </div>
+                            <td className="p-3 text-center">
+                              {((item.boardCompany || item.boardThickness || item.boardSize) &&
+                                ((item.category || '').toLowerCase().includes('board') || (item.category || '').toLowerCase().includes('plywood') || (item.name || '').toLowerCase().includes('board') || (item.name || '').toLowerCase().includes('plywood') || (item.name || '').toLowerCase().includes('mdf') || (item.name || '').toLowerCase().includes('hdhmr'))) ? (
+                                <div className="flex flex-col gap-1 text-[10px] items-center">
+                                  {item.boardCompany && (
+                                    <span className="font-bold text-amber-900 bg-amber-100 px-1.5 py-0.5 rounded-md truncate max-w-[120px]">
+                                      {item.boardCompany}
+                                    </span>
+                                  )}
+                                  {(item.boardThickness || item.boardSize) && (
+                                    <span className="text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded-md">
+                                      {item.boardThickness || ''} {item.boardThickness && item.boardSize ? '|' : ''} {item.boardSize || ''}
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-slate-400 text-xs font-mono font-bold">-</span>
+                              )}
                             </td>
 
                             {/* Single Fill Option if modal requested it */}
@@ -731,8 +774,10 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
                               </button>
                             </td>
                           </tr>
-                        ))}
-                      </tbody>
+                        );
+                      });
+                    })()}
+                  </tbody>
                     </table>
                   </div>
                 </div>

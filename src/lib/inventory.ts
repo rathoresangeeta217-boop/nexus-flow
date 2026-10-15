@@ -39,6 +39,8 @@ export interface RawMaterialItem {
   boardThickness?: string; // e.g. '18 mm'
   boardSize?: string; // e.g. '8 x 4'
   colorCode?: string; // e.g. 'SF 101'
+  challanOrPoNo?: string;
+  receivedFrom?: string;
   createdAt: any;
   updatedAt?: any;
 }
@@ -92,7 +94,26 @@ const STORAGE_INVENTORY_HISTORY = 'srk_inventory_history_cache';
 export function getLocalRawMaterials(): RawMaterialItem[] {
   try {
     const raw = localStorage.getItem(STORAGE_RAW_MATERIALS);
-    if (raw !== null) return JSON.parse(raw);
+    if (raw !== null) {
+      const items: RawMaterialItem[] = JSON.parse(raw);
+      return items.map(item => {
+        const cat = (item.category || '').toLowerCase();
+        const name = (item.name || '').toLowerCase();
+        const isBoardCat = cat.includes('board') || cat.includes('plywood') || name.includes('board') || name.includes('plywood') || name.includes('mdf') || name.includes('hdhmr') || name.includes('plpb');
+        if (!isBoardCat) {
+          return {
+            ...item,
+            boardClassification: undefined,
+            boardType: undefined,
+            boardCompany: undefined,
+            boardThickness: undefined,
+            boardSize: undefined,
+            colorCode: undefined
+          };
+        }
+        return item;
+      });
+    }
   } catch (e) {
     console.error('Failed to read local raw materials', e);
   }
@@ -245,68 +266,335 @@ export function subscribeToInventoryHistory(callback: (history: InventoryHistory
   };
 }
 
+export function normalizeName(str: string): string {
+  if (!str) return '';
+  return str
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+    .trim();
+}
+
+export function findMatchingItemIndex(
+  inputMaterial: Partial<RawMaterialItem>,
+  currentList: RawMaterialItem[]
+): number {
+  if (!currentList || currentList.length === 0) return -1;
+
+  const inputName = (inputMaterial.name || '').trim();
+  const normInputName = normalizeName(inputName);
+  const inputSku = (inputMaterial.sku || '').trim().toLowerCase();
+
+  // 1. Explicit ID or docId match
+  if (inputMaterial.id || inputMaterial.docId) {
+    const idx = currentList.findIndex(
+      x => (inputMaterial.id && x.id === inputMaterial.id) || (inputMaterial.docId && x.docId === inputMaterial.docId)
+    );
+    if (idx >= 0) return idx;
+  }
+
+  // 2. Exact case-insensitive name match
+  if (inputName) {
+    const exactIdx = currentList.findIndex(
+      x => x.name.trim().toLowerCase() === inputName.toLowerCase()
+    );
+    if (exactIdx >= 0) return exactIdx;
+  }
+
+  // 3. Normalized alphanumeric name match (ignores spaces, dashes, slashes, punctuation)
+  if (normInputName.length >= 3) {
+    const normIdx = currentList.findIndex(
+      x => normalizeName(x.name) === normInputName
+    );
+    if (normIdx >= 0) return normIdx;
+  }
+
+  // 4. SKU match
+  if (inputSku && inputSku !== 'rm' && !inputSku.startsWith('rm-scan')) {
+    const skuIdx = currentList.findIndex(
+      x => (x.sku || '').trim().toLowerCase() === inputSku
+    );
+    if (skuIdx >= 0) return skuIdx;
+  }
+
+  // 5. Board Attributes Match (Company + Type + Thickness + Size)
+  if (inputMaterial.boardCompany && inputMaterial.boardThickness && inputMaterial.boardSize) {
+    const boardIdx = currentList.findIndex(x => {
+      const companyMatch = normalizeName(x.boardCompany || '') === normalizeName(inputMaterial.boardCompany || '');
+      const typeMatch = !inputMaterial.boardType || !x.boardType || normalizeName(x.boardType) === normalizeName(inputMaterial.boardType);
+      const thickMatch = normalizeName(x.boardThickness || '') === normalizeName(inputMaterial.boardThickness || '');
+      const sizeMatch = normalizeName(x.boardSize || '') === normalizeName(inputMaterial.boardSize || '');
+      return companyMatch && typeMatch && thickMatch && sizeMatch && Boolean(x.boardCompany) && Boolean(x.boardThickness);
+    });
+    if (boardIdx >= 0) return boardIdx;
+  }
+
+  // 6. Substring containment match for long names (>= 6 chars)
+  if (normInputName.length >= 6) {
+    const subIdx = currentList.findIndex(x => {
+      const normX = normalizeName(x.name);
+      return normX.length >= 6 && (normX.includes(normInputName) || normInputName.includes(normX));
+    });
+    if (subIdx >= 0) return subIdx;
+  }
+
+  return -1;
+}
+
 // Save or Update a Raw Material
 export async function saveRawMaterialItem(material: Partial<RawMaterialItem>): Promise<string> {
   const currentList = getLocalRawMaterials();
-  const id = material.id || `rm-${Date.now()}`;
-  
-  const newItem: RawMaterialItem = {
-    id,
-    name: material.name || 'Unnamed Raw Material',
-    sku: material.sku || `RM-${Math.floor(1000 + Math.random() * 9000)}`,
-    category: material.category || 'General Consumables',
-    specs: material.specs || '',
-    availableQuantity: Number(material.availableQuantity || 0),
-    unit: material.unit || 'Nos',
-    minThreshold: Number(material.minThreshold ?? 10),
-    imageUrl: material.imageUrl || '',
-    imageName: material.imageName || '',
-    notes: material.notes || '',
-    unitCost: material.unitCost ? Number(material.unitCost) : undefined,
-    totalReceived: Number(material.totalReceived || material.availableQuantity || 0),
-    totalDispatched: Number(material.totalDispatched || 0),
-    boardClassification: material.boardClassification || '',
-    boardType: material.boardType || '',
-    boardCompany: material.boardCompany || '',
-    boardThickness: material.boardThickness || '',
-    boardSize: material.boardSize || '',
-    colorCode: material.colorCode || '',
-    createdAt: material.createdAt || new Date().toISOString(),
-    updatedAt: new Date().toISOString()
+  const inputName = (material.name || '').trim();
+
+  const extractRef = (notes?: string) => {
+    if (!notes) return '';
+    const match = notes.match(/(?:Ref|Invoice|Bill|Challan|PO|No)[\s:]*([A-Za-z0-9_\-\/]+)/i);
+    return match ? match[1] : '';
+  };
+  const extractVendor = (notes?: string) => {
+    if (!notes) return '';
+    const match = notes.match(/Vendor[\s:]*([^|]+)/i);
+    return match ? match[1].trim() : '';
   };
 
-  // Update local storage
-  const existingIdx = currentList.findIndex(x => x.id === id || (material.docId && x.docId === material.docId));
-  if (existingIdx >= 0) {
-    currentList[existingIdx] = { ...currentList[existingIdx], ...newItem };
-  } else {
-    currentList.unshift(newItem);
+  const invoiceNo = material.challanOrPoNo || extractRef(material.notes);
+  const vendorName = material.receivedFrom || extractVendor(material.notes) || 'Supplier';
+
+  // 1. Find matching item in local list
+  let existingIdx = findMatchingItemIndex(material, currentList);
+
+  // 2. Fallback check in Firestore if no match in local list
+  if (existingIdx < 0 && inputName && auth.currentUser) {
+    try {
+      const snap = await getDocs(getRawMaterialsCol());
+      if (!snap.empty) {
+        const firestoreItems = snap.docs.map(d => ({
+          ...d.data(),
+          id: d.data().id || d.id,
+          docId: d.id
+        })) as RawMaterialItem[];
+
+        const fsMatchIdx = findMatchingItemIndex(material, firestoreItems);
+        if (fsMatchIdx >= 0) {
+          const matchedFsItem = firestoreItems[fsMatchIdx];
+          const localIdx = currentList.findIndex(x => x.id === matchedFsItem.id || (x.docId && x.docId === matchedFsItem.docId));
+          if (localIdx >= 0) {
+            existingIdx = localIdx;
+          } else {
+            currentList.push(matchedFsItem);
+            existingIdx = currentList.length - 1;
+          }
+        }
+      }
+    } catch (fsErr) {
+      console.warn('Firestore fallback matching check warning:', fsErr);
+    }
   }
-  setLocalRawMaterials(currentList);
 
-  // Sync to Firestore
-  try {
-    const cleanData = removeUndefined({
-      ...newItem,
-      updatedAt: serverTimestamp()
-    });
+  if (existingIdx >= 0 && !material.id && !material.docId) {
+    // === PRODUCT NAME MATCHED IN EXISTING INVENTORY ===
+    // Add incoming quantity to existing product stock and record history movement record!
+    const existingItem = currentList[existingIdx];
+    const qtyToAdd = Number(material.availableQuantity || 0);
+    const prevQty = Number(existingItem.availableQuantity || 0);
+    const newQty = prevQty + qtyToAdd;
+    const newTotalReceived = Number(existingItem.totalReceived || 0) + qtyToAdd;
 
-    if (material.docId) {
-      await updateDoc(doc(db, 'raw_materials', material.docId), cleanData);
-      return material.docId;
-    } else {
-      const docRef = await addDoc(getRawMaterialsCol(), {
-        ...cleanData,
+    const updatedItem: RawMaterialItem = {
+      ...existingItem,
+      availableQuantity: newQty,
+      totalReceived: newTotalReceived,
+      ...(material.specs ? { specs: material.specs } : {}),
+      ...(material.boardClassification ? { boardClassification: material.boardClassification } : {}),
+      ...(material.boardType ? { boardType: material.boardType } : {}),
+      ...(material.boardCompany ? { boardCompany: material.boardCompany } : {}),
+      ...(material.boardThickness ? { boardThickness: material.boardThickness } : {}),
+      ...(material.boardSize ? { boardSize: material.boardSize } : {}),
+      ...(material.colorCode ? { colorCode: material.colorCode } : {}),
+      ...(material.unitCost ? { unitCost: Number(material.unitCost) } : {}),
+      ...(material.imageUrl ? { imageUrl: material.imageUrl } : {}),
+      notes: material.notes || existingItem.notes,
+      updatedAt: new Date().toISOString()
+    };
+
+    currentList[existingIdx] = updatedItem;
+    setLocalRawMaterials(currentList);
+
+    // Record Stock Movement History Entry
+    const now = new Date();
+    const historyEntry: InventoryHistoryEntry = {
+      id: `hist-rec-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      materialId: existingItem.id,
+      materialName: existingItem.name,
+      materialUnit: existingItem.unit,
+      materialImage: existingItem.imageUrl || material.imageUrl,
+      type: 'RECEIVED',
+      quantity: qtyToAdd,
+      previousQuantity: prevQty,
+      newQuantity: newQty,
+      receivedFrom: vendorName,
+      challanOrPoNo: invoiceNo,
+      notes: material.notes || `Stock Added (+${qtyToAdd} ${existingItem.unit}) ${invoiceNo ? `| Invoice: ${invoiceNo}` : ''}`,
+      timestamp: formatInventoryDateTime(now),
+      rawDate: now.toISOString(),
+      performedBy: 'Store Incharge',
+      createdAt: now.toISOString()
+    };
+
+    const history = getLocalHistory();
+    history.unshift(historyEntry);
+    setLocalHistory(history);
+
+    // Sync to Firestore
+    try {
+      if (existingItem.docId) {
+        await updateDoc(doc(db, 'raw_materials', existingItem.docId), {
+          availableQuantity: newQty,
+          totalReceived: newTotalReceived,
+          ...(material.specs ? { specs: material.specs } : {}),
+          ...(material.boardClassification ? { boardClassification: material.boardClassification } : {}),
+          ...(material.boardType ? { boardType: material.boardType } : {}),
+          ...(material.boardCompany ? { boardCompany: material.boardCompany } : {}),
+          ...(material.boardThickness ? { boardThickness: material.boardThickness } : {}),
+          ...(material.boardSize ? { boardSize: material.boardSize } : {}),
+          ...(material.colorCode ? { colorCode: material.colorCode } : {}),
+          updatedAt: serverTimestamp()
+        });
+      }
+
+      const cleanHistory = removeUndefined({
+        ...historyEntry,
         createdAt: serverTimestamp()
       });
-      // also record docId locally
+      await addDoc(getInventoryHistoryCol(), cleanHistory);
+    } catch (err) {
+      console.warn('Firestore saveRawMaterialItem quantity update offline:', err);
+    }
+
+    return existingItem.docId || existingItem.id;
+
+  } else if (existingIdx >= 0) {
+    // === EXPLICIT EDIT OF EXISTING PRODUCT BY ID ===
+    const existingItem = currentList[existingIdx];
+    const updatedItem: RawMaterialItem = {
+      ...existingItem,
+      name: material.name || existingItem.name,
+      sku: material.sku || existingItem.sku,
+      category: material.category || existingItem.category,
+      specs: material.specs !== undefined ? material.specs : existingItem.specs,
+      availableQuantity: material.availableQuantity !== undefined ? Number(material.availableQuantity) : existingItem.availableQuantity,
+      unit: material.unit || existingItem.unit,
+      minThreshold: material.minThreshold !== undefined ? Number(material.minThreshold) : existingItem.minThreshold,
+      imageUrl: material.imageUrl !== undefined ? material.imageUrl : existingItem.imageUrl,
+      imageName: material.imageName !== undefined ? material.imageName : existingItem.imageName,
+      notes: material.notes !== undefined ? material.notes : existingItem.notes,
+      unitCost: material.unitCost !== undefined ? Number(material.unitCost) : existingItem.unitCost,
+      totalReceived: material.totalReceived !== undefined ? Number(material.totalReceived) : existingItem.totalReceived,
+      totalDispatched: material.totalDispatched !== undefined ? Number(material.totalDispatched) : existingItem.totalDispatched,
+      boardClassification: material.boardClassification !== undefined ? material.boardClassification : existingItem.boardClassification,
+      boardType: material.boardType !== undefined ? material.boardType : existingItem.boardType,
+      boardCompany: material.boardCompany !== undefined ? material.boardCompany : existingItem.boardCompany,
+      boardThickness: material.boardThickness !== undefined ? material.boardThickness : existingItem.boardThickness,
+      boardSize: material.boardSize !== undefined ? material.boardSize : existingItem.boardSize,
+      colorCode: material.colorCode !== undefined ? material.colorCode : existingItem.colorCode,
+      updatedAt: new Date().toISOString()
+    };
+
+    currentList[existingIdx] = updatedItem;
+    setLocalRawMaterials(currentList);
+
+    try {
+      const cleanData = removeUndefined({
+        ...updatedItem,
+        updatedAt: serverTimestamp()
+      });
+      if (updatedItem.docId) {
+        await updateDoc(doc(db, 'raw_materials', updatedItem.docId), cleanData);
+      }
+    } catch (err) {
+      console.warn('Firestore edit material offline:', err);
+    }
+
+    return updatedItem.docId || updatedItem.id;
+
+  } else {
+    // === BRAND NEW PRODUCT (NO MATCH FOUND) ===
+    const id = material.id || `rm-${Date.now()}`;
+    const initialQty = Number(material.availableQuantity || 0);
+
+    const newItem: RawMaterialItem = {
+      id,
+      name: inputName || 'Unnamed Raw Material',
+      sku: material.sku || `RM-${Math.floor(1000 + Math.random() * 9000)}`,
+      category: material.category || 'General Consumables',
+      specs: material.specs || '',
+      availableQuantity: initialQty,
+      unit: material.unit || 'Nos',
+      minThreshold: Number(material.minThreshold ?? 10),
+      imageUrl: material.imageUrl || '',
+      imageName: material.imageName || '',
+      notes: material.notes || '',
+      unitCost: material.unitCost ? Number(material.unitCost) : undefined,
+      totalReceived: Number(material.totalReceived || initialQty),
+      totalDispatched: Number(material.totalDispatched || 0),
+      boardClassification: material.boardClassification || '',
+      boardType: material.boardType || '',
+      boardCompany: material.boardCompany || '',
+      boardThickness: material.boardThickness || '',
+      boardSize: material.boardSize || '',
+      colorCode: material.colorCode || '',
+      createdAt: material.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    currentList.unshift(newItem);
+    setLocalRawMaterials(currentList);
+
+    // Create Initial Movement Record for New Product
+    const now = new Date();
+    const historyEntry: InventoryHistoryEntry = {
+      id: `hist-rec-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      materialId: newItem.id,
+      materialName: newItem.name,
+      materialUnit: newItem.unit,
+      materialImage: newItem.imageUrl,
+      type: 'RECEIVED',
+      quantity: initialQty,
+      previousQuantity: 0,
+      newQuantity: initialQty,
+      receivedFrom: vendorName,
+      challanOrPoNo: invoiceNo,
+      notes: material.notes || `Initial Stock (+${initialQty} ${newItem.unit}) ${invoiceNo ? `| Invoice: ${invoiceNo}` : ''}`,
+      timestamp: formatInventoryDateTime(now),
+      rawDate: now.toISOString(),
+      performedBy: 'Store Incharge',
+      createdAt: now.toISOString()
+    };
+
+    const history = getLocalHistory();
+    history.unshift(historyEntry);
+    setLocalHistory(history);
+
+    try {
+      const cleanData = removeUndefined({
+        ...newItem,
+        createdAt: serverTimestamp()
+      });
+
+      const docRef = await addDoc(getRawMaterialsCol(), cleanData);
       newItem.docId = docRef.id;
       setLocalRawMaterials(currentList);
+
+      const cleanHistory = removeUndefined({
+        ...historyEntry,
+        createdAt: serverTimestamp()
+      });
+      await addDoc(getInventoryHistoryCol(), cleanHistory);
+
       return docRef.id;
+    } catch (err) {
+      console.warn('Firestore saveRawMaterialItem offline fallback:', err);
+      return id;
     }
-  } catch (err) {
-    console.warn('Firestore saveRawMaterialItem offline fallback:', err);
-    return id;
   }
 }
 

@@ -598,14 +598,13 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
                     <th className="py-3.5 px-4">Specifications</th>
                     <th className="py-3.5 px-4 text-center">Available Quantity</th>
                     <th className="py-3.5 px-4 text-center">Received / Dispatched</th>
-                    <th className="py-3.5 px-4 text-right">Quick Stock Actions</th>
                     <th className="py-3.5 px-3 text-center">Manage</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
                   {filteredMaterials.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="py-16 text-center text-slate-500">
+                      <td colSpan={6} className="py-16 text-center text-slate-500">
                         <div className="w-14 h-14 rounded-2xl bg-indigo-50 flex items-center justify-center mx-auto mb-3 border border-indigo-100">
                           <Package className="w-7 h-7 text-indigo-600" />
                         </div>
@@ -738,32 +737,6 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
                               <span className="text-amber-700 font-bold">
                                 Out: -{item.totalDispatched} {item.unit}
                               </span>
-                            </div>
-                          </td>
-
-                          {/* Quick Receive & Dispatch Actions */}
-                          <td className="py-3.5 px-4 text-right">
-                            <div className="flex items-center justify-end gap-1.5">
-                              {/* Receive Button */}
-                              <button
-                                onClick={() => handleOpenReceive(item)}
-                                className="px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-[11px] border border-emerald-200 transition-colors flex items-center gap-1 cursor-pointer"
-                                title="Receive stock for this item"
-                              >
-                                <ArrowDownLeft className="w-3.5 h-3.5" />
-                                <span>Receive</span>
-                              </button>
-
-                              {/* Dispatch Button */}
-                              <button
-                                onClick={() => handleOpenDispatch(item)}
-                                disabled={isOut}
-                                className="px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold text-[11px] border border-amber-300 transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                                title="Dispatch stock for a project"
-                              >
-                                <ArrowUpRight className="w-3.5 h-3.5" />
-                                <span>Dispatch</span>
-                              </button>
                             </div>
                           </td>
 
@@ -963,14 +936,16 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
 
                           {/* Vendor or Dispatched To */}
                           <td className="py-3.5 px-4 text-slate-700">
-                            {isReceive ? (
-                              <span>{entry.receivedFrom || 'Supplier'}</span>
+                            <div className="font-semibold text-slate-900">
+                              {isReceive ? (entry.receivedFrom || 'Supplier') : (entry.dispatchedTo || 'Production Team')}
+                            </div>
+                            {entry.challanOrPoNo ? (
+                              <span className="inline-block mt-0.5 text-[10px] font-black text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-200">
+                                Invoice/Ref: #{entry.challanOrPoNo}
+                              </span>
                             ) : (
-                              <span>{entry.dispatchedTo || 'Production Team'}</span>
-                            )}
-                            {entry.challanOrPoNo && (
-                              <span className="block text-[10px] text-slate-400">
-                                Ref: {entry.challanOrPoNo}
+                              <span className="text-[10px] text-slate-400 block mt-0.5">
+                                Direct Inward
                               </span>
                             )}
                           </td>

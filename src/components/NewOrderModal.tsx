@@ -1,9 +1,7 @@
-import * as pdfjsLib from 'pdfjs-dist';
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString();
-
 import { motion, AnimatePresence } from 'motion/react';
 import { X, FileText, Loader2, CheckCircle2, Upload, Paperclip, AlertCircle, Edit2, Check, Trash2 } from 'lucide-react';
 import React, { useState, useEffect, useRef } from 'react';
+import { convertPdfToImage, isPdfFile } from '../lib/pdfUtils';
 
 interface NewOrderModalProps {
   isOpen: boolean;
@@ -60,21 +58,7 @@ export function NewOrderModal({ isOpen, onClose, fileName, fileData, onAddOrder,
 
   const generatePdfThumbnail = async (pdfDataUrl: string): Promise<string | null> => {
     try {
-      const base64 = pdfDataUrl.split(',')[1];
-      const binaryString = window.atob(base64);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-      const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
-      const page = await pdf.getPage(1);
-      const viewport = page.getViewport({ scale: 1.5 });
-      const canvas = document.createElement('canvas');
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
-      const ctx = canvas.getContext('2d');
-      await page.render({ canvasContext: ctx, viewport } as any).promise;
-      return canvas.toDataURL('image/jpeg', 0.8);
+      return await convertPdfToImage(pdfDataUrl);
     } catch (e) {
       console.error('Error generating PDF thumbnail:', e);
       return null;
@@ -96,12 +80,17 @@ export function NewOrderModal({ isOpen, onClose, fileName, fileData, onAddOrder,
     setExtractError(null);
     
     try {
+      let payloadData = fileData;
+      if (isPdfFile(fileData) || isPdfFile(fileName)) {
+        payloadData = await convertPdfToImage(fileData).catch(() => fileData);
+      }
+
       const res = await fetch('/api/parse-order', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ fileData })
+        body: JSON.stringify({ fileData: payloadData })
       });
       
       const text = await res.text();
