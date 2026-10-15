@@ -225,19 +225,35 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
 
       const result = await response.json();
       
-      if (!result.items || !Array.isArray(result.items) || result.items.length === 0) {
-        throw new Error('No raw material line items could be detected in this invoice. Please check the document image and try again.');
+      let rawItems: any[] = [];
+      if (Array.isArray(result)) {
+        rawItems = result;
+      } else if (result && typeof result === 'object') {
+        rawItems = result.items || result.lineItems || result.products || result.rawMaterials || result.inventoryItems || result.inventory || [];
       }
 
-      const formattedItems: ScannedInvoiceItem[] = result.items.map((it: any, idx: number) => ({
+      if (!Array.isArray(rawItems) || rawItems.length === 0) {
+        if (result && (result.name || result.vendorName || result.totalAmount)) {
+          rawItems = [{
+            name: result.name || result.materialName || 'Scanned Raw Material Item',
+            category: result.category || 'Plywood & Boards',
+            quantity: result.quantity || 1,
+            unitCost: result.unitCost || result.rate
+          }];
+        } else {
+          throw new Error('No raw material line items could be detected in this invoice. Please ensure the document/photo is clear and readable.');
+        }
+      }
+
+      const formattedItems: ScannedInvoiceItem[] = rawItems.map((it: any, idx: number) => ({
         id: `scanned-${Date.now()}-${idx}`,
-        name: it.name || `Scanned Material #${idx + 1}`,
+        name: it.name || it.description || it.itemName || `Scanned Material #${idx + 1}`,
         category: it.category || 'Plywood & Boards',
         sku: it.sku || `RM-SCAN-${Math.floor(100 + Math.random() * 900)}`,
-        specs: it.specs || '',
-        quantity: typeof it.quantity === 'number' && it.quantity > 0 ? it.quantity : 1,
+        specs: it.specs || it.specification || '',
+        quantity: typeof it.quantity === 'number' && it.quantity > 0 ? it.quantity : (parseFloat(it.quantity) || 1),
         unit: it.unit || 'Sheet',
-        unitCost: typeof it.unitCost === 'number' ? it.unitCost : undefined,
+        unitCost: typeof it.unitCost === 'number' ? it.unitCost : (parseFloat(it.unitCost || it.rate) || undefined),
         boardClassification: it.boardClassification || 'Plain',
         boardType: it.boardType || 'HDHMR',
         boardCompany: it.boardCompany || 'Action TESA',
@@ -249,9 +265,9 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
       }));
 
       setScannedData({
-        vendorName: result.vendorName || '',
-        invoiceNumber: result.invoiceNumber || '',
-        invoiceDate: result.invoiceDate || '',
+        vendorName: result.vendorName || result.companyName || '',
+        invoiceNumber: result.invoiceNumber || result.billNo || result.referenceNo || '',
+        invoiceDate: result.invoiceDate || result.date || '',
         totalAmount: result.totalAmount || '',
         items: formattedItems
       });

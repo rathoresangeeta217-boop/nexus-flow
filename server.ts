@@ -19,21 +19,28 @@ function getAI(): GoogleGenAI {
 
 
 
-function parseJsonOutput(text) {
+function parseJsonOutput(text: string) {
   try {
     let cleaned = text.trim();
     if (cleaned.startsWith('```json')) {
-      cleaned = cleaned.replace(/^```json\s*/, '');
+      cleaned = cleaned.replace(/^```json\s*/i, '');
       cleaned = cleaned.replace(/\s*```$/, '');
     } else if (cleaned.startsWith('```')) {
       cleaned = cleaned.replace(/^```\s*/, '');
       cleaned = cleaned.replace(/\s*```$/, '');
     }
+    // Remove trailing commas before closing braces/brackets
+    cleaned = cleaned.replace(/,\s*([\}\]])/g, '$1');
     return JSON.parse(cleaned);
   } catch (e) {
     const match = text.match(/\{[\s\S]*\}/);
     if (match) {
-      return JSON.parse(match[0]);
+      try {
+        const cleanedMatch = match[0].replace(/,\s*([\}\]])/g, '$1');
+        return JSON.parse(cleanedMatch);
+      } catch (e2) {
+        return JSON.parse(match[0]);
+      }
     }
     throw e;
   }
@@ -42,10 +49,10 @@ function parseJsonOutput(text) {
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-const FALLBACK_MODELS = ['gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.8-flash'];
+const FALLBACK_MODELS = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
 
-async function callGeminiWithRetry(params: { model?: string; input: any[] }, maxRetries = 3) {
-  const initialModel = params.model || 'gemini-3.1-flash-lite';
+async function callGeminiWithRetry(params: { model?: string; input: any[]; config?: any }, maxRetries = 3) {
+  const initialModel = params.model || 'gemini-3.8-flash';
   const modelsToTry = [initialModel, ...FALLBACK_MODELS.filter(m => m !== initialModel)];
 
   let lastError: any = null;
@@ -61,8 +68,7 @@ async function callGeminiWithRetry(params: { model?: string; input: any[] }, max
           setTimeout(() => reject(new Error("Gemini API request timed out after 90 seconds. Please try again.")), 90000);
         });
         
-        const contents = [];
-        const parts = [];
+        const parts: any[] = [];
         
         for (const input of params.input) {
           if (input.type === 'text') {
@@ -77,14 +83,17 @@ async function callGeminiWithRetry(params: { model?: string; input: any[] }, max
           }
         }
         
-        contents.push({ role: 'user', parts });
-        
         const ai = getAI();
+        const genOptions: any = {
+          model: currentModel,
+          contents: { parts }
+        };
+        if (params.config) {
+          genOptions.config = params.config;
+        }
+
         const res = await Promise.race([
-          ai.models.generateContent({
-            model: currentModel,
-            contents: contents
-          }),
+          ai.models.generateContent(genOptions),
           timeoutPromise
         ]);
         
@@ -193,18 +202,18 @@ async function startServer() {
       `;
 
       const response = await callGeminiWithRetry({
-        model: 'gemini-3.1-flash-lite',
+        model: 'gemini-3.8-flash',
+        config: {
+          responseMimeType: "application/json"
+        },
         input: [
           { type: 'text', text: prompt },
           {
-            
-              type: mimeType.startsWith('image/') ? 'image' : 'document',
-              mime_type: mimeType,
-              data: base64Data
-              
+            type: mimeType.startsWith('image/') ? 'image' : 'document',
+            mime_type: mimeType,
+            data: base64Data
           }
-        ],
-        
+        ]
       });
 
       const text = response.output_text;
@@ -241,19 +250,25 @@ async function startServer() {
         return res.status(400).json({ error: "Missing file data" });
       }
 
+      let mimeType = 'image/jpeg';
+      let base64Data = fileData;
+
       const match = fileData.match(/^data:([^;]+);base64,(.+)$/);
-      if (!match) {
-        return res.status(400).json({ error: "Invalid data URL format" });
+      if (match) {
+        mimeType = match[1];
+        base64Data = match[2];
+      } else if (fileData.includes(';base64,')) {
+        const parts = fileData.split(';base64,');
+        mimeType = parts[0].replace('data:', '') || 'image/jpeg';
+        base64Data = parts[1];
       }
 
-      const mimeType = match[1];
-      const base64Data = match[2];
-
       const prompt = `
-        Analyze this raw material purchase invoice, bill, tax invoice, purchase order, or delivery challan document.
+        You are an expert document OCR and invoice processing AI for a modular furniture manufacturing plant.
+        Analyze this raw material purchase invoice, bill, tax invoice, purchase order, or delivery challan document (image or PDF).
         Extract all raw material inventory line items, vendor details, and reference metadata.
 
-        Return ONLY a valid JSON object matching this structure:
+        Return ONLY a JSON object with EXACTLY this structure:
         {
           "vendorName": "Vendor or Supplier Company Name if present",
           "invoiceNumber": "Invoice / Bill / Reference number",
@@ -271,7 +286,7 @@ async function startServer() {
               "boardClassification": "Plain, Pre-Laminated, Plywood, or PLPB",
               "boardType": "PLPB, MDF, HDHMR, Commercial Plywood, Marine / BWP Plywood, BWR Plywood, Flexible Plywood",
               "boardCompany": "Brand or Company name, e.g. Action TESA, CenturyPly, Greenlam, Merino, Archidply, Trojan, etc.",
-              "boardThickness": "Thickness in mm, e.g. 18 mm, 12 mm, 19 mm, 4 mm",
+              "boardThickness": "Thickness in mm, e.g. 18 mm, 12 mm, 19 mm, 4 mm, 9 mm, 16 mm, 25 mm",
               "boardSize": "Size in ft, e.g. 8 x 4, 8 x 6, 9 x 6, 6 x 3, 6 x 4",
               "colorCode": "Color code, shade, or laminate finish if mentioned, e.g. SF 101, Frosty White"
             }
@@ -282,10 +297,14 @@ async function startServer() {
         1. Extract EVERY individual raw material item line in the document table.
         2. For boards, plywood, laminates, and timber, extract boardClassification, boardType, boardCompany, boardThickness, boardSize, and colorCode accurately.
         3. Quantities MUST be returned as positive numbers.
+        4. Make sure the output object contains key "items" as an array of items.
       `;
 
       const response = await callGeminiWithRetry({
-        model: 'gemini-3.1-flash-lite',
+        model: 'gemini-3.8-flash',
+        config: {
+          responseMimeType: "application/json"
+        },
         input: [
           { type: 'text', text: prompt },
           {
