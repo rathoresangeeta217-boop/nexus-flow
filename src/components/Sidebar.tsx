@@ -48,7 +48,7 @@ export function Sidebar({ activeTab, setActiveTab }: { activeTab: TabName, setAc
         {['Operations', 'Analytics'].map((section) => {
           const filteredNav = navigation.filter(n => {
             if (n.section !== section) return false;
-            if (n.name === 'Installation') return true; // All members
+            if (n.name === 'Installation' || n.name === 'Inventory') return true; // All members
             if (profile?.role === 'super_admin') return true;
             if (profile?.role === 'admin') return n.name !== 'Analytics';
             if (profile?.role === 'sales_executive') {

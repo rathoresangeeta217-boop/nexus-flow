@@ -148,13 +148,6 @@ export const AddRawMaterialModal: React.FC<AddRawMaterialModalProps> = ({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Clean up camera stream when modal unmounts or closes
-  useEffect(() => {
-    return () => {
-      stopCamera();
-    };
-  }, []);
-
   const stopCamera = () => {
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getTracks().forEach((track) => track.stop());
@@ -167,6 +160,35 @@ export const AddRawMaterialModal: React.FC<AddRawMaterialModalProps> = ({
     setCameraLoading(false);
     setCameraError(null);
   };
+
+  // Sync state and clean up camera when modal opens/closes
+  useEffect(() => {
+    if (isOpen) {
+      setName(initialItem?.name || '');
+      setSku(initialItem?.sku || '');
+      setCategory(initialItem?.category || 'Plywood & Boards');
+      setSpecs(initialItem?.specs || '');
+      setAvailableQuantity(initialItem ? String(initialItem.availableQuantity) : '100');
+      setUnit(initialItem?.unit || 'Sheet');
+      setMinThreshold(initialItem?.minThreshold !== undefined ? String(initialItem.minThreshold) : '20');
+      setImageUrl(initialItem?.imageUrl || '');
+      setImageName(initialItem?.imageName || '');
+      setNotes(initialItem?.notes || '');
+      setBoardClassification(initialItem?.boardClassification || 'Plain');
+      setBoardType(initialItem?.boardType || 'HDHMR');
+      setBoardCompany(initialItem?.boardCompany || 'Action TESA');
+      setCustomCompany('');
+      setBoardThickness(initialItem?.boardThickness || '18 mm');
+      setBoardSize(initialItem?.boardSize || '8 x 4');
+      setColorCode(initialItem?.colorCode || '');
+      setError(null);
+    } else {
+      stopCamera();
+    }
+    return () => {
+      stopCamera();
+    };
+  }, [isOpen, initialItem]);
 
   const startCamera = async (facing: 'environment' | 'user' = cameraFacingMode) => {
     try {
@@ -182,8 +204,9 @@ export const AddRawMaterialModal: React.FC<AddRawMaterialModalProps> = ({
       const constraints: MediaStreamConstraints = {
         video: {
           facingMode: { ideal: facing },
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
+          width: { ideal: 1080 },
+          height: { ideal: 1528 },
+          aspectRatio: { ideal: 0.7071 } // A4 portrait paper ratio (210/297)
         },
         audio: false,
       };
@@ -197,13 +220,13 @@ export const AddRawMaterialModal: React.FC<AddRawMaterialModalProps> = ({
       }
       setCameraLoading(false);
     } catch (err: any) {
-      console.warn('Direct camera getUserMedia failed, falling back to camera file picker:', err);
+      console.warn('Direct camera getUserMedia failed:', err);
       setCameraLoading(false);
-      setCameraError(err?.message || 'Unable to open camera stream directly. You can use the device camera shutter below.');
+      setIsCameraActive(false);
+      setCameraError('Live camera scan is available on Tablet & Mobile. On PC, please click "Upload Photo" below.');
       
-      // Auto-trigger mobile native camera capture if direct stream fails
-      if (cameraInputRef.current) {
-        cameraInputRef.current.click();
+      if (fileInputRef.current) {
+        fileInputRef.current.click();
       }
     }
   };
@@ -330,6 +353,8 @@ export const AddRawMaterialModal: React.FC<AddRawMaterialModalProps> = ({
     setName(computedName);
     setSpecs(computedSpecs);
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
@@ -793,11 +818,11 @@ export const AddRawMaterialModal: React.FC<AddRawMaterialModalProps> = ({
                 </div>
 
                 {/* Video Feed or Error */}
-                <div className="relative w-full aspect-video sm:aspect-4/3 bg-black rounded-xl overflow-hidden flex items-center justify-center border border-slate-800">
+                <div className="relative w-full max-w-xs sm:max-w-sm mx-auto aspect-[1/1.414] bg-black rounded-2xl overflow-hidden flex items-center justify-center border-2 border-indigo-500 shadow-2xl">
                   {cameraLoading && (
                     <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/70 text-white gap-2">
                       <div className="w-8 h-8 border-3 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-                      <span className="text-xs font-medium">Starting camera...</span>
+                      <span className="text-xs font-medium">Starting A4 camera...</span>
                     </div>
                   )}
 
@@ -824,12 +849,23 @@ export const AddRawMaterialModal: React.FC<AddRawMaterialModalProps> = ({
                     className="w-full h-full object-cover"
                   />
 
-                  {/* Targeting frame overlay */}
-                  <div className="absolute inset-6 border border-white/30 rounded-xl pointer-events-none flex items-center justify-center">
-                    <div className="w-4 h-4 border-t-2 border-l-2 border-indigo-400 absolute top-0 left-0" />
-                    <div className="w-4 h-4 border-t-2 border-r-2 border-indigo-400 absolute top-0 right-0" />
-                    <div className="w-4 h-4 border-b-2 border-l-2 border-indigo-400 absolute bottom-0 left-0" />
-                    <div className="w-4 h-4 border-b-2 border-r-2 border-indigo-400 absolute bottom-0 right-0" />
+                  {/* A4 Paper Framing Overlay */}
+                  <div className="absolute inset-4 sm:inset-5 border-2 border-indigo-400/70 rounded-xl pointer-events-none flex flex-col justify-between p-3 bg-indigo-500/5">
+                    <div className="flex justify-between items-start">
+                      <div className="w-5 h-5 border-t-2 border-l-2 border-indigo-400 rounded-tl-sm" />
+                      <div className="w-5 h-5 border-t-2 border-r-2 border-indigo-400 rounded-tr-sm" />
+                    </div>
+
+                    <div className="text-center py-1">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-indigo-200 bg-black/80 px-2.5 py-1 rounded-full border border-indigo-400/40 shadow-sm">
+                        📄 Align A4 Document Inside Frame
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between items-end">
+                      <div className="w-5 h-5 border-b-2 border-l-2 border-indigo-400 rounded-bl-sm" />
+                      <div className="w-5 h-5 border-b-2 border-r-2 border-indigo-400 rounded-br-sm" />
+                    </div>
                   </div>
                 </div>
 

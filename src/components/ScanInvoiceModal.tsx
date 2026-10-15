@@ -82,14 +82,6 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
 
-  useEffect(() => {
-    return () => {
-      stopCamera();
-    };
-  }, []);
-
-  if (!isOpen) return null;
-
   const stopCamera = () => {
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getTracks().forEach((track) => track.stop());
@@ -103,6 +95,14 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
     setCameraError(null);
   };
 
+  useEffect(() => {
+    return () => {
+      stopCamera();
+    };
+  }, []);
+
+  if (!isOpen) return null;
+
   const startCamera = async (facing: 'environment' | 'user' = cameraFacingMode) => {
     try {
       stopCamera();
@@ -115,7 +115,12 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
       }
 
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: { 
+          facingMode: { ideal: facing }, 
+          width: { ideal: 1080 }, 
+          height: { ideal: 1528 },
+          aspectRatio: { ideal: 0.7071 } // A4 portrait paper ratio (210/297)
+        },
         audio: false
       });
       mediaStreamRef.current = stream;
@@ -128,8 +133,9 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
     } catch (err: any) {
       console.warn('Camera failed:', err);
       setCameraLoading(false);
-      setCameraError('Unable to open camera stream directly. You can use your phone camera app below.');
-      if (cameraInputRef.current) cameraInputRef.current.click();
+      setIsCameraActive(false);
+      setCameraError('Live camera scan is available on Tablet & Mobile. On PC, click "Upload Invoice File" to select an invoice photo or PDF.');
+      if (fileInputRef.current) fileInputRef.current.click();
     }
   };
 
@@ -409,20 +415,33 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
                     </div>
                   </div>
 
-                  <div className="relative w-full aspect-video sm:aspect-4/3 bg-black rounded-xl overflow-hidden flex items-center justify-center border border-slate-800">
+                  <div className="relative w-full max-w-xs sm:max-w-sm mx-auto aspect-[1/1.414] bg-black rounded-2xl overflow-hidden flex items-center justify-center border-2 border-amber-500/80 shadow-2xl">
                     {cameraLoading && (
                       <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/70 text-white gap-2">
                         <div className="w-8 h-8 border-3 border-amber-500 border-t-transparent rounded-full animate-spin" />
-                        <span className="text-xs font-medium">Opening camera...</span>
+                        <span className="text-xs font-medium">Opening A4 scanner camera...</span>
                       </div>
                     )}
 
                     <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
 
-                    <div className="absolute inset-6 border border-amber-400/50 rounded-xl pointer-events-none flex items-center justify-center">
-                      <span className="text-[11px] font-bold text-amber-300 bg-black/60 px-3 py-1 rounded-full border border-amber-400/40 shadow-sm">
-                        Align invoice / bill clearly inside frame
-                      </span>
+                    {/* A4 Paper Framing Guide & Corner Markers */}
+                    <div className="absolute inset-4 sm:inset-5 border-2 border-amber-400/70 rounded-xl pointer-events-none flex flex-col justify-between p-3 bg-amber-500/5">
+                      <div className="flex justify-between items-start">
+                        <div className="w-6 h-6 border-t-3 border-l-3 border-amber-400 rounded-tl-md shadow-xs" />
+                        <div className="w-6 h-6 border-t-3 border-r-3 border-amber-400 rounded-tr-md shadow-xs" />
+                      </div>
+
+                      <div className="text-center py-1">
+                        <span className="text-[10px] font-black tracking-wider uppercase text-amber-300 bg-black/80 px-3 py-1 rounded-full border border-amber-400/50 shadow-md">
+                          📄 Align A4 Paper Bill Inside Frame (210 × 297 mm)
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between items-end">
+                        <div className="w-6 h-6 border-b-3 border-l-3 border-amber-400 rounded-bl-md shadow-xs" />
+                        <div className="w-6 h-6 border-b-3 border-r-3 border-amber-400 rounded-br-md shadow-xs" />
+                      </div>
                     </div>
                   </div>
 

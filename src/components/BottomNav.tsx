@@ -20,7 +20,7 @@ export function BottomNav({ activeTab, setActiveTab }: { activeTab: TabName, set
   const { profile } = useAuth();
 
   const filteredNav = navigation.filter(n => {
-    if (n.name === 'Installation') return true; 
+    if (n.name === 'Installation' || n.name === 'Inventory') return true; 
     if (profile?.role === 'super_admin') return true;
     if (profile?.role === 'admin') return n.name !== 'Analytics' && n.name !== 'Users';
     if (profile?.role === 'sales_executive') {

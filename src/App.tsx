@@ -89,9 +89,9 @@ export default function App() {
   // Handle active tab fallback if a role doesn't have access to current tab
   let currentTab = activeTab;
   if (profile) {
-    if (profile.role === 'employee' && activeTab !== 'Installation' && activeTab !== 'Storefront') {
+    if (profile.role === 'employee' && activeTab !== 'Installation' && activeTab !== 'Storefront' && activeTab !== 'Inventory') {
        currentTab = 'Installation';
-    } else if (profile.role === 'sales_executive' && (activeTab === 'Purchase' || activeTab === 'Inventory' || activeTab === 'Production' || activeTab === 'Analytics' || activeTab === 'Users')) { 
+    } else if (profile.role === 'sales_executive' && (activeTab === 'Purchase' || activeTab === 'Production' || activeTab === 'Analytics' || activeTab === 'Users')) { 
        currentTab = 'Orders';
     } else if (profile.role === 'admin' && (activeTab === 'Analytics' || activeTab === 'Users')) { 
        currentTab = 'Orders';
@@ -111,7 +111,7 @@ export default function App() {
           <div className={`${currentTab === 'Storefront' ? 'w-full' : 'max-w-[1600px] mx-auto'} min-h-full`}>
             {currentTab === 'Orders' && (profile?.role === 'super_admin' || profile?.role === 'admin' || profile?.role === 'sales_executive') && <OrdersTab searchQuery={searchQuery} />}
             {currentTab === 'Purchase' && (profile?.role === 'super_admin' || profile?.role === 'admin') && <PurchaseTab searchQuery={searchQuery} />}
-            {currentTab === 'Inventory' && (profile?.role === 'super_admin' || profile?.role === 'admin') && <InventoryTab searchQuery={searchQuery} />}
+            {currentTab === 'Inventory' && <InventoryTab searchQuery={searchQuery} />}
             {currentTab === 'Products' && (profile?.role === 'super_admin' || profile?.role === 'admin') && <ProductsTab searchQuery={searchQuery} />}
             {currentTab === 'Quotations' && (profile?.role === 'super_admin' || profile?.role === 'admin') && <QuotationsTab searchQuery={searchQuery} setActiveTab={setActiveTab} />}
             {currentTab === 'Storefront' && <StorefrontTab setActiveTab={setActiveTab} />}
@@ -123,7 +123,7 @@ export default function App() {
             {currentTab === 'Users' as any && profile?.role === 'super_admin' && <UsersTab />}
 
             {/* Fallback if user's role does not have access to the selected tab */}
-            {currentTab !== 'Storefront' && currentTab !== 'Installation' && (!profile || (profile.role !== 'super_admin' && profile.role !== 'admin' && profile.role !== 'sales_executive')) && (
+            {currentTab !== 'Storefront' && currentTab !== 'Installation' && currentTab !== 'Inventory' && (!profile || (profile.role !== 'super_admin' && profile.role !== 'admin' && profile.role !== 'sales_executive')) && (
               <div className="bg-white rounded-2xl p-8 border border-slate-200 text-center max-w-lg mx-auto mt-12 shadow-sm">
                 <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-3">
                   <span className="text-xl font-bold">!</span>
