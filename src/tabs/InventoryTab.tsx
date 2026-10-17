@@ -20,7 +20,9 @@ import {
   Eye,
   Loader2,
   X,
-  Sparkles
+  Sparkles,
+  Calendar,
+  RefreshCw
 } from 'lucide-react';
 import { 
   RawMaterialItem, 
@@ -29,7 +31,8 @@ import {
   subscribeToInventoryHistory, 
   deleteRawMaterialItem,
   deleteInventoryHistoryEntry,
-  clearAllInventoryHistory 
+  clearAllInventoryHistory,
+  separateMergedScannedItems
 } from '../lib/inventory';
 import { AddRawMaterialModal } from '../components/AddRawMaterialModal';
 import { ReceiveMaterialModal } from '../components/ReceiveMaterialModal';
@@ -78,13 +81,15 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
     setTimeout(() => setNotification(null), 4000);
   };
 
-  // Subscriptions
+  // Subscriptions & automatic unmerge of items with different rates
   useEffect(() => {
     const unsubMaterials = subscribeToRawMaterials((items) => {
       setMaterials(items);
     });
     const unsubHistory = subscribeToInventoryHistory((history) => {
       setHistoryList(history);
+      // Auto-separate any merged scanned items that have distinct rates
+      separateMergedScannedItems().catch(() => {});
     });
 
     return () => {
@@ -367,6 +372,23 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
           >
             <ArrowUpRight className="w-4 h-4" />
             <span>Dispatch Raw Material</span>
+          </button>
+
+          {/* 4. Unmerge Scanned Items Button */}
+          <button
+            onClick={async () => {
+              const unmerged = await separateMergedScannedItems();
+              if (unmerged) {
+                showNotification('Successfully unmerged previously combined scanned materials into separate product items!', 'info');
+              } else {
+                showNotification('No merged scanned items were found to separate.', 'info');
+              }
+            }}
+            className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-800 text-xs font-bold transition-all cursor-pointer"
+            title="Split any previously merged invoice items into distinct product entries"
+          >
+            <RefreshCw className="w-3.5 h-3.5 text-indigo-600" />
+            <span>Unmerge Scanned Items</span>
           </button>
         </div>
       </div>
@@ -679,6 +701,16 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
                                       Color: {item.colorCode}
                                     </span>
                                   )}
+                                  {item.unitCost ? (
+                                    <span className="text-[10px] font-extrabold text-emerald-900 bg-emerald-50 px-1.5 py-0.5 rounded-md border border-emerald-200">
+                                      Rate: ₹{item.unitCost.toLocaleString('en-IN')} / {item.unit}
+                                    </span>
+                                  ) : null}
+                                  {item.invoiceDate ? (
+                                    <span className="text-[10px] font-bold text-indigo-900 bg-indigo-50 px-1.5 py-0.5 rounded-md border border-indigo-200">
+                                      Bill Date: {item.invoiceDate}
+                                    </span>
+                                  ) : null}
                                 </div>
                               </div>
                             </div>
@@ -882,6 +914,12 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
                               <Clock className="w-3.5 h-3.5 text-slate-400" />
                               <span>{entry.timestamp}</span>
                             </div>
+                            {entry.billDate && (
+                              <div className="mt-1 inline-flex items-center gap-1 text-[11px] font-black text-indigo-900 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-md">
+                                <Calendar className="w-3 h-3 text-indigo-600 shrink-0" />
+                                <span>Bill Date: <strong>{entry.billDate}</strong></span>
+                              </div>
+                            )}
                           </td>
 
                           {/* Type */}
@@ -904,13 +942,18 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
                             {entry.materialName}
                           </td>
 
-                          {/* Movement Quantity */}
+                          {/* Movement Quantity & Rate */}
                           <td className="py-3.5 px-4 text-center whitespace-nowrap">
                             <span className={`text-sm font-black ${
                               isReceive ? 'text-emerald-600' : 'text-amber-700'
                             }`}>
                               {isReceive ? `+${entry.quantity}` : `-${entry.quantity}`} {entry.materialUnit || 'Nos'}
                             </span>
+                            {entry.unitCost ? (
+                              <div className="mt-1 text-[10px] font-black text-emerald-900 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md inline-block">
+                                Rate: ₹{entry.unitCost.toLocaleString('en-IN', { maximumFractionDigits: 2 })} / {entry.materialUnit || 'unit'}
+                              </div>
+                            ) : null}
                           </td>
 
                           {/* Project Name (MANDATORY REQUIREMENT) */}

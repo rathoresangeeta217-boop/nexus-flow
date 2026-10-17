@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { ShoppingCart, TrendingUp, Clock, CheckCircle2, MoreHorizontal, Filter, Plus, FileText, Download, Loader2, X } from 'lucide-react';
+import { ShoppingCart, TrendingUp, Clock, CheckCircle2, MoreHorizontal, Filter, Plus, FileText, Download, Loader2, X, Truck, Calendar } from 'lucide-react';
 import { StatCard } from '../components/StatCard';
 import { Badge } from '../components/Badge';
 import { NewOrderModal } from '../components/NewOrderModal';
@@ -569,6 +569,7 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
                   <th className="px-6 py-3 border-b border-slate-200">Order ID</th>
                   <th className="px-6 py-3 border-b border-slate-200">Customer</th>
                   <th className="px-6 py-3 border-b border-slate-200">Date</th>
+                  <th className="px-6 py-3 border-b border-slate-200">Delivery Date</th>
                   <th className="px-6 py-3 border-b border-slate-200">Salesperson</th>
                   <th className="px-6 py-3 border-b border-slate-200">Items</th>
                   <th className="px-6 py-3 border-b border-slate-200">Total Amount</th>
@@ -579,7 +580,7 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
               <tbody className="divide-y divide-slate-100">
                 {isLoading ? (
                   <tr>
-                    <td colSpan={8} className="px-6 py-12 text-center text-slate-500">
+                    <td colSpan={9} className="px-6 py-12 text-center text-slate-500">
                       <div className="flex flex-col items-center justify-center">
                         <Loader2 className="w-8 h-8 text-indigo-500 animate-spin mb-4" />
                         <p>Loading orders...</p>
@@ -588,7 +589,7 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
                   </tr>
                 ) : filteredOrders.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-6 py-12 text-center text-slate-500">
+                    <td colSpan={9} className="px-6 py-12 text-center text-slate-500">
                       No orders found matching the selected filters.
                     </td>
                   </tr>
@@ -605,6 +606,16 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-indigo-600 hover:text-indigo-800 cursor-pointer">{order.id}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-800 font-semibold">{order.customer}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 font-medium">{order.date}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-slate-700">
+                    {order.details?.deliveryDate ? (
+                      <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-900 border border-amber-200 px-2 py-0.5 rounded text-xs font-extrabold">
+                        <Truck className="w-3 h-3 text-amber-600 shrink-0" />
+                        {new Date(order.details.deliveryDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </span>
+                    ) : (
+                      <span className="text-slate-400 font-normal italic text-xs">—</span>
+                    )}
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600 font-medium">{order.details?.employeeName || '—'}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600 font-medium">{order.items} units</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-800 font-bold">{order.amount}</td>

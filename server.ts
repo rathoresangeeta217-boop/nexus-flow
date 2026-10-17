@@ -306,10 +306,12 @@ async function startServer() {
         }
 
         CRITICAL INSTRUCTIONS:
-        1. Extract EVERY individual raw material item line in the document table.
-        2. For boards, plywood, laminates, and timber, extract boardClassification, boardType, boardCompany, boardThickness, boardSize, and colorCode accurately.
-        3. Quantities MUST be returned as positive numbers.
-        4. Make sure the output object contains key "items" as an array of items.
+        1. Extract EVERY SINGLE individual line item row present in the document's table. If there are 4, 6, 8, or 10 items listed on the invoice, return ALL 4, 6, 8, or 10 items as separate objects in the "items" array. DO NOT skip, condense, summarize, or truncate any line items.
+        2. Extract "unitCost" (rate / unit price in ₹) for every item accurately.
+        3. Extract "invoiceDate" as the actual bill date printed on the document (e.g. YYYY-MM-DD or DD-MM-YYYY).
+        4. For boards, plywood, laminates, and timber, extract boardClassification, boardType, boardCompany, boardThickness, boardSize, and colorCode accurately.
+        5. Quantities MUST be returned as positive numbers.
+        6. Make sure the output object contains key "items" as an array of items.
       `;
 
       const response = await callGeminiWithRetry({

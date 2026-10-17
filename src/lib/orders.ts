@@ -56,6 +56,7 @@ export interface OrderDetails {
   installerName?: string;
   installationHelpers?: string;
   installationDate?: string;
+  deliveryDate?: string;
 }
 
 export interface Order {

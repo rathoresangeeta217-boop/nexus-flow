@@ -41,6 +41,7 @@ export interface RawMaterialItem {
   colorCode?: string; // e.g. 'SF 101'
   challanOrPoNo?: string;
   receivedFrom?: string;
+  invoiceDate?: string; // Actual date of bill / invoice
   createdAt: any;
   updatedAt?: any;
 }
@@ -58,6 +59,8 @@ export interface InventoryHistoryEntry {
   quantity: number;
   previousQuantity: number;
   newQuantity: number;
+  unitCost?: number; // Rate / Price per unit in ₹
+  billDate?: string; // Actual Date of Bill / Invoice (e.g. 2026-10-15)
   projectName?: string; // MANDATORY when type === 'DISPATCHED'
   receivedFrom?: string; // Vendor/Supplier
   challanOrPoNo?: string; // Invoice / Reference
@@ -90,29 +93,68 @@ export function formatInventoryDateTime(dateObj: Date = new Date()): string {
 // LocalStorage cache helpers
 const STORAGE_RAW_MATERIALS = 'srk_raw_materials_cache';
 const STORAGE_INVENTORY_HISTORY = 'srk_inventory_history_cache';
+const STORAGE_DELETED_MATERIALS = 'srk_deleted_materials_cache';
+const STORAGE_DELETED_HISTORY = 'srk_deleted_history_cache';
+
+export function getDeletedMaterialIds(): string[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_DELETED_MATERIALS);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return [];
+}
+
+export function addDeletedMaterialId(id: string, docId?: string) {
+  try {
+    const current = getDeletedMaterialIds();
+    if (id && !current.includes(id)) current.push(id);
+    if (docId && !current.includes(docId)) current.push(docId);
+    localStorage.setItem(STORAGE_DELETED_MATERIALS, JSON.stringify(current));
+  } catch (e) {}
+}
+
+export function getDeletedHistoryIds(): string[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_DELETED_HISTORY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return [];
+}
+
+export function addDeletedHistoryId(id: string, docId?: string) {
+  try {
+    const current = getDeletedHistoryIds();
+    if (id && !current.includes(id)) current.push(id);
+    if (docId && !current.includes(docId)) current.push(docId);
+    localStorage.setItem(STORAGE_DELETED_HISTORY, JSON.stringify(current));
+  } catch (e) {}
+}
 
 export function getLocalRawMaterials(): RawMaterialItem[] {
   try {
     const raw = localStorage.getItem(STORAGE_RAW_MATERIALS);
+    const deleted = getDeletedMaterialIds();
     if (raw !== null) {
       const items: RawMaterialItem[] = JSON.parse(raw);
-      return items.map(item => {
-        const cat = (item.category || '').toLowerCase();
-        const name = (item.name || '').toLowerCase();
-        const isBoardCat = cat.includes('board') || cat.includes('plywood') || name.includes('board') || name.includes('plywood') || name.includes('mdf') || name.includes('hdhmr') || name.includes('plpb');
-        if (!isBoardCat) {
-          return {
-            ...item,
-            boardClassification: undefined,
-            boardType: undefined,
-            boardCompany: undefined,
-            boardThickness: undefined,
-            boardSize: undefined,
-            colorCode: undefined
-          };
-        }
-        return item;
-      });
+      return items
+        .filter(item => !deleted.includes(item.id) && (!item.docId || !deleted.includes(item.docId)))
+        .map(item => {
+          const cat = (item.category || '').toLowerCase();
+          const name = (item.name || '').toLowerCase();
+          const isBoardCat = cat.includes('board') || cat.includes('plywood') || name.includes('board') || name.includes('plywood') || name.includes('mdf') || name.includes('hdhmr') || name.includes('plpb');
+          if (!isBoardCat) {
+            return {
+              ...item,
+              boardClassification: undefined,
+              boardType: undefined,
+              boardCompany: undefined,
+              boardThickness: undefined,
+              boardSize: undefined,
+              colorCode: undefined
+            };
+          }
+          return item;
+        });
     }
   } catch (e) {
     console.error('Failed to read local raw materials', e);
@@ -122,7 +164,9 @@ export function getLocalRawMaterials(): RawMaterialItem[] {
 
 export function setLocalRawMaterials(items: RawMaterialItem[]) {
   try {
-    localStorage.setItem(STORAGE_RAW_MATERIALS, JSON.stringify(items));
+    const deleted = getDeletedMaterialIds();
+    const cleanItems = items.filter(i => !deleted.includes(i.id) && (!i.docId || !deleted.includes(i.docId)));
+    localStorage.setItem(STORAGE_RAW_MATERIALS, JSON.stringify(cleanItems));
   } catch (e) {
     console.error('Failed to save local raw materials', e);
   }
@@ -131,7 +175,11 @@ export function setLocalRawMaterials(items: RawMaterialItem[]) {
 export function getLocalHistory(): InventoryHistoryEntry[] {
   try {
     const raw = localStorage.getItem(STORAGE_INVENTORY_HISTORY);
-    if (raw !== null) return JSON.parse(raw);
+    const deleted = getDeletedHistoryIds();
+    if (raw !== null) {
+      const history: InventoryHistoryEntry[] = JSON.parse(raw);
+      return history.filter(h => !deleted.includes(h.id) && (!h.docId || !deleted.includes(h.docId)));
+    }
   } catch (e) {
     console.error('Failed to read local history', e);
   }
@@ -140,7 +188,9 @@ export function getLocalHistory(): InventoryHistoryEntry[] {
 
 export function setLocalHistory(history: InventoryHistoryEntry[]) {
   try {
-    localStorage.setItem(STORAGE_INVENTORY_HISTORY, JSON.stringify(history));
+    const deleted = getDeletedHistoryIds();
+    const cleanHistory = history.filter(h => !deleted.includes(h.id) && (!h.docId || !deleted.includes(h.docId)));
+    localStorage.setItem(STORAGE_INVENTORY_HISTORY, JSON.stringify(cleanHistory));
   } catch (e) {
     console.error('Failed to save local history', e);
   }
@@ -178,20 +228,23 @@ export function subscribeToRawMaterials(callback: (items: RawMaterialItem[]) => 
         const q = query(getRawMaterialsCol(), orderBy('name', 'asc'));
         unsubscribeSnapshot = onSnapshot(q, (snapshot) => {
           if (snapshot.empty) {
-            // Empty inventory in Firestore
             setLocalRawMaterials([]);
             callback([]);
             return;
           }
 
-          const items = snapshot.docs.map(d => ({
-            ...d.data(),
-            id: d.data().id || d.id,
-            docId: d.id
-          })) as RawMaterialItem[];
+          const deleted = getDeletedMaterialIds();
+          const items = snapshot.docs
+            .map(d => ({
+              ...d.data(),
+              id: d.data().id || d.id,
+              docId: d.id
+            })) as RawMaterialItem[];
 
-          setLocalRawMaterials(items);
-          callback(items);
+          const activeItems = items.filter(item => !deleted.includes(item.id) && (!item.docId || !deleted.includes(item.docId)));
+
+          setLocalRawMaterials(activeItems);
+          callback(activeItems);
         }, (error) => {
           console.warn('Firestore raw_materials onSnapshot warning:', error);
           callback(getLocalRawMaterials());
@@ -216,14 +269,12 @@ export function subscribeToRawMaterials(callback: (items: RawMaterialItem[]) => 
 export function subscribeToInventoryHistory(callback: (history: InventoryHistoryEntry[]) => void) {
   let unsubscribeSnapshot: (() => void) | null = null;
 
-  // Clear any pre-existing sample/demo entries on startup if requested
   if (typeof window !== 'undefined' && localStorage.getItem('srk_history_cleared_v2') !== 'true') {
     localStorage.setItem('srk_history_cleared_v2', 'true');
     setLocalHistory([]);
     clearAllInventoryHistory().catch(() => {});
   }
 
-  // Immediately invoke with local cache
   const cached = getLocalHistory();
   callback(cached);
 
@@ -238,14 +289,18 @@ export function subscribeToInventoryHistory(callback: (history: InventoryHistory
             return;
           }
 
-          const history = snapshot.docs.map(d => ({
-            ...d.data(),
-            id: d.data().id || d.id,
-            docId: d.id
-          })) as InventoryHistoryEntry[];
+          const deleted = getDeletedHistoryIds();
+          const history = snapshot.docs
+            .map(d => ({
+              ...d.data(),
+              id: d.data().id || d.id,
+              docId: d.id
+            })) as InventoryHistoryEntry[];
 
-          setLocalHistory(history);
-          callback(history);
+          const activeHistory = history.filter(h => !deleted.includes(h.id) && (!h.docId || !deleted.includes(h.docId)));
+
+          setLocalHistory(activeHistory);
+          callback(activeHistory);
         }, (error) => {
           console.warn('Firestore inventory_history onSnapshot warning:', error);
           callback(getLocalHistory());
@@ -280,9 +335,39 @@ export function findMatchingItemIndex(
 ): number {
   if (!currentList || currentList.length === 0) return -1;
 
+  if ((inputMaterial as any).createNewItem || (inputMaterial as any).forceNew) {
+    return -1;
+  }
+
   const inputName = (inputMaterial.name || '').trim();
   const normInputName = normalizeName(inputName);
   const inputSku = (inputMaterial.sku || '').trim().toLowerCase();
+  const inputCost = inputMaterial.unitCost !== undefined && !isNaN(Number(inputMaterial.unitCost)) ? Number(inputMaterial.unitCost) : undefined;
+  const inputSpecs = (inputMaterial.specs || '').trim();
+
+  // Helper: do not match if unitCost (Rate) or board specs conflict
+  const isCompatibleMatch = (x: RawMaterialItem) => {
+    // 1. Rate Check: If both items have unit rates specified and they differ by > ₹0.01, do NOT match!
+    if (inputCost !== undefined && inputCost > 0 && x.unitCost !== undefined && x.unitCost > 0) {
+      if (Math.abs(x.unitCost - inputCost) > 0.01) {
+        return false;
+      }
+    }
+    // 2. Board Attributes Check: If boardType, boardThickness, boardCompany, or boardSize differ, do NOT match!
+    if (inputMaterial.boardThickness && x.boardThickness) {
+      if (normalizeName(inputMaterial.boardThickness) !== normalizeName(x.boardThickness)) return false;
+    }
+    if (inputMaterial.boardType && x.boardType) {
+      if (normalizeName(inputMaterial.boardType) !== normalizeName(x.boardType)) return false;
+    }
+    if (inputMaterial.boardCompany && x.boardCompany) {
+      if (normalizeName(inputMaterial.boardCompany) !== normalizeName(x.boardCompany)) return false;
+    }
+    if (inputMaterial.boardSize && x.boardSize) {
+      if (normalizeName(inputMaterial.boardSize) !== normalizeName(x.boardSize)) return false;
+    }
+    return true;
+  };
 
   // 1. Explicit ID or docId match
   if (inputMaterial.id || inputMaterial.docId) {
@@ -295,46 +380,29 @@ export function findMatchingItemIndex(
   // 2. Exact case-insensitive name match
   if (inputName) {
     const exactIdx = currentList.findIndex(
-      x => x.name.trim().toLowerCase() === inputName.toLowerCase()
+      x => x.name.trim().toLowerCase() === inputName.toLowerCase() && isCompatibleMatch(x)
     );
     if (exactIdx >= 0) return exactIdx;
   }
 
-  // 3. Normalized alphanumeric name match (ignores spaces, dashes, slashes, punctuation)
-  if (normInputName.length >= 3) {
-    const normIdx = currentList.findIndex(
-      x => normalizeName(x.name) === normInputName
-    );
-    if (normIdx >= 0) return normIdx;
-  }
-
-  // 4. SKU match
+  // 3. Exact SKU match
   if (inputSku && inputSku !== 'rm' && !inputSku.startsWith('rm-scan')) {
     const skuIdx = currentList.findIndex(
-      x => (x.sku || '').trim().toLowerCase() === inputSku
+      x => (x.sku || '').trim().toLowerCase() === inputSku && isCompatibleMatch(x)
     );
     if (skuIdx >= 0) return skuIdx;
   }
 
-  // 5. Board Attributes Match (Company + Type + Thickness + Size)
-  if (inputMaterial.boardCompany && inputMaterial.boardThickness && inputMaterial.boardSize) {
+  // 4. Exact Board Attributes Match (Company + Type + Thickness + Size + Rate)
+  if (inputMaterial.boardCompany && inputMaterial.boardThickness && inputMaterial.boardSize && inputMaterial.boardType) {
     const boardIdx = currentList.findIndex(x => {
       const companyMatch = normalizeName(x.boardCompany || '') === normalizeName(inputMaterial.boardCompany || '');
-      const typeMatch = !inputMaterial.boardType || !x.boardType || normalizeName(x.boardType) === normalizeName(inputMaterial.boardType);
+      const typeMatch = normalizeName(x.boardType || '') === normalizeName(inputMaterial.boardType || '');
       const thickMatch = normalizeName(x.boardThickness || '') === normalizeName(inputMaterial.boardThickness || '');
       const sizeMatch = normalizeName(x.boardSize || '') === normalizeName(inputMaterial.boardSize || '');
-      return companyMatch && typeMatch && thickMatch && sizeMatch && Boolean(x.boardCompany) && Boolean(x.boardThickness);
+      return companyMatch && typeMatch && thickMatch && sizeMatch && isCompatibleMatch(x);
     });
     if (boardIdx >= 0) return boardIdx;
-  }
-
-  // 6. Substring containment match for long names (>= 6 chars)
-  if (normInputName.length >= 6) {
-    const subIdx = currentList.findIndex(x => {
-      const normX = normalizeName(x.name);
-      return normX.length >= 6 && (normX.includes(normInputName) || normInputName.includes(normX));
-    });
-    if (subIdx >= 0) return subIdx;
   }
 
   return -1;
@@ -357,7 +425,7 @@ export async function saveRawMaterialItem(material: Partial<RawMaterialItem>): P
   };
 
   const invoiceNo = material.challanOrPoNo || extractRef(material.notes);
-  const vendorName = material.receivedFrom || extractVendor(material.notes) || 'Supplier';
+  const vendorName = material.receivedFrom || extractVendor(material.notes) || '';
 
   // 1. Find matching item in local list
   let existingIdx = findMatchingItemIndex(material, currentList);
@@ -412,6 +480,7 @@ export async function saveRawMaterialItem(material: Partial<RawMaterialItem>): P
       ...(material.colorCode ? { colorCode: material.colorCode } : {}),
       ...(material.unitCost ? { unitCost: Number(material.unitCost) } : {}),
       ...(material.imageUrl ? { imageUrl: material.imageUrl } : {}),
+      ...(material.invoiceDate ? { invoiceDate: material.invoiceDate } : {}),
       notes: material.notes || existingItem.notes,
       updatedAt: new Date().toISOString()
     };
@@ -431,6 +500,8 @@ export async function saveRawMaterialItem(material: Partial<RawMaterialItem>): P
       quantity: qtyToAdd,
       previousQuantity: prevQty,
       newQuantity: newQty,
+      unitCost: material.unitCost !== undefined && Number(material.unitCost) > 0 ? Number(material.unitCost) : existingItem.unitCost,
+      billDate: material.invoiceDate || (material as any).billDate || existingItem.invoiceDate || '',
       receivedFrom: vendorName,
       challanOrPoNo: invoiceNo,
       notes: material.notes || `Stock Added (+${qtyToAdd} ${existingItem.unit}) ${invoiceNo ? `| Invoice: ${invoiceNo}` : ''}`,
@@ -542,6 +613,7 @@ export async function saveRawMaterialItem(material: Partial<RawMaterialItem>): P
       boardThickness: material.boardThickness || '',
       boardSize: material.boardSize || '',
       colorCode: material.colorCode || '',
+      invoiceDate: material.invoiceDate || (material as any).billDate || '',
       createdAt: material.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -561,6 +633,8 @@ export async function saveRawMaterialItem(material: Partial<RawMaterialItem>): P
       quantity: initialQty,
       previousQuantity: 0,
       newQuantity: initialQty,
+      unitCost: newItem.unitCost,
+      billDate: newItem.invoiceDate || '',
       receivedFrom: vendorName,
       challanOrPoNo: invoiceNo,
       notes: material.notes || `Initial Stock (+${initialQty} ${newItem.unit}) ${invoiceNo ? `| Invoice: ${invoiceNo}` : ''}`,
@@ -600,25 +674,40 @@ export async function saveRawMaterialItem(material: Partial<RawMaterialItem>): P
 
 // Delete a Raw Material
 export async function deleteRawMaterialItem(id: string, docId?: string): Promise<void> {
+  addDeletedMaterialId(id, docId);
+
   const current = getLocalRawMaterials().filter(x => x.id !== id && (!docId || x.docId !== docId));
   setLocalRawMaterials(current);
 
   try {
-    if (docId) {
-      await deleteDoc(doc(db, 'raw_materials', docId));
-    }
-    if (id) {
-      try {
-        await deleteDoc(doc(db, 'raw_materials', id));
-      } catch (_) {
-        // Document with this exact ID might not exist directly
-      }
+    const deletePromises: Promise<void>[] = [];
 
-      const q = query(getRawMaterialsCol(), where('id', '==', id));
-      const snap = await getDocs(q);
-      const deletePromises = snap.docs.map(d => deleteDoc(d.ref));
-      await Promise.all(deletePromises);
+    if (docId) {
+      deletePromises.push(deleteDoc(doc(db, 'raw_materials', docId)).catch(() => {}));
     }
+    if (id && id !== docId) {
+      deletePromises.push(deleteDoc(doc(db, 'raw_materials', id)).catch(() => {}));
+    }
+
+    if (id) {
+      const q = query(getRawMaterialsCol(), where('id', '==', id));
+      const snap = await getDocs(q).catch(() => null);
+      if (snap && !snap.empty) {
+        snap.docs.forEach(d => deletePromises.push(deleteDoc(d.ref).catch(() => {})));
+      }
+    }
+
+    const allSnap = await getDocs(getRawMaterialsCol()).catch(() => null);
+    if (allSnap && !allSnap.empty) {
+      allSnap.docs.forEach(d => {
+        const data = d.data();
+        if (d.id === id || d.id === docId || data.id === id || data.docId === docId) {
+          deletePromises.push(deleteDoc(d.ref).catch(() => {}));
+        }
+      });
+    }
+
+    await Promise.all(deletePromises);
   } catch (err) {
     console.warn('Firestore deleteRawMaterialItem error:', err);
   }
@@ -626,7 +715,6 @@ export async function deleteRawMaterialItem(id: string, docId?: string): Promise
 
 // Clear ALL raw materials from inventory (local & firestore)
 export async function clearAllRawMaterials(): Promise<void> {
-  // Clear local cache immediately
   setLocalRawMaterials([]);
   try {
     const snap = await getDocs(getRawMaterialsCol());
@@ -639,18 +727,40 @@ export async function clearAllRawMaterials(): Promise<void> {
 
 // Delete an individual history entry (local & firestore)
 export async function deleteInventoryHistoryEntry(id: string, docId?: string): Promise<void> {
+  addDeletedHistoryId(id, docId);
+
   const current = getLocalHistory().filter(x => x.id !== id && (!docId || x.docId !== docId));
   setLocalHistory(current);
 
   try {
+    const deletePromises: Promise<void>[] = [];
+
     if (docId) {
-      await deleteDoc(doc(db, 'inventory_history', docId));
-    } else {
-      const q = query(getInventoryHistoryCol(), where('id', '==', id));
-      const snap = await getDocs(q);
-      const deletePromises = snap.docs.map(d => deleteDoc(d.ref));
-      await Promise.all(deletePromises);
+      deletePromises.push(deleteDoc(doc(db, 'inventory_history', docId)).catch(() => {}));
     }
+    if (id && id !== docId) {
+      deletePromises.push(deleteDoc(doc(db, 'inventory_history', id)).catch(() => {}));
+    }
+
+    if (id) {
+      const q = query(getInventoryHistoryCol(), where('id', '==', id));
+      const snap = await getDocs(q).catch(() => null);
+      if (snap && !snap.empty) {
+        snap.docs.forEach(d => deletePromises.push(deleteDoc(d.ref).catch(() => {})));
+      }
+    }
+
+    const allSnap = await getDocs(getInventoryHistoryCol()).catch(() => null);
+    if (allSnap && !allSnap.empty) {
+      allSnap.docs.forEach(d => {
+        const data = d.data();
+        if (d.id === id || d.id === docId || data.id === id || data.docId === docId) {
+          deletePromises.push(deleteDoc(d.ref).catch(() => {}));
+        }
+      });
+    }
+
+    await Promise.all(deletePromises);
   } catch (err) {
     console.warn('Firestore deleteInventoryHistoryEntry error:', err);
   }
@@ -675,19 +785,14 @@ export interface ReceiveMaterialParams {
   quantity: number;
   receivedFrom?: string;
   challanOrPoNo?: string;
+  unitCost?: number;
+  billDate?: string;
   notes?: string;
   performedBy?: string;
 }
 
-export async function receiveRawMaterialStock(params: {
-  materialId: string;
-  quantity: number;
-  receivedFrom?: string;
-  challanOrPoNo?: string;
-  notes?: string;
-  performedBy?: string;
-}): Promise<{ updatedItem: RawMaterialItem; historyEntry: InventoryHistoryEntry }> {
-  const { materialId, quantity, receivedFrom, challanOrPoNo, notes, performedBy } = params;
+export async function receiveRawMaterialStock(params: ReceiveMaterialParams): Promise<{ updatedItem: RawMaterialItem; historyEntry: InventoryHistoryEntry }> {
+  const { materialId, quantity, receivedFrom, challanOrPoNo, unitCost, billDate, notes, performedBy } = params;
 
   if (quantity <= 0) {
     throw new Error('Received quantity must be greater than 0.');
@@ -708,6 +813,8 @@ export async function receiveRawMaterialStock(params: {
     ...item,
     availableQuantity: newQty,
     totalReceived,
+    ...(unitCost !== undefined && Number(unitCost) > 0 ? { unitCost: Number(unitCost) } : {}),
+    ...(billDate ? { invoiceDate: billDate } : {}),
     updatedAt: new Date().toISOString()
   };
 
@@ -727,7 +834,9 @@ export async function receiveRawMaterialStock(params: {
     quantity: Number(quantity),
     previousQuantity: prevQty,
     newQuantity: newQty,
-    receivedFrom: receivedFrom || 'General Supplier',
+    unitCost: unitCost !== undefined && Number(unitCost) > 0 ? Number(unitCost) : item.unitCost,
+    billDate: billDate || item.invoiceDate || '',
+    receivedFrom: receivedFrom || '',
     challanOrPoNo: challanOrPoNo || '',
     notes: notes || `Received +${quantity} ${item.unit}`,
     timestamp: formatInventoryDateTime(now),
@@ -862,4 +971,101 @@ export async function dispatchRawMaterialStock(params: {
   }
 
   return { updatedItem, historyEntry };
+}
+
+// 4. UNMERGE SCANNED ITEMS helper function
+export async function separateMergedScannedItems(): Promise<boolean> {
+  const materials = getLocalRawMaterials();
+  const history = getLocalHistory();
+
+  let modified = false;
+  const newMaterialsList: RawMaterialItem[] = [];
+
+  for (const mat of materials) {
+    // Find all RECEIVED history entries for this material with rates specified
+    const matLogs = history.filter(h => h.type === 'RECEIVED' && h.materialId === mat.id && h.unitCost && h.unitCost > 0);
+    
+    // Group logs by unitCost (Rate)
+    const ratesMap = new Map<number, InventoryHistoryEntry[]>();
+    matLogs.forEach(log => {
+      const rate = Number(log.unitCost);
+      if (!ratesMap.has(rate)) ratesMap.set(rate, []);
+      ratesMap.get(rate)!.push(log);
+    });
+
+    if (ratesMap.size > 1) {
+      // Multiple rates were merged into this single item! Split them into distinct product items!
+      modified = true;
+      let isFirst = true;
+
+      ratesMap.forEach((logs, rate) => {
+        const totalQtyForRate = logs.reduce((sum, l) => sum + l.quantity, 0);
+        const refInvoice = logs[0].challanOrPoNo || mat.challanOrPoNo;
+        const refVendor = logs[0].receivedFrom || mat.receivedFrom;
+        const refBillDate = logs[0].billDate || mat.invoiceDate;
+
+        if (isFirst) {
+          // Keep the existing item for the first rate group
+          newMaterialsList.push({
+            ...mat,
+            unitCost: rate,
+            availableQuantity: totalQtyForRate,
+            totalReceived: totalQtyForRate,
+            challanOrPoNo: refInvoice,
+            receivedFrom: refVendor,
+            invoiceDate: refBillDate
+          });
+          isFirst = false;
+        } else {
+          // Create a new distinct item for this rate group
+          const newId = `rm-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+          const newItem: RawMaterialItem = {
+            ...mat,
+            id: newId,
+            docId: undefined,
+            sku: mat.sku ? `${mat.sku}-${rate}` : `RM-${Math.floor(1000 + Math.random() * 9000)}`,
+            unitCost: rate,
+            availableQuantity: totalQtyForRate,
+            totalReceived: totalQtyForRate,
+            totalDispatched: 0,
+            challanOrPoNo: refInvoice,
+            receivedFrom: refVendor,
+            invoiceDate: refBillDate,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          };
+          newMaterialsList.push(newItem);
+
+          // Update the history entries for this group to point to newId
+          logs.forEach(l => {
+            l.materialId = newId;
+          });
+        }
+      });
+    } else {
+      newMaterialsList.push(mat);
+    }
+  }
+
+  if (modified) {
+    setLocalRawMaterials(newMaterialsList);
+    setLocalHistory(history);
+
+    // Sync changes to Firestore
+    try {
+      for (const item of newMaterialsList) {
+        if (item.docId) {
+          await updateDoc(doc(db, 'raw_materials', item.docId), removeUndefined(item));
+        } else {
+          const docRef = await addDoc(getRawMaterialsCol(), removeUndefined(item));
+          item.docId = docRef.id;
+        }
+      }
+      setLocalRawMaterials(newMaterialsList);
+    } catch (err) {
+      console.warn('Firestore unmerge sync warning:', err);
+    }
+  }
+
+  return modified;
 }

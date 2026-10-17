@@ -71,6 +71,7 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [scannedData, setScannedData] = useState<ScannedInvoiceData | null>(null);
   const [isSavingBatch, setIsSavingBatch] = useState(false);
+  const [forceSeparate, setForceSeparate] = useState(true);
 
   // Camera state
   const [isCameraActive, setIsCameraActive] = useState(false);
@@ -336,7 +337,7 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
                                 nameLower.includes('plywood') || nameLower.includes('board') ||
                                 nameLower.includes('mdf') || nameLower.includes('hdhmr') || nameLower.includes('plpb');
 
-        const itemPayload: Partial<RawMaterialItem> = {
+        const itemPayload: Partial<RawMaterialItem> & { createNewItem?: boolean } = {
           name: item.name,
           sku: generatedSku,
           category: item.category,
@@ -345,7 +346,9 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
           unit: item.unit,
           minThreshold: 10,
           imageUrl: fileData || '',
-          notes: `Vendor: ${scannedData.vendorName || 'Supplier'} | Ref: ${scannedData.invoiceNumber || 'Invoice'}`,
+          notes: (scannedData.vendorName || scannedData.invoiceNumber) 
+            ? `Vendor: ${scannedData.vendorName || ''} | Ref: ${scannedData.invoiceNumber || ''}` 
+            : '',
           unitCost: item.unitCost,
           totalReceived: item.quantity,
           totalDispatched: 0,
@@ -356,7 +359,9 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
           boardSize: isBoardCategory ? item.boardSize : undefined,
           colorCode: isBoardCategory ? item.colorCode : undefined,
           challanOrPoNo: scannedData.invoiceNumber || '',
-          receivedFrom: scannedData.vendorName || ''
+          receivedFrom: scannedData.vendorName || '',
+          invoiceDate: scannedData.invoiceDate || '',
+          createNewItem: forceSeparate
         };
 
         await saveRawMaterialItem(itemPayload);
@@ -642,6 +647,7 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
                           <th className="p-3">Material Name &amp; Specifications</th>
                           <th className="p-3">Category</th>
                           <th className="p-3 text-center">Qty &amp; Unit</th>
+                          <th className="p-3 text-center font-bold text-emerald-300">Rate / Price (₹)</th>
                           <th className="p-3 text-center font-bold text-amber-300">Board Attributes</th>
                           {onApplyToSingleItem && <th className="p-3 text-center">Single Fill</th>}
                           <th className="p-3 text-center">Action</th>
@@ -691,7 +697,7 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
                                       + Will create new product in inventory
                                     </div>
                                   )}
-                                </td>;
+                                </td>
 
                             {/* Category */}
                             <td className="p-3">
@@ -723,6 +729,22 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
                                   className="w-16 font-bold text-center border border-slate-200 rounded-lg px-1.5 py-1 text-xs"
                                 />
                                 <span className="text-[11px] font-bold text-slate-600">{item.unit}</span>
+                              </div>
+                            </td>
+
+                            {/* Rate / Price (₹) */}
+                            <td className="p-3 text-center">
+                              <div className="flex items-center justify-center gap-1">
+                                <span className="text-xs font-bold text-slate-400">₹</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="any"
+                                  value={item.unitCost !== undefined && !isNaN(item.unitCost) && item.unitCost !== null ? item.unitCost : ''}
+                                  onChange={(e) => handleUpdateItem(item.id, 'unitCost', parseFloat(e.target.value) || 0)}
+                                  placeholder="Rate..."
+                                  className="w-20 font-extrabold text-center border border-slate-200 rounded-lg px-2 py-1 text-xs bg-white text-emerald-950 focus:ring-2 focus:ring-emerald-500"
+                                />
                               </div>
                             </td>
 
@@ -796,7 +818,17 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
                   Cancel / Re-scan
                 </button>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-3">
+                  <label className="flex items-center gap-2 cursor-pointer bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold text-slate-800">
+                    <input
+                      type="checkbox"
+                      checked={forceSeparate}
+                      onChange={(e) => setForceSeparate(e.target.checked)}
+                      className="rounded border-slate-400 text-indigo-600 focus:ring-indigo-500 cursor-pointer w-4 h-4"
+                    />
+                    <span>Force create each scanned line as separate product entry</span>
+                  </label>
+
                   <button
                     type="button"
                     onClick={handleSaveAllToInventory}

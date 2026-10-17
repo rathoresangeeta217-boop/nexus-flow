@@ -21,6 +21,8 @@ export const ReceiveMaterialModal: React.FC<ReceiveMaterialModalProps> = ({
   const [quantity, setQuantity] = useState<string>('100');
   const [receivedFrom, setReceivedFrom] = useState<string>('');
   const [challanOrPoNo, setChallanOrPoNo] = useState<string>('');
+  const [unitCost, setUnitCost] = useState<string>('');
+  const [billDate, setBillDate] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -34,9 +36,19 @@ export const ReceiveMaterialModal: React.FC<ReceiveMaterialModalProps> = ({
     }
   }, [preselectedProductId, products, isOpen]);
 
+  const currentProduct = products.find(p => p.id === selectedProductId || p.docId === selectedProductId);
+
+  useEffect(() => {
+    if (currentProduct?.unitCost) {
+      setUnitCost(String(currentProduct.unitCost));
+    }
+    if (currentProduct?.invoiceDate) {
+      setBillDate(currentProduct.invoiceDate);
+    }
+  }, [selectedProductId]);
+
   if (!isOpen) return null;
 
-  const currentProduct = products.find(p => p.id === selectedProductId || p.docId === selectedProductId);
   const numQty = parseFloat(quantity) || 0;
   const currentStock = currentProduct ? currentProduct.availableQuantity : 0;
   const newProjectedStock = currentStock + numQty;
@@ -62,6 +74,8 @@ export const ReceiveMaterialModal: React.FC<ReceiveMaterialModalProps> = ({
         quantity: numQty,
         receivedFrom: receivedFrom.trim(),
         challanOrPoNo: challanOrPoNo.trim(),
+        unitCost: parseFloat(unitCost) || undefined,
+        billDate: billDate.trim() || undefined,
         notes: notes.trim(),
         performedBy: 'Store Incharge'
       });
@@ -212,7 +226,7 @@ export const ReceiveMaterialModal: React.FC<ReceiveMaterialModalProps> = ({
             </div>
           )}
 
-          {/* Supplier & Reference PO */}
+          {/* Supplier, Reference PO, Rate and Bill Date */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
@@ -223,7 +237,7 @@ export const ReceiveMaterialModal: React.FC<ReceiveMaterialModalProps> = ({
                 value={receivedFrom}
                 onChange={(e) => setReceivedFrom(e.target.value)}
                 placeholder="e.g. Apex Hardware / Direct Mill"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 text-sm text-slate-900"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 text-sm text-slate-900 bg-white"
               />
             </div>
 
@@ -236,7 +250,37 @@ export const ReceiveMaterialModal: React.FC<ReceiveMaterialModalProps> = ({
                 value={challanOrPoNo}
                 onChange={(e) => setChallanOrPoNo(e.target.value)}
                 placeholder="e.g. INV-8821 / PO-302"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 text-sm text-slate-900"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 text-sm text-slate-900 bg-white"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                Rate / Unit Price (₹)
+              </label>
+              <div className="relative">
+                <span className="absolute left-3.5 top-2.5 text-slate-400 font-bold text-sm">₹</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  value={unitCost}
+                  onChange={(e) => setUnitCost(e.target.value)}
+                  placeholder="e.g. 1250"
+                  className="w-full pl-8 pr-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 text-sm font-bold text-slate-900 bg-white"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                Actual Date of Bill / Invoice
+              </label>
+              <input
+                type="date"
+                value={billDate}
+                onChange={(e) => setBillDate(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 text-sm font-semibold text-slate-900 bg-white"
               />
             </div>
           </div>

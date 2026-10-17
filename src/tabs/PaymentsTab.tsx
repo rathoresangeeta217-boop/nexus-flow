@@ -11,7 +11,7 @@ import { subscribeToPurchases, Purchase } from '../lib/purchases';
 import { PaymentManagementModal } from '../components/PaymentManagementModal';
 import { VendorPaymentModal } from '../components/VendorPaymentModal';
 import { ProjectVendorSummaryModal } from '../components/ProjectVendorSummaryModal';
-import { getAllPayments, subscribeToPayments, PaymentRecord } from '../lib/payments';
+import { getAllPayments, subscribeToPayments, PaymentRecord, calculatePhaseGstAdjustment } from '../lib/payments';
 
 import * as XLSX from 'xlsx';
 
@@ -37,20 +37,36 @@ export function getOrderPaymentSummary(order: Order, customerPayments: PaymentRe
 
   let calculatedRemaining = orderAmt;
   let displayTotalAmt = orderAmt;
+  let totalGrossReceived = 0;
+  let totalGstSubtracted = 0;
+  let totalNetCredited = 0;
+
+  let gstRate = 18;
+  if (paymentRecord?.originalGst) {
+    const m = paymentRecord.originalGst.match(/(\d+(?:\.\d+)?)\s*%/);
+    if (m) gstRate = parseFloat(m[1]);
+  } else if (order.details?.gst) {
+    const m = order.details.gst.toString().match(/(\d+(?:\.\d+)?)\s*%/);
+    if (m) gstRate = parseFloat(m[1]);
+  }
+
   if (paymentRecord) {
     const grandTotal = parseVal(paymentRecord.grandTotal) || orderAmt;
-    // Grand Total ALREADY includes transportation, installation, and taxes
     displayTotalAmt = grandTotal;
 
-    let receivedPhasesTotal = 0;
     if (paymentRecord.phases) {
       paymentRecord.phases.forEach(phase => {
         if (phase.status === 'Received') {
-          receivedPhasesTotal += parseVal(phase.amount, grandTotal);
+          const grossAmt = parseVal(phase.amount, grandTotal);
+          totalGrossReceived += grossAmt;
+
+          const adj = calculatePhaseGstAdjustment(phase.amount, phase.sourceType, phase.bankName, gstRate, grandTotal);
+          totalGstSubtracted += adj.gstAmount;
+          totalNetCredited += adj.netCreditedAmount;
         }
       });
     }
-    calculatedRemaining = displayTotalAmt - receivedPhasesTotal;
+    calculatedRemaining = displayTotalAmt - totalGrossReceived - totalGstSubtracted;
   }
 
   const remainingAmount = Math.max(0, calculatedRemaining);
@@ -62,6 +78,9 @@ export function getOrderPaymentSummary(order: Order, customerPayments: PaymentRe
     orderAmt,
     displayTotalAmt,
     remainingAmount,
+    totalGrossReceived,
+    totalGstSubtracted,
+    totalNetCredited,
     isFullyPaid,
     hasRemaining,
     isUnpaid,

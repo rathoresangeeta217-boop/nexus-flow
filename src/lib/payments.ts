@@ -38,6 +38,7 @@ export interface PaymentRecord {
   editedAmount?: string;
   editReason?: string;
   
+  deliveryDate?: string;
   phases: PaymentPhase[];
   history?: any[];
   rateEditHistory?: RateEditHistoryEntry[];
@@ -107,3 +108,55 @@ export const savePaymentRecord = async (record: Partial<PaymentRecord>) => {
     throw err;
   }
 };
+
+export interface PhaseGstAdjustment {
+  isPRorCash: boolean;
+  grossAmount: number;
+  gstRate: number;
+  gstAmount: number;
+  netCreditedAmount: number;
+}
+
+export function calculatePhaseGstAdjustment(
+  phaseAmountStr: string | number | undefined,
+  sourceType?: string,
+  bankName?: string,
+  gstRate: number = 18,
+  baseGrandTotal: number = 0
+): PhaseGstAdjustment {
+  const isPRorCash = sourceType === 'Cash' || bankName === 'PR' || (bankName && bankName.toUpperCase() === 'PR') || (sourceType === 'Bank' && (bankName === 'PR' || bankName?.toUpperCase() === 'PR'));
+
+  let grossAmount = 0;
+  if (phaseAmountStr !== undefined && phaseAmountStr !== null) {
+    const strVal = phaseAmountStr.toString();
+    const pctMatch = strVal.match(/(\d[\d,]*(\.\d+)?)\s*%/);
+    if (pctMatch && baseGrandTotal > 0) {
+      const pct = parseFloat(pctMatch[1].replace(/,/g, ''));
+      grossAmount = (pct / 100) * baseGrandTotal;
+    } else {
+      const amtMatch = strVal.match(/\d[\d,]*(\.\d+)?/);
+      grossAmount = amtMatch ? parseFloat(amtMatch[0].replace(/,/g, '')) || 0 : 0;
+    }
+  }
+
+  if (!isPRorCash || grossAmount <= 0) {
+    return {
+      isPRorCash: false,
+      grossAmount,
+      gstRate,
+      gstAmount: 0,
+      netCreditedAmount: grossAmount
+    };
+  }
+
+  const gstAmount = grossAmount * (gstRate / 100);
+  const netCreditedAmount = grossAmount;
+
+  return {
+    isPRorCash: true,
+    grossAmount,
+    gstRate,
+    gstAmount,
+    netCreditedAmount
+  };
+}

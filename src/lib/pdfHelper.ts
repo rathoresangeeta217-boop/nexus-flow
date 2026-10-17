@@ -1,6 +1,7 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { getProductFile } from './fileStorage';
+import { calculatePhaseGstAdjustment } from './payments';
 
 
 const addPageBorder = (doc: any) => {
@@ -632,6 +633,7 @@ export const generatePaymentReminderPDF = async (order: any, paymentRecord?: any
     let advanceReceived = 0;
     let phasesReceived = 0;
     
+    let totalGstSubtracted = 0;
     receivedPhases.forEach((p: any) => {
       const phaseAmt = parseVal(p.amount, grandTotal);
       if (p.title && p.title.toLowerCase().includes('advance')) {
@@ -639,10 +641,12 @@ export const generatePaymentReminderPDF = async (order: any, paymentRecord?: any
       } else {
         phasesReceived += phaseAmt;
       }
+      const adj = calculatePhaseGstAdjustment(p.amount, p.sourceType, p.bankName, 18, grandTotal);
+      totalGstSubtracted += adj.gstAmount;
     });
 
     const totalReceived = advanceReceived + phasesReceived;
-    const remainingPayment = displayTotalAmt - totalReceived;
+    const remainingPayment = Math.max(0, displayTotalAmt - totalReceived - totalGstSubtracted);
 
     if (receivedPhases.length > 0) {
       tY += 6;

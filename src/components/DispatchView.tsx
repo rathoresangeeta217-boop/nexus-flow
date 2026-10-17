@@ -15,7 +15,7 @@ import { getProductFile } from '../lib/fileStorage';
 import { Badge } from './Badge';
 import { getOrderFiles, saveOrderFiles } from '../lib/fileStorage';
 import { generateDispatchPDF, generatePaymentReminderPDF, generateSatisfactionFormPDF } from '../lib/pdfHelper';
-import { getPaymentForOrder, PaymentRecord } from '../lib/payments';
+import { getPaymentForOrder, PaymentRecord, calculatePhaseGstAdjustment } from '../lib/payments';
 import { getInstallers, subscribeToInstallers, Installer } from '../lib/installers';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -471,15 +471,18 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
     const displayTotalAmt = grandTotal;
 
     let receivedPhasesTotal = 0;
+    let totalGstSubtracted = 0;
     if (paymentRecord.phases) {
       paymentRecord.phases.forEach(phase => {
         if (phase.status === 'Received') {
           receivedPhasesTotal += parseVal(phase.amount, grandTotal);
+          const adj = calculatePhaseGstAdjustment(phase.amount, phase.sourceType, phase.bankName, 18, grandTotal);
+          totalGstSubtracted += adj.gstAmount;
         }
       });
     }
     
-    return displayTotalAmt - receivedPhasesTotal;
+    return Math.max(0, displayTotalAmt - receivedPhasesTotal - totalGstSubtracted);
   };
 
   const isPartialDispatch = products.length > 0 && products.some(p => !p.isDispatched || (p.dispatchedQuantity !== undefined && p.dispatchedQuantity !== null && p.dispatchedQuantity < p.quantity));

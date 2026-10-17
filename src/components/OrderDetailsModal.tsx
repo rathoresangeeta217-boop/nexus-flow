@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, FileText, Download, User, Building, Phone, Mail, MapPin, Hash, Paperclip, Loader2, Trash2, Truck, MessageCircle } from 'lucide-react';
+import { X, FileText, Download, User, Building, Phone, Mail, MapPin, Hash, Paperclip, Loader2, Trash2, Truck, MessageCircle, Calendar } from 'lucide-react';
 import { Badge } from './Badge';
 import { getOrderFiles } from '../lib/fileStorage';
-import { getPaymentForOrder, PaymentRecord } from '../lib/payments';
+import { getPaymentForOrder, PaymentRecord, calculatePhaseGstAdjustment } from '../lib/payments';
 import { saveOrder } from '../lib/orders';
 import { Clock, TrendingUp, Edit2, Check } from 'lucide-react';
 
@@ -229,6 +229,22 @@ You have a new dispatch scheduled.\n\nOrder ID: ${order.id}\n${items}\n${vehicle
                     </div>
                   </div>
 
+                  <div className="flex items-start gap-3 bg-amber-50/80 p-3 rounded-xl border border-amber-200/70 md:col-span-2 shadow-2xs">
+                    <Truck className="w-4.5 h-4.5 text-amber-700 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-xs font-bold text-amber-900 uppercase tracking-wider">Order Delivery Date</p>
+                      <p className="text-sm font-black text-amber-950 mt-0.5">
+                        {paymentRecord?.deliveryDate || order.details?.deliveryDate || (order as any).deliveryDate ? (
+                          new Date(paymentRecord?.deliveryDate || order.details?.deliveryDate || (order as any).deliveryDate).toLocaleDateString('en-IN', {
+                            weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
+                          })
+                        ) : (
+                          <span className="text-amber-800/70 font-medium italic text-xs">Not specified yet (Mandatory on 1st payment phase)</span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+
                   <div className="flex items-start gap-3">
                     <User className="w-4 h-4 text-slate-400 mt-0.5" />
                     <div>
@@ -379,24 +395,44 @@ You have a new dispatch scheduled.\n\nOrder ID: ${order.id}\n${items}\n${vehicle
                   <div className="mt-4 border-t border-slate-200 pt-4">
                     <h5 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3">Payment Phases</h5>
                     <div className="space-y-3">
-                      {paymentRecord.phases.map((phase, idx) => (
-                        <div key={phase.id || idx} className="bg-white border border-slate-200 rounded-lg p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
-                          <div>
-                            <p className="font-semibold text-slate-800 text-sm">{phase.title}</p>
-                            <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
-                              {phase.date && <span>{phase.date}</span>}
-                              {phase.sourceType && <span>Via {phase.sourceType}</span>}
-                              {phase.bankName && <span>({phase.bankName})</span>}
+                      {paymentRecord.phases.map((phase, idx) => {
+                        const isPRorCash = phase.sourceType === 'Cash' || (phase.sourceType === 'Bank' && (phase.bankName === 'PR' || phase.bankName?.toUpperCase() === 'PR'));
+                        const parseVal = (str: any) => {
+                          if (!str) return 0;
+                          const m = str.toString().match(/\d[\d,]*(\.\d+)?/);
+                          return m ? parseFloat(m[0].replace(/,/g, "")) : 0;
+                        };
+                        const grandVal = parseVal(paymentRecord.grandTotal || order.amount);
+                        const adj = calculatePhaseGstAdjustment(phase.amount, phase.sourceType, phase.bankName, 18, grandVal);
+
+                        return (
+                          <div key={phase.id || idx} className="bg-white border border-slate-200 rounded-lg p-3 space-y-2 shadow-sm">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                              <div>
+                                <p className="font-semibold text-slate-800 text-sm">{phase.title}</p>
+                                <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
+                                  {phase.date && <span>{phase.date}</span>}
+                                  {phase.sourceType && <span>Via {phase.sourceType}</span>}
+                                  {phase.bankName && <span>({phase.bankName})</span>}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-4">
+                                <span className="font-bold text-slate-700">{phase.amount}</span>
+                                <Badge variant={phase.status === 'Received' ? 'success' : 'warning'}>
+                                  {phase.status}
+                                </Badge>
+                              </div>
                             </div>
+
+                            {isPRorCash && phase.status === 'Received' && (
+                              <div className="text-[11px] font-medium bg-amber-50 text-amber-900 border border-amber-200 p-2 rounded-md flex items-center justify-between">
+                                <span>⚡ <strong>PR/Cash Rule:</strong> GST Excluded (-₹{adj.gstAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })})</span>
+                                <span className="font-bold text-emerald-800">Credited to {phase.sourceType === 'Cash' ? 'Cash' : 'PR Bank'}: ₹{adj.netCreditedAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
+                              </div>
+                            )}
                           </div>
-                          <div className="flex items-center gap-4">
-                            <span className="font-bold text-slate-700">{phase.amount}</span>
-                            <Badge variant={phase.status === 'Received' ? 'success' : 'warning'}>
-                              {phase.status}
-                            </Badge>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )}
