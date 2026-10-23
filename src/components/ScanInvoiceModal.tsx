@@ -16,9 +16,18 @@ import {
   Plus,
   Trash2,
   CheckCircle2,
-  Package
+  Package,
+  AlertTriangle
 } from 'lucide-react';
-import { RawMaterialItem, saveRawMaterialItem, receiveRawMaterialStock, getLocalRawMaterials, findMatchingItemIndex } from '../lib/inventory';
+import { 
+  RawMaterialItem, 
+  saveRawMaterialItem, 
+  receiveRawMaterialStock, 
+  getLocalRawMaterials, 
+  findMatchingItemIndex,
+  findExistingInvoice,
+  registerAddedInvoiceNumber
+} from '../lib/inventory';
 import { compressImageFile } from '../lib/fileStorage';
 import { convertPdfToImage, isPdfFile } from '../lib/pdfUtils';
 
@@ -72,6 +81,7 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
   const [scannedData, setScannedData] = useState<ScannedInvoiceData | null>(null);
   const [isSavingBatch, setIsSavingBatch] = useState(false);
   const [forceSeparate, setForceSeparate] = useState(true);
+  const [allowDuplicateOverride, setAllowDuplicateOverride] = useState(false);
 
   // Camera state
   const [isCameraActive, setIsCameraActive] = useState(false);
@@ -105,6 +115,13 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
 
   if (!isOpen) return null;
 
+  const openDirectNativeCamera = () => {
+    stopCamera();
+    if (cameraInputRef.current) {
+      cameraInputRef.current.click();
+    }
+  };
+
   const startCamera = async (facing: 'environment' | 'user' = cameraFacingMode) => {
     try {
       stopCamera();
@@ -116,15 +133,19 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
         throw new Error('Camera access is not supported by your browser.');
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { 
-          facingMode: { ideal: facing }, 
-          width: { ideal: 1080 }, 
-          height: { ideal: 1528 },
-          aspectRatio: { ideal: 0.7071 } // A4 portrait paper ratio (210/297)
-        },
-        audio: false
-      });
+      let stream: MediaStream | null = null;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: facing } },
+          audio: false
+        });
+      } catch (e) {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false
+        });
+      }
+
       mediaStreamRef.current = stream;
 
       if (videoRef.current) {
@@ -136,8 +157,12 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
       console.warn('Camera failed:', err);
       setCameraLoading(false);
       setIsCameraActive(false);
-      setCameraError('Live camera scan is available on Tablet & Mobile. On PC, click "Upload Invoice File" to select an invoice photo or PDF.');
-      if (fileInputRef.current) fileInputRef.current.click();
+      setCameraError('Opening native camera app...');
+      if (cameraInputRef.current) {
+        cameraInputRef.current.click();
+      } else if (fileInputRef.current) {
+        fileInputRef.current.click();
+      }
     }
   };
 
@@ -323,6 +348,15 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
       return;
     }
 
+    // Duplicate Invoice Check
+    const dupCheck = findExistingInvoice(scannedData.invoiceNumber);
+    if (dupCheck.isDuplicate && !allowDuplicateOverride) {
+      setError(
+        `⚠️ DUPLICATE INVOICE DETECTED! Invoice Ref No. "${scannedData.invoiceNumber}" has ALREADY been scanned and added to inventory stock before (${dupCheck.source}). Check the override box below if you want to re-add duplicate stock.`
+      );
+      return;
+    }
+
     try {
       setIsSavingBatch(true);
       setError(null);
@@ -368,6 +402,10 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
         savedCount++;
       }
 
+      if (scannedData.invoiceNumber) {
+        registerAddedInvoiceNumber(scannedData.invoiceNumber);
+      }
+
       if (onBatchAdded) {
         onBatchAdded(savedCount);
       }
@@ -379,6 +417,8 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
       setIsSavingBatch(false);
     }
   };
+
+  const duplicateInvoiceInfo = scannedData?.invoiceNumber ? findExistingInvoice(scannedData.invoiceNumber) : { isDuplicate: false };
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
@@ -531,10 +571,30 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
                   </div>
 
                   <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                    {/* Snap Photo with Tablet Camera */}
+                    <button
+                      type="button"
+                      onClick={openDirectNativeCamera}
+                      className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black transition-all shadow-md flex items-center gap-2 cursor-pointer"
+                    >
+                      <Camera className="w-4 h-4" />
+                      <span>Snap Photo (Tablet Camera)</span>
+                    </button>
+
+                    {/* Live Scanner Viewfinder */}
+                    <button
+                      type="button"
+                      onClick={() => startCamera()}
+                      className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition-all shadow-md flex items-center gap-2 cursor-pointer"
+                    >
+                      <RefreshCw className="w-4 h-4 text-amber-400" />
+                      <span>Live Viewfinder</span>
+                    </button>
+
                     {/* Upload File */}
-                    <label className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shadow-md flex items-center gap-2 cursor-pointer">
+                    <label className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shadow-md flex items-center gap-2 cursor-pointer">
                       <Upload className="w-4 h-4" />
-                      <span>Upload Invoice File (PDF / Image)</span>
+                      <span>Upload File (PDF / Image)</span>
                       <input
                         ref={fileInputRef}
                         type="file"
@@ -543,16 +603,6 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
                         className="hidden"
                       />
                     </label>
-
-                    {/* Camera Snap */}
-                    <button
-                      type="button"
-                      onClick={() => startCamera()}
-                      className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black transition-all shadow-md flex items-center gap-2 cursor-pointer"
-                    >
-                      <Camera className="w-4 h-4" />
-                      <span>Snap Photo with Camera</span>
-                    </button>
                   </div>
 
                   <input
@@ -571,39 +621,77 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
           {/* STEP 2: REVIEW & CONFIRM EXTRACTED INVOICE ITEMS */}
           {scannedData && !isScanning && (
             <div className="space-y-4">
-              {/* Header Info Card */}
-              <div className="p-4 rounded-xl bg-indigo-50/70 border border-indigo-200 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                <div>
-                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Vendor / Supplier:</span>
-                  <input
-                    type="text"
-                    value={scannedData.vendorName || ''}
-                    onChange={(e) => setScannedData({ ...scannedData, vendorName: e.target.value })}
-                    placeholder="e.g. Action TESA Authorized Dealer"
-                    className="font-bold text-indigo-950 bg-white border border-indigo-200 px-2.5 py-1 rounded-lg w-full mt-0.5"
-                  />
+              {/* Duplicate Invoice Warning Banner */}
+              {duplicateInvoiceInfo.isDuplicate && (
+                <div className="p-4 rounded-xl bg-amber-50 border-2 border-amber-400 text-amber-950 flex items-start gap-3 shadow-xs">
+                  <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5 animate-bounce" />
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-black text-xs uppercase tracking-wider text-amber-950">
+                        ⚠️ Duplicate Invoice Detected — Already Added Previously
+                      </span>
+                      <span className="bg-amber-200 text-amber-950 px-2 py-0.5 rounded-md font-mono font-black text-[10px]">
+                        Ref #{scannedData.invoiceNumber}
+                      </span>
+                    </div>
+                    <p className="text-xs text-amber-900 font-bold mt-1">
+                      Invoice Ref No. <strong>"{scannedData.invoiceNumber}"</strong> has ALREADY been scanned and added to inventory stock before ({duplicateInvoiceInfo.source}).
+                    </p>
+                    <label className="flex items-center gap-2 mt-2 pt-2 border-t border-amber-200 cursor-pointer text-xs font-bold text-amber-950">
+                      <input
+                        type="checkbox"
+                        checked={allowDuplicateOverride}
+                        onChange={(e) => setAllowDuplicateOverride(e.target.checked)}
+                        className="rounded border-amber-400 text-amber-600 focus:ring-amber-500 w-4 h-4 cursor-pointer"
+                      />
+                      <span>I understand this invoice was already added. Check here to allow re-saving duplicate items into stock.</span>
+                    </label>
+                  </div>
                 </div>
-                <div>
-                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Invoice / Bill Ref No:</span>
-                  <input
-                    type="text"
-                    value={scannedData.invoiceNumber || ''}
-                    onChange={(e) => setScannedData({ ...scannedData, invoiceNumber: e.target.value })}
-                    placeholder="e.g. INV-2026-889"
-                    className="font-bold text-indigo-950 bg-white border border-indigo-200 px-2.5 py-1 rounded-lg w-full mt-0.5"
-                  />
+              )}
+
+                {/* Header Info Card */}
+                <div className="p-4 rounded-xl bg-indigo-50/70 border border-indigo-200 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">Vendor / Supplier:</span>
+                    <input
+                      type="text"
+                      value={scannedData.vendorName || ''}
+                      onChange={(e) => setScannedData({ ...scannedData, vendorName: e.target.value })}
+                      placeholder="e.g. Action TESA Authorized Dealer"
+                      className="font-bold text-indigo-950 bg-white border border-indigo-200 px-2.5 py-1 rounded-lg w-full mt-0.5"
+                    />
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase block">Invoice / Bill Ref No:</span>
+                      {duplicateInvoiceInfo.isDuplicate && (
+                        <span className="text-[9px] font-black text-rose-700 bg-rose-100 px-1.5 py-0.5 rounded-md uppercase">
+                          Duplicate
+                        </span>
+                      )}
+                    </div>
+                    <input
+                      type="text"
+                      value={scannedData.invoiceNumber || ''}
+                      onChange={(e) => setScannedData({ ...scannedData, invoiceNumber: e.target.value })}
+                      placeholder="e.g. INV-2026-889"
+                      className={`font-bold text-indigo-950 bg-white border px-2.5 py-1 rounded-lg w-full mt-0.5 ${
+                        duplicateInvoiceInfo.isDuplicate ? 'border-rose-400 ring-2 ring-rose-200' : 'border-indigo-200'
+                      }`}
+                    />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">Invoice Date:</span>
+                    <input
+                      type="text"
+                      value={scannedData.invoiceDate || ''}
+                      onChange={(e) => setScannedData({ ...scannedData, invoiceDate: e.target.value })}
+                      placeholder="e.g. 2026-10-14"
+                      className="font-bold text-indigo-950 bg-white border border-indigo-200 px-2.5 py-1 rounded-lg w-full mt-0.5"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Invoice Date:</span>
-                  <input
-                    type="text"
-                    value={scannedData.invoiceDate || ''}
-                    onChange={(e) => setScannedData({ ...scannedData, invoiceDate: e.target.value })}
-                    placeholder="e.g. 2026-10-14"
-                    className="font-bold text-indigo-950 bg-white border border-indigo-200 px-2.5 py-1 rounded-lg w-full mt-0.5"
-                  />
-                </div>
-              </div>
 
               {/* Items List Table */}
               <div>

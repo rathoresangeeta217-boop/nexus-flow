@@ -530,7 +530,11 @@ export function NewOrderModal({ isOpen, onClose, fileName, fileData, onAddOrder,
               )}
             </div>
             
-            <div className="p-6 border-t border-slate-100 bg-slate-50/50 flex justify-end gap-3">
+            <div className="p-6 border-t border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <p className="text-[11px] text-amber-800 font-semibold bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-200">
+                ℹ️ <strong>Term:</strong> Compulsory to confirm dispatch within 2 days of Delivery Challan creation or Scheduled Dispatch date.
+              </p>
+              <div className="flex justify-end gap-3 shrink-0">
               <button 
                 type="button"
                 onClick={onClose}
@@ -554,6 +558,7 @@ export function NewOrderModal({ isOpen, onClose, fileName, fileData, onAddOrder,
                   'Create Order'
                 )}
               </button>
+              </div>
             </div>
           </motion.div>
         </motion.div>

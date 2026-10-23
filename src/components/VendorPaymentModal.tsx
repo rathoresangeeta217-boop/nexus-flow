@@ -367,6 +367,7 @@ export function VendorPaymentModal({ isOpen, onClose, po }: VendorPaymentModalPr
                         >
                           <option value="">Select...</option>
                           <option value="Bank">Bank Transfer</option>
+                          <option value="ICICI BANK">ICICI Bank</option>
                           <option value="Cash">Cash</option>
                           <option value="Cheque">Cheque</option>
                         </select>
@@ -381,9 +382,10 @@ export function VendorPaymentModal({ isOpen, onClose, po }: VendorPaymentModalPr
                             className="w-full px-3 py-2 border rounded-lg outline-none bg-white border-slate-300 focus:ring-2 focus:ring-indigo-500"
                           >
                             <option value="">Select...</option>
+                            <option value="PNB">PNB Bank</option>
+                            <option value="ICICI">ICICI Bank</option>
                             <option value="SBI">SBI</option>
                             <option value="Union">Union Bank</option>
-                            <option value="PR">PR Bank</option>
                           </select>
                         </div>
                       )}

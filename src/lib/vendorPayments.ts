@@ -9,8 +9,8 @@ export interface VendorPaymentPhase {
   utrNumber?: string;
   screenshotUrl?: string;
   date?: string;
-  sourceType?: 'Bank' | 'Cash' | 'Cheque';
-  bankName?: 'SBI' | 'Union' | 'PR';
+  sourceType?: 'Bank' | 'Cash' | 'ICICI BANK' | 'ICICI' | 'Cheque';
+  bankName?: 'SBI' | 'Union' | 'PNB' | 'ICICI' | 'PR';
 }
 
 export interface VendorPaymentRecord {

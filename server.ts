@@ -343,6 +343,95 @@ async function startServer() {
     }
   });
 
+  app.post("/api/parse-product-page", async (req, res) => {
+    try {
+      const { fileData } = req.body;
+      if (!fileData) {
+        return res.status(400).json({ error: "Missing file data" });
+      }
+
+      let mimeType = 'image/jpeg';
+      let base64Data = fileData;
+
+      const match = fileData.match(/^data:([^;]+);base64,(.+)$/);
+      if (match) {
+        mimeType = match[1];
+        base64Data = match[2];
+      } else if (fileData.includes(';base64,')) {
+        const parts = fileData.split(';base64,');
+        mimeType = parts[0].replace('data:', '') || 'image/jpeg';
+        base64Data = parts[1];
+      }
+
+      if (mimeType.toLowerCase().includes('pdf') || mimeType === 'application/octet-stream') {
+        mimeType = 'application/pdf';
+      }
+
+      const prompt = `
+        You are an expert AI product catalog and spec sheet scanner for a modular furniture enterprise.
+        Analyze this product catalog page / flyer / spec sheet / advertisement document or image.
+        Extract the product details, product code/SKU, product name, dimensions/size, starting price, category, specifications, and options.
+
+        Return ONLY a JSON object with EXACTLY this structure:
+        {
+          "productCode": "Product Code or Model Number or SKU if present, e.g. EXE-801 or ST-102",
+          "productName": "Product Title / Name, e.g. Executive Desk or Conference Table",
+          "mainCategory": "One of: 'Office Studio', 'Workstation', 'Homes', 'Educational & Institutional', 'Factories & Warehouses'",
+          "subCategory": "Sub category name if present, e.g. 'Executive Table', 'Conference Table', 'Reception Table', 'Seating Series', 'Workstation'",
+          "price": "Base price or starting rate as a numeric string (e.g. '18500') or '0'",
+          "size": "Dimensions or size string if mentioned, e.g. '1800 x 900 x 750 mm'",
+          "specification": "Key specifications or dimensions text",
+          "description": "Full verbatim product description text from page",
+          "variants": [
+            {
+              "variantType": "color | size | side_storage | electric",
+              "name": "Option name, e.g. 'Classic Walnut' or '2100 x 1000 mm' or 'Left Side Storage' or 'Pop-up Socket'",
+              "size": "Size string if size variant",
+              "color": "Color name if color variant",
+              "colorCode": "Hex swatch code if color variant",
+              "sideStorage": "Storage title if side storage variant",
+              "electricOption": "Electric title if electric variant",
+              "price": "Price string for this option if mentioned"
+            }
+          ]
+        }
+
+        INSTRUCTIONS:
+        1. Extract the product code/SKU and title accurately.
+        2. Extract dimensions/sizes (e.g. W x D x H in mm or inches).
+        3. Extract prices or rates verbatim.
+        4. If color, size, storage, or electric options are listed on the page, include them in the "variants" array with appropriate variantType.
+      `;
+
+      const response = await callGeminiWithRetry({
+        model: 'gemini-3.8-flash',
+        config: {
+          responseMimeType: "application/json"
+        },
+        input: [
+          { type: 'text', text: prompt },
+          {
+            type: mimeType.startsWith('image/') ? 'image' : 'document',
+            mime_type: mimeType,
+            data: base64Data
+          }
+        ]
+      });
+
+      const text = response.output_text;
+      if (!text) {
+        throw new Error("No output returned from Gemini AI product scanner.");
+      }
+
+      console.log("Product Page Parse Output:", text);
+      const parsed = parseJsonOutput(text);
+      res.json(parsed);
+    } catch (error: any) {
+      console.error("Error parsing product page:", error);
+      res.status(500).json({ error: error.message || "Failed to scan product sheet." });
+    }
+  });
+
   app.post("/api/identify-product", async (req, res) => {
     try {
       const { imageData } = req.body;
@@ -395,6 +484,78 @@ async function startServer() {
 
   
   
+  app.post("/api/create-user", async (req, res) => {
+    try {
+      const { name, email, password, role } = req.body;
+      if (!email || !password) {
+        return res.status(400).json({ error: "Email and password are required." });
+      }
+
+      const config = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf-8'));
+      const apiKey = config.apiKey;
+      const projectId = config.projectId;
+      const databaseId = config.firestoreDatabaseId;
+
+      let fetchRes = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim(), password: password.trim(), returnSecureToken: true })
+      });
+
+      let data = await fetchRes.json();
+
+      if (data.error && data.error.message === 'EMAIL_EXISTS') {
+        fetchRes = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: email.trim(), password: password.trim(), returnSecureToken: true })
+        });
+        data = await fetchRes.json();
+      }
+
+      if (data.error) {
+        return res.status(400).json({ error: data.error.message });
+      }
+
+      const uid = data.localId;
+      const idToken = data.idToken;
+      const displayName = name?.trim() || email.split('@')[0];
+
+      await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:update?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken, displayName, returnSecureToken: false })
+      });
+
+      const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/users/${uid}`;
+      const docData = {
+        fields: {
+          uid: { stringValue: uid },
+          email: { stringValue: email.trim() },
+          displayName: { stringValue: displayName },
+          role: { stringValue: role || "admin" },
+          isActive: { booleanValue: true },
+          createdAt: { timestampValue: new Date().toISOString() },
+          updatedAt: { timestampValue: new Date().toISOString() }
+        }
+      };
+
+      await fetch(firestoreUrl, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`
+        },
+        body: JSON.stringify(docData)
+      });
+
+      res.json({ success: true, user: { uid, email, displayName, role: role || "admin" } });
+    } catch (error: any) {
+      console.error("Error creating user:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.post("/api/seed-users", async (req, res) => {
     try {
       const config = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf-8'));
@@ -408,7 +569,8 @@ async function startServer() {
         { name: "Nidhi Sharma", email: "nidhi@srkmodular.com", password: "nidhi@5209", role: "admin" },
         { name: "Khushboo", email: "khushboo@srkmodular.com", password: "khushboo@5128", role: "sales_executive" },
         { name: "Abhilasha Verma", email: "abhilasha@srkmodular.com", password: "abhilasha@6462", role: "sales_executive" },
-        { name: "Deepak Khandelwal", email: "deepak@srkmodular.com", password: "Deepak@123*", role: "super_admin" }
+        { name: "Deepak Khandelwal", email: "deepak@srkmodular.com", password: "Deepak@123*", role: "super_admin" },
+        { name: "Mahesh", email: "mahesh@srkmodular.com", password: "Mahesh@94", role: "admin" }
       ];
 
       const results = [];
@@ -473,7 +635,7 @@ async function startServer() {
       }
       
       res.json({ success: true, results });
-    } catch (error) {
+    } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
   });

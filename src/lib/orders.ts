@@ -57,6 +57,7 @@ export interface OrderDetails {
   installationHelpers?: string;
   installationDate?: string;
   deliveryDate?: string;
+  scheduledReason?: 'CUSTOMER ISSUE' | 'LOGISTIC ISSUE' | 'PAYMENT DELAY' | 'UNSATISFACTION' | string;
 }
 
 export interface Order {
@@ -226,3 +227,54 @@ export const subscribeToOrders = (callback: (orders: Order[]) => void) => {
     }
   };
 };
+
+export function getOverdueUnconfirmedDispatches(orders: Order[]): Order[] {
+  const now = Date.now();
+  const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000; // 48 hours
+
+  return orders.filter(order => {
+    const status = order.status || '';
+
+    // Completed or fully dispatched orders are not pending confirmation
+    const isFullyDispatchedOrCompleted = 
+      status === 'Dispatched' || 
+      status === 'Delivered' || 
+      status === 'Completed' || 
+      status === 'Installation Pending' || 
+      status === 'Installed' ||
+      status === 'Cancelled';
+
+    if (isFullyDispatchedOrCompleted) return false;
+
+    // Must be in a scheduled dispatch state, or challan approved, or partially dispatched
+    const isPendingDispatchConfirmation = 
+      status === 'Scheduled Dispatched' || 
+      order.details?.challanApprovalStatus === 'Approved' ||
+      (order.details?.products && order.details.products.some(p => p.dispatchedQuantity && p.dispatchedQuantity > 0 && !p.isDispatched));
+
+    if (!isPendingDispatchConfirmation) return false;
+
+    // Find the reference creation/scheduling timestamp
+    let refTime: number | null = null;
+    if (order.details?.challanApprovedAt) {
+      refTime = new Date(order.details.challanApprovedAt).getTime();
+    } else if (order.details?.installationDate) {
+      refTime = new Date(order.details.installationDate).getTime();
+    } else if (order.updatedAt) {
+      refTime = typeof order.updatedAt === 'string' ? new Date(order.updatedAt).getTime() : (order.updatedAt?.seconds ? order.updatedAt.seconds * 1000 : null);
+    }
+    
+    if (!refTime || isNaN(refTime)) {
+      if (order.createdAt) {
+        refTime = typeof order.createdAt === 'string' ? new Date(order.createdAt).getTime() : (order.createdAt?.seconds ? order.createdAt.seconds * 1000 : null);
+      } else if (order.date) {
+        refTime = new Date(order.date).getTime();
+      }
+    }
+
+    if (!refTime || isNaN(refTime)) return false;
+
+    // If older than 2 days (48 hours), it's overdue!
+    return (now - refTime) > TWO_DAYS_MS;
+  });
+}

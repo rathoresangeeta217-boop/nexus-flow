@@ -8,8 +8,8 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   import.meta.url,
 ).toString();
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, X, Save, Package, CheckSquare, Image as ImageIcon, Plus, Trash2, Edit2, FileText, Check, Truck, User, MapPin, Phone, Wrench, Send, ClipboardList, ShieldAlert, AlertTriangle, Download, Loader2, CheckCircle2 } from 'lucide-react';
-import { Order, OrderProduct, saveOrder } from '../lib/orders';
+import { ArrowLeft, X, Save, Package, CheckSquare, Image as ImageIcon, Plus, Trash2, Edit2, FileText, Check, Truck, User, MapPin, Phone, Wrench, Send, ClipboardList, ShieldAlert, AlertTriangle, Download, Loader2, CheckCircle2, Clock } from 'lucide-react';
+import { Order, OrderProduct, saveOrder, subscribeToOrders, getOverdueUnconfirmedDispatches } from '../lib/orders';
 import { Product, subscribeToProducts } from '../lib/products';
 import { getProductFile } from '../lib/fileStorage';
 import { Badge } from './Badge';
@@ -45,6 +45,12 @@ export function DispatchView({ order, onBack, isInstallationView = false }: Disp
   const [showEmployeePrompt, setShowEmployeePrompt] = useState(false);
   const [paymentRecord, setPaymentRecord] = useState<PaymentRecord | null>(null);
   const [installers, setInstallers] = useState<Installer[]>([]);
+  const [allOrders, setAllOrders] = useState<Order[]>([]);
+
+  useEffect(() => {
+    const unsub = subscribeToOrders(setAllOrders);
+    return () => unsub();
+  }, []);
 
   useEffect(() => {
     const unsubscribe = subscribeToInstallers(setInstallers);
@@ -79,6 +85,7 @@ export function DispatchView({ order, onBack, isInstallationView = false }: Disp
   const [installationDate, setInstallationDate] = useState(order.details?.installationDate || "");
   const [placeOfSupply, setPlaceOfSupply] = useState(order.details?.placeOfSupply || '');
   const [reasonForTransport, setReasonForTransport] = useState(order.details?.reasonForTransport || order.reasonForTransport || 'Delivery');
+  const [scheduledReason, setScheduledReason] = useState(order.details?.scheduledReason || '');
 
   useEffect(() => {
     setDispatchAddress(order.details?.address || order.dispatchAddress || '');
@@ -87,10 +94,11 @@ export function DispatchView({ order, onBack, isInstallationView = false }: Disp
     setDriverMobile(order.details?.driverMobile || order.driverMobile || '');
     setLogisticCharges(order.details?.logisticCharges || order.logisticCharges || '');
     setReasonForTransport(order.details?.reasonForTransport || order.reasonForTransport || 'Delivery');
+    setScheduledReason(order.details?.scheduledReason || '');
     setPlaceOfSupply(order.details?.placeOfSupply || '');
     setFirstDispatchAmount(order.details?.firstDispatchAmount || '');
     setSecondDispatchAmount(order.details?.secondDispatchAmount || '');
-  }, [order.id, order.docId, order.details?.driverName, order.details?.vehicleNumber, order.details?.driverMobile]);
+  }, [order.id, order.docId, order.details?.driverName, order.details?.vehicleNumber, order.details?.driverMobile, order.details?.scheduledReason]);
 
   function onDocumentLoadSuccess({ numPages }: { numPages: number }): void {
     setNumPages(numPages);
@@ -496,6 +504,27 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
       return;
     }
 
+    // Term Enforcement: Block Delivery Challan generation if ANY order has an overdue unconfirmed dispatch (> 2 days)
+    // Anshuman (and Super Admin) can create delivery challans without term restrictions ("Anshuman can create the challan no term followed")
+    const isAnshuman = Boolean(
+      profile?.displayName?.toLowerCase().includes('anshuman') || 
+      profile?.email?.toLowerCase().includes('anshuman') ||
+      isSuperAdmin
+    );
+
+    const allOverdue = getOverdueUnconfirmedDispatches(allOrders);
+    if (allOverdue.length > 0 && !isAnshuman) {
+      const overdue = allOverdue[0];
+      alert(
+        `❌ DELIVERY CHALLAN GENERATION BLOCKED!\n\n` +
+        `Term Enforcement: It is compulsory to confirm dispatch within 2 days of Delivery Challan creation or Scheduled Dispatch.\n\n` +
+        `Order #${overdue.id} (${overdue.customer}) has a Delivery Challan / Scheduled Dispatch created over 2 days ago that is pending dispatch confirmation.\n\n` +
+        `You MUST confirm dispatch for Order #${overdue.id} before generating any new Delivery Challan!`
+      );
+      setAlertMessage(`❌ Term Violation: Order #${overdue.id} (${overdue.customer}) is overdue for dispatch confirmation (> 2 days). Please confirm dispatch for Order #${overdue.id} first.`);
+      return;
+    }
+
     const remaining = getRemainingPayment();
     const status = order.details?.challanApprovalStatus;
     
@@ -534,6 +563,26 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
   };
 
   const generateNoticePDF = async (showFare: boolean) => {
+    // Term Enforcement Guard
+    const isAnshuman = Boolean(
+      profile?.displayName?.toLowerCase().includes('anshuman') || 
+      profile?.email?.toLowerCase().includes('anshuman') ||
+      isSuperAdmin
+    );
+
+    const allOverdue = getOverdueUnconfirmedDispatches(allOrders);
+    if (allOverdue.length > 0 && !isAnshuman) {
+      const overdue = allOverdue[0];
+      alert(
+        `❌ DELIVERY CHALLAN GENERATION BLOCKED!\n\n` +
+        `Term Enforcement: It is compulsory to confirm dispatch within 2 days of Delivery Challan creation or Scheduled Dispatch.\n\n` +
+        `Order #${overdue.id} (${overdue.customer}) has a Delivery Challan or Scheduled Dispatch created over 2 days ago that is pending dispatch confirmation.\n\n` +
+        `You MUST confirm dispatch for Order #${overdue.id} before generating any new Delivery Challan!`
+      );
+      setShowFarePrompt(false);
+      return;
+    }
+
     setIsGeneratingChallan(true);
     try {
       const enhancedOrder = {
@@ -666,6 +715,7 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
           secondDispatchAmount,
           placeOfSupply,
           reasonForTransport,
+          scheduledReason,
           installerName,
           installationHelpers,
           installationDate
@@ -680,8 +730,47 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
         order.status === 'Completed' || 
         order.status?.includes('Installation');
 
+      const isAnshuman = Boolean(
+        profile?.displayName?.toLowerCase().includes('anshuman') || 
+        profile?.email?.toLowerCase().includes('anshuman') ||
+        isSuperAdmin
+      );
+
+      if (!isAlreadyScheduledOrDispatched || order.status === 'Scheduled Dispatched') {
+        if (!scheduledReason) {
+          alert(
+            `❌ MANDATORY REASON REQUIRED FOR SCHEDULED ORDERS:\n\n` +
+            `Please select the reason why this order is scheduled and not yet confirmed dispatched:\n\n` +
+            `1. CUSTOMER ISSUE\n` +
+            `2. LOGISTIC ISSUE\n` +
+            `3. PAYMENT DELAY\n` +
+            `4. UNSATISFACTION`
+          );
+          setIsSaving(false);
+          return;
+        }
+      }
+
       if (!isAlreadyScheduledOrDispatched) {
+        const allOverdue = getOverdueUnconfirmedDispatches(allOrders);
+        const otherOverdue = allOverdue.filter(o => o.id !== order.id && o.docId !== order.docId);
+        if (otherOverdue.length > 0 && !isAnshuman) {
+          const overdue = otherOverdue[0];
+          alert(
+            `❌ SCHEDULING DISPATCH BLOCKED!\n\n` +
+            `Term Enforcement: It is compulsory to confirm dispatch within 2 days of Delivery Challan creation or Scheduled Dispatch.\n\n` +
+            `Order #${overdue.id} (${overdue.customer}) has an unconfirmed delivery challan / scheduled dispatch created over 2 days ago.\n\n` +
+            `You must confirm dispatch for Order #${overdue.id} before scheduling another order.`
+          );
+          setIsSaving(false);
+          return;
+        }
+
         updatedOrder.status = 'Scheduled Dispatched';
+        updatedOrder.details = {
+          ...updatedOrder.details,
+          challanApprovedAt: new Date().toISOString()
+        };
       }
       
       await saveOrder(updatedOrder);
@@ -824,6 +913,19 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
         </div>
       </div>
 
+      {/* Compulsory 2-day Dispatch Confirmation Term Banner */}
+      <div className="p-3.5 rounded-xl bg-amber-50 border-2 border-amber-300 text-amber-950 text-xs font-semibold flex items-center gap-3 shadow-2xs">
+        <Clock className="w-5 h-5 text-amber-600 shrink-0 animate-pulse" />
+        <div>
+          <span className="font-extrabold uppercase tracking-wider block text-amber-900 text-[11px]">
+            ℹ️ Compulsory Dispatch Confirmation Term:
+          </span>
+          <span>
+            Dispatch MUST be confirmed within 2 days of Delivery Challan creation or Scheduled Dispatch. If any order's dispatch confirmation is overdue (&gt; 2 days), scheduling any new orders or dispatches is automatically blocked.
+          </span>
+        </div>
+      </div>
+
       <div className="space-y-6 max-w-4xl mx-auto">
         <div className="flex justify-end">
           {quotationFile && (
@@ -891,6 +993,17 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
                   {reasonForTransport || 'Delivery'}
                 </span>
               </div>
+
+              {(scheduledReason || order.details?.scheduledReason) && (
+                <div className="sm:col-span-2 lg:col-span-4 bg-amber-50/90 p-2.5 rounded-lg border border-amber-200 flex items-center justify-between">
+                  <span className="text-amber-900 font-bold text-xs flex items-center gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-600" /> Scheduled Reason:
+                  </span>
+                  <span className="font-black text-xs px-2.5 py-0.5 rounded border bg-amber-100 text-amber-950 border-amber-300">
+                    {scheduledReason || order.details?.scheduledReason}
+                  </span>
+                </div>
+              )}
 
               <div className="sm:col-span-2 lg:col-span-4 bg-slate-50 p-2.5 rounded-lg border border-slate-100 flex items-start gap-2">
                 <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
@@ -1769,6 +1882,42 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
                     <option value="Return">Return</option>
                     <option value="Others">Others</option>
                   </select>
+                </div>
+
+                <div className="sm:col-span-2 bg-amber-50/90 p-4 rounded-xl border-2 border-amber-300 shadow-xs space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-sm font-black text-amber-950 flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                      Reason Order is Scheduled *
+                    </label>
+                    <span className="text-[10px] font-black uppercase text-amber-900 bg-amber-200/80 px-2 py-0.5 rounded border border-amber-300">
+                      Mandatory for Scheduled Orders
+                    </span>
+                  </div>
+                  <p className="text-xs text-amber-800 font-semibold">
+                    Select why this order is scheduled and NOT yet confirmed dispatched:
+                  </p>
+                  <select
+                    value={scheduledReason}
+                    onChange={(e) => setScheduledReason(e.target.value)}
+                    required
+                    className={`w-full px-3.5 py-2.5 border-2 rounded-xl text-xs sm:text-sm font-extrabold outline-none cursor-pointer transition-all ${
+                      !scheduledReason 
+                        ? 'border-rose-400 bg-rose-50/80 text-rose-900 focus:ring-2 focus:ring-rose-500 ring-2 ring-rose-200' 
+                        : 'border-amber-400 bg-white text-slate-900 focus:ring-2 focus:ring-amber-500'
+                    }`}
+                  >
+                    <option value="">-- Select Scheduled Reason (Mandatory) --</option>
+                    <option value="CUSTOMER ISSUE">1. CUSTOMER ISSUE</option>
+                    <option value="LOGISTIC ISSUE">2. LOGISTIC ISSUE</option>
+                    <option value="PAYMENT DELAY">3. PAYMENT DELAY</option>
+                    <option value="UNSATISFACTION">4. UNSATISFACTION</option>
+                  </select>
+                  {!scheduledReason && (
+                    <p className="text-[11px] font-bold text-rose-600">
+                      ⚠️ Selection required before saving scheduled dispatch.
+                    </p>
+                  )}
                 </div>
               </div>
               

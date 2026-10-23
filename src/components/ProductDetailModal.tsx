@@ -84,12 +84,33 @@ export function ProductDetailModal({ isOpen, onClose, product, vendor }: Product
             onClick={e => e.stopPropagation()}
           >
             {/* Left: Product Images View */}
-            <div className="w-full md:w-1/2 bg-slate-50 flex flex-col items-center justify-between p-6 relative min-h-[360px] border-r border-slate-100">
+            <div className="w-full md:w-1/2 bg-slate-50 flex flex-row items-center justify-center p-4 relative min-h-[360px] border-r border-slate-100 gap-3">
               
+              {/* Left Corner Vertical Thumbnails Gallery */}
+              {allImages.length > 1 && (
+                <div className="flex flex-col gap-2 overflow-y-auto max-h-[320px] shrink-0 py-1 custom-scrollbar pr-1 z-10">
+                  {allImages.map((src, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => setImageSrc(src)}
+                      className={`relative w-12 h-12 rounded-xl border-2 overflow-hidden p-0.5 bg-white shrink-0 transition-all cursor-pointer ${
+                        imageSrc === src 
+                          ? 'border-indigo-600 ring-2 ring-indigo-500/25 shadow-xs scale-105' 
+                          : 'border-slate-200 opacity-70 hover:opacity-100'
+                      }`}
+                      title={`Photo ${idx + 1}`}
+                    >
+                      <img src={src} alt={`Photo ${idx + 1}`} className="w-full h-full object-contain mix-blend-multiply" />
+                    </button>
+                  ))}
+                </div>
+              )}
+
               {/* Main Visualizer Area */}
-              <div className="w-full flex-1 flex items-center justify-center relative min-h-[260px]">
+              <div className="flex-1 flex items-center justify-center relative min-h-[260px] p-2">
                 {imageSrc ? (
-                  <img src={imageSrc} alt={product.name} className="max-w-full max-h-64 object-contain mix-blend-multiply transition-all p-2" />
+                  <img src={imageSrc} alt={product.name} className="max-w-full max-h-72 object-contain mix-blend-multiply transition-all" />
                 ) : (
                   <div className="text-slate-300 flex flex-col items-center">
                     <Package className="w-20 h-20 mb-3 opacity-40" />
@@ -97,26 +118,6 @@ export function ProductDetailModal({ isOpen, onClose, product, vendor }: Product
                   </div>
                 )}
               </div>
-
-              {/* Multiple Thumbnails Strip */}
-              {allImages.length > 1 && (
-                <div className="w-full mt-4 flex items-center justify-center gap-2 overflow-x-auto py-1 custom-scrollbar">
-                  {allImages.map((src, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => setImageSrc(src)}
-                      className={`relative w-12 h-12 rounded-lg border overflow-hidden p-0.5 bg-white shrink-0 transition-all cursor-pointer ${
-                        imageSrc === src 
-                          ? 'border-indigo-600 ring-2 ring-indigo-500/25 shadow-xs scale-105' 
-                          : 'border-slate-200 opacity-70 hover:opacity-100'
-                      }`}
-                    >
-                      <img src={src} alt={`Photo ${idx + 1}`} className="w-full h-full object-contain mix-blend-multiply" />
-                    </button>
-                  ))}
-                </div>
-              )}
             </div>
             
             {/* Right: Product Details Column */}
@@ -183,43 +184,79 @@ export function ProductDetailModal({ isOpen, onClose, product, vendor }: Product
                   </div>
                 )}
 
-                {/* Product Variants (Color Variants & Prices - Requirement #2) */}
+                {/* Product Variants (Color, Sizes, Side Storage, Electric Options & Prices) */}
                 {product.variants && product.variants.length > 0 && (
-                  <section>
-                    <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-3 flex items-center justify-between">
+                  <section className="space-y-4">
+                    <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center justify-between">
                       <span className="flex items-center gap-1.5">
                         <Layers className="w-3.5 h-3.5 text-indigo-600" />
-                        {isSittingSeries ? 'Sitting Series Color Variants & Prices' : `Available Variants (${product.variants.length})`}
+                        {isSittingSeries ? 'Sitting Series Color Variants & Prices' : `Product Options & Variants (${product.variants.length})`}
                       </span>
                     </h3>
-                    <div className="space-y-2 max-h-56 overflow-y-auto custom-scrollbar pr-1">
-                      {product.variants.map((v, idx) => (
-                        <div 
-                          key={v.id || idx} 
-                          onClick={() => {
-                            if (v.imageData) setImageSrc(v.imageData);
-                          }}
-                          className={`p-2.5 bg-slate-50 border border-slate-200/80 rounded-xl flex items-center justify-between gap-3 text-xs ${v.imageData ? 'cursor-pointer hover:border-indigo-400 hover:bg-indigo-50/30' : ''}`}
-                        >
-                          <div className="flex items-center gap-2.5">
-                            {v.imageData ? (
-                              <img src={v.imageData} alt={v.name} className="w-9 h-9 rounded-lg object-cover border border-slate-200 shrink-0 bg-white" />
-                            ) : v.colorCode ? (
-                              <div className="w-7 h-7 rounded-full border border-slate-300 shrink-0 shadow-2xs" style={{ backgroundColor: v.colorCode }} />
-                            ) : null}
-                            <div>
-                              <div className="font-bold text-slate-800">{v.name}</div>
-                              {v.color && <div className="text-slate-500 text-[11px] font-medium">{v.color}</div>}
+
+                    {/* Group by variantType */}
+                    {(() => {
+                      const colors = product.variants!.filter(v => v.variantType === 'color' || (v.colorCode && !v.sideStorage && !v.electricOption && v.variantType !== 'custom'));
+                      const sizes = product.variants!.filter(v => v.variantType === 'size' || Boolean(v.size));
+                      const sideStorages = product.variants!.filter(v => v.variantType === 'side_storage' || v.sideStorage);
+                      const electrics = product.variants!.filter(v => v.variantType === 'electric' || v.electricOption);
+                      
+                      const customVars = product.variants!.filter(v => v.variantType === 'custom' || (v.groupName && v.variantType !== 'color' && v.variantType !== 'size' && v.variantType !== 'side_storage' && v.variantType !== 'electric'));
+                      const uniqueCustomGroupNames = Array.from(new Set(customVars.map(v => v.groupName || 'Custom Options')));
+
+                      const others = product.variants!.filter(v => !v.variantType && !v.colorCode && !v.size && !v.sideStorage && !v.electricOption && !v.groupName);
+
+                      const renderVariantGroup = (title: string, list: typeof product.variants, badgeColor: string) => {
+                        if (!list || list.length === 0) return null;
+                        return (
+                          <div className="space-y-2">
+                            <span className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded ${badgeColor}`}>
+                              {title}
+                            </span>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              {list.map((v, idx) => (
+                                <div 
+                                  key={v.id || idx} 
+                                  onClick={() => {
+                                    if (v.imageData) setImageSrc(v.imageData);
+                                  }}
+                                  className={`p-2.5 bg-slate-50 border border-slate-200/80 rounded-xl flex items-center justify-between gap-2.5 text-xs ${v.imageData ? 'cursor-pointer hover:border-indigo-400 hover:bg-indigo-50/40' : ''}`}
+                                >
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    {v.imageData ? (
+                                      <img src={v.imageData} alt={v.name} className="w-8 h-8 rounded-lg object-cover border border-slate-200 shrink-0 bg-white" />
+                                    ) : v.colorCode ? (
+                                      <div className="w-6 h-6 rounded-full border border-slate-300 shrink-0 shadow-2xs" style={{ backgroundColor: v.colorCode }} />
+                                    ) : null}
+                                    <div className="truncate">
+                                      <div className="font-bold text-slate-800 truncate">{v.name || v.color || v.size || v.sideStorage || v.electricOption}</div>
+                                    </div>
+                                  </div>
+                                  <div className="text-right shrink-0">
+                                    <span className="text-indigo-600 font-black text-xs">
+                                      ₹{(parseFloat(String(v.price).replace(/[^0-9.]/g, '')) || 0).toLocaleString()}
+                                    </span>
+                                  </div>
+                                </div>
+                              ))}
                             </div>
                           </div>
-                          <div className="text-right shrink-0">
-                            <span className="text-indigo-600 font-black text-sm">
-                              ₹{typeof v.price === 'string' ? parseFloat(v.price.replace(/[^0-9.]/g, '')).toLocaleString() : Number(v.price).toLocaleString()}
-                            </span>
-                          </div>
+                        );
+                      };
+
+                      return (
+                        <div className="space-y-3.5 max-h-72 overflow-y-auto custom-scrollbar pr-1">
+                          {renderVariantGroup('Colour Options', colors, 'bg-amber-100 text-amber-800')}
+                          {renderVariantGroup('Sizes & Prices', sizes, 'bg-indigo-100 text-indigo-800')}
+                          {renderVariantGroup('Side Storage Options', sideStorages, 'bg-emerald-100 text-emerald-800')}
+                          {renderVariantGroup('Electric & Cabling Options', electrics, 'bg-purple-100 text-purple-800')}
+                          {uniqueCustomGroupNames.map(gName => (
+                            renderVariantGroup(gName, customVars.filter(v => (v.groupName || 'Custom Options') === gName), 'bg-blue-100 text-blue-900')
+                          ))}
+                          {renderVariantGroup('Other Variants', others, 'bg-slate-200 text-slate-800')}
                         </div>
-                      ))}
-                    </div>
+                      );
+                    })()}
                   </section>
                 )}
 

@@ -77,48 +77,106 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
     if (!order) return;
     setIsLoading(true);
     try {
-      const existing = await getPaymentForOrder(order.id);
+      const orderIdToUse = order.id || order.docId || '';
+      const existing = await getPaymentForOrder(order.id, order.docId);
       const initDeliveryDate = existing?.deliveryDate || order.details?.deliveryDate || (order as any).deliveryDate || '';
       setDeliveryDate(initDeliveryDate);
 
-      if (existing) {
-        setRecord(existing);
-      } else {
-        // Calculate GST Amount based on rate
-        const match = (order.amount || "").toString().match(/\d[\d,]*(\.\d+)?/);
-        const grandTotalValue = match ? parseFloat(match[0].replace(/,/g, "")) : 0;
-        
-        let gstRate = 18; // Default 18%
-        if (order.details?.gst) {
-          const gstStr = order.details.gst.toString();
-          const percentMatch = gstStr.match(/(\d+(?:\.\d+)?)\s*%/);
-          if (percentMatch) {
-            gstRate = parseFloat(percentMatch[1]);
-          } else {
-            const numMatch = gstStr.match(/^\s*(5|12|18|28)\s*$/);
-            if (numMatch) {
-              gstRate = parseFloat(numMatch[1]);
-            }
+      // Parse order total amount reliably from order.amount or order.details.totalAmount
+      const rawAmtStr = String(order.amount || order.details?.totalAmount || "").toString();
+      const match = rawAmtStr.match(/\d[\d,]*(\.\d+)?/);
+      const grandTotalValue = match ? parseFloat(match[0].replace(/,/g, "")) : 0;
+
+      let gstRate = 18; // Default 18%
+      if (order.details?.gst) {
+        const gstStr = order.details.gst.toString();
+        const percentMatch = gstStr.match(/(\d+(?:\.\d+)?)\s*%/);
+        if (percentMatch) {
+          gstRate = parseFloat(percentMatch[1]);
+        } else {
+          const numMatch = gstStr.match(/^\s*(5|12|18|28)\s*$/);
+          if (numMatch) {
+            gstRate = parseFloat(numMatch[1]);
           }
         }
-        
-        const subtotalValue = grandTotalValue / (1 + (gstRate / 100));
-        const gstAmountValue = grandTotalValue - subtotalValue;
+      }
 
+      const subtotalValue = grandTotalValue > 0 ? grandTotalValue / (1 + (gstRate / 100)) : 0;
+      const gstAmountValue = grandTotalValue - subtotalValue;
+
+      const defaultOriginalAmount = grandTotalValue > 0 ? `₹${subtotalValue.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : '';
+      const defaultOriginalGst = grandTotalValue > 0 ? `₹${gstAmountValue.toLocaleString('en-IN', { maximumFractionDigits: 2 })} (${gstRate}%)` : '';
+      const defaultGrandTotal = grandTotalValue > 0 ? `₹${grandTotalValue.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : '';
+
+      let initialPhases: PaymentPhase[] = (existing && existing.phases && existing.phases.length > 0) ? existing.phases : [];
+
+      if (initialPhases.length === 0) {
+        const advStr = order.details?.advancePayment || '';
+        if (advStr) {
+          initialPhases = [
+            {
+              id: Math.random().toString(36).substring(2, 9),
+              title: `Advance Payment (${advStr})`,
+              amount: advStr,
+              status: 'Pending'
+            },
+            {
+              id: Math.random().toString(36).substring(2, 9),
+              title: 'Balance Before Dispatch',
+              amount: 'Balance Amount',
+              status: 'Pending'
+            }
+          ];
+        } else {
+          initialPhases = [
+            {
+              id: Math.random().toString(36).substring(2, 9),
+              title: '50% Advance Payment',
+              amount: '50%',
+              status: 'Pending'
+            },
+            {
+              id: Math.random().toString(36).substring(2, 9),
+              title: '50% Balance Before Dispatch',
+              amount: '50%',
+              status: 'Pending'
+            }
+          ];
+        }
+      }
+
+      if (existing) {
+        const hasValidGrand = existing.grandTotal && existing.grandTotal !== '₹0' && existing.grandTotal !== '0';
+        const hasValidSub = existing.originalAmount && existing.originalAmount !== '₹0' && existing.originalAmount !== '0';
+        
         setRecord({
-          orderId: order.id,
-          originalAmount: `₹${subtotalValue.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
-          originalGst: `₹${gstAmountValue.toLocaleString('en-IN', { maximumFractionDigits: 2 })} (${gstRate}%)`, 
-          grandTotal: `₹${grandTotalValue.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
+          ...existing,
+          docId: existing.docId,
+          orderId: existing.orderId || orderIdToUse,
+          originalAmount: hasValidSub ? existing.originalAmount : defaultOriginalAmount,
+          originalGst: (existing.originalGst && existing.originalGst !== '₹0') ? existing.originalGst : defaultOriginalGst,
+          grandTotal: hasValidGrand ? existing.grandTotal : defaultGrandTotal,
+          advancePayment: existing.advancePayment || order.details?.advancePayment || "",
+          transportationCharges: existing.transportationCharges || order.details?.transportationCharges || "",
+          installationCharges: existing.installationCharges || order.details?.installationCharges || "",
+          deliveryDate: initDeliveryDate,
+          phases: initialPhases
+        });
+      } else {
+        setRecord({
+          orderId: orderIdToUse,
+          originalAmount: defaultOriginalAmount,
+          originalGst: defaultOriginalGst,
+          grandTotal: defaultGrandTotal,
           advancePayment: order.details?.advancePayment || "",
           transportationCharges: order.details?.transportationCharges || "",
           installationCharges: order.details?.installationCharges || "",
           deliveryDate: initDeliveryDate,
-          phases: []
+          phases: initialPhases
         });
       }
     } catch (error) {
-      console.error(error);
+      console.error('Error loading payment record:', error);
     } finally {
       setIsLoading(false);
     }
@@ -148,7 +206,7 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
             return;
           }
           if (p.sourceType === 'Bank' && !p.bankName) {
-            alert(`Mandatory Requirement: Please select the Bank Name (SBI, Union, or PR) for "${phaseName}".`);
+            alert(`Mandatory Requirement: Please select the Bank Name (SBI, Union, PNB Bank, or ICICI Bank) for "${phaseName}".`);
             return;
           }
           if (!p.screenshotUrl) {
@@ -267,7 +325,7 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
       
       if (record.phases && record.phases.length > 0) {
         record.phases.forEach((phase, index) => {
-          const isPRorCash = phase.sourceType === 'Cash' || (phase.sourceType === 'Bank' && (phase.bankName === 'PR' || phase.bankName?.toUpperCase() === 'PR'));
+          const isPRorCash = phase.sourceType === 'Cash' || phase.sourceType === 'ICICI BANK' || phase.sourceType === 'ICICI' || (phase.sourceType === 'Bank' && (phase.bankName === 'PR' || phase.bankName === 'PNB' || phase.bankName === 'ICICI' || phase.bankName?.toUpperCase() === 'PNB' || phase.bankName?.toUpperCase() === 'ICICI' || phase.bankName?.toUpperCase() === 'PR'));
           const parseVal = (str: any) => {
             if (!str) return 0;
             const m = str.toString().match(/\d[\d,]*(\.\d+)?/);
@@ -286,7 +344,7 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
             "Date": phase.date ? new Date(phase.date).toLocaleString('en-IN') : '',
             "Source Type": phase.sourceType || '',
             "Bank Name": phase.bankName || '',
-            "GST Exemption Rule": isPRorCash ? "PR/Cash - GST Excluded" : "Standard GST Applied",
+            "GST Exemption Rule": isPRorCash ? "PNB/ICICI/Cash - GST Excluded" : "Standard GST Applied",
             "GST Subtracted": isPRorCash ? `₹${adj.gstAmount.toFixed(2)}` : "₹0.00",
             "Net Credited Amount": `₹${adj.netCreditedAmount.toFixed(2)}`,
             "UTR Number": phase.utrNumber || ''
@@ -785,6 +843,7 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
                                   >
                                     <option value="">Select Source (Mandatory)</option>
                                     <option value="Bank">Bank</option>
+                                    <option value="ICICI BANK">ICICI BANK</option>
                                     <option value="Cash">Cash</option>
                                     <option value="Cheque">Cheque</option>
                                   </select>
@@ -808,9 +867,10 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
                                       }`}
                                     >
                                       <option value="">Select Bank (Mandatory)</option>
+                                      <option value="PNB">PNB Bank</option>
+                                      <option value="ICICI">ICICI Bank</option>
                                       <option value="SBI">SBI</option>
-                                      <option value="Union">Union</option>
-                                      <option value="PR">PR</option>
+                                      <option value="Union">Union Bank</option>
                                     </select>
                                   </div>
                                 )}

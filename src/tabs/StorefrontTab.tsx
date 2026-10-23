@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { subscribeToProducts, Product, isCategoryMatch, saveProduct, ProductVariant } from '../lib/products';
+import { subscribeToProducts, Product, isCategoryMatch, saveProduct, ProductVariant, deduplicateCategories } from '../lib/products';
 import { subscribeToVendors, Vendor } from '../lib/vendors';
 import { NewProductModal } from '../components/NewProductModal';
 import { ShoppingCart, Search, Menu, Star, Zap, ChevronRight, X, Upload, ImagePlus, Plus, Layers, Check, ImageIcon, RotateCw, Boxes, Maximize2, Minimize2, ZoomIn, ZoomOut, FileText, Sparkles, Loader2 } from 'lucide-react';
@@ -11,6 +11,7 @@ import { set, get } from 'idb-keyval';
 import { getTableTopHex, getScreenHex, getLegHex } from '../components/WorkstationLiveRenderer';
 import { Workstation3DViewer } from '../components/Workstation3DViewer';
 import { WorkstationTechnicalInfographicModal } from '../components/WorkstationTechnicalInfographicModal';
+import { CreateQuotationModal } from '../components/CreateQuotationModal';
 
 export interface StorefrontCartItem {
   id: string;
@@ -18,6 +19,8 @@ export interface StorefrontCartItem {
   quantity: number;
   workstationSetup?: any;
   selectedVariant?: ProductVariant;
+  configuredPrice?: number;
+  selectedOptionsSummary?: string;
 }
 
 export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => void }) {
@@ -31,12 +34,21 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
   const [bannerUrl, setBannerUrl] = useState<string | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
+  const [selectedSizeVariantId, setSelectedSizeVariantId] = useState<string | null>(null);
+  const [selectedSideStorageVariantId, setSelectedSideStorageVariantId] = useState<string | null>(null);
+  const [selectedElectricVariantId, setSelectedElectricVariantId] = useState<string | null>(null);
+  const [selectedColorVariantId, setSelectedColorVariantId] = useState<string | null>(null);
+  const [selectedCustomVariantIds, setSelectedCustomVariantIds] = useState<Record<string, string>>({});
   const [activeImageSrc, setActiveImageSrc] = useState<string | null>(null);
   const [currentWorkstationSetup, setCurrentWorkstationSetup] = useState<any>(null);
   const [visualizerView, setVisualizerView] = useState<'3d' | 'photo'>('photo');
   const [isPhotoFullscreen, setIsPhotoFullscreen] = useState(false);
   const [isInfographicOpen, setIsInfographicOpen] = useState(false);
   const [storeMiddlePartition, setStoreMiddlePartition] = useState<'Included' | 'None'>('Included');
+  const [isQuotationModalOpen, setIsQuotationModalOpen] = useState(false);
+  const [quotationProduct, setQuotationProduct] = useState<Product | null>(null);
+  const [quotationVariant, setQuotationVariant] = useState<ProductVariant | null>(null);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { profile } = useAuth();
   useEffect(() => {
     get('storefront_banner')
@@ -81,14 +93,14 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
     }
   };
 
-  const allProductCategories = Array.from(new Set([
+  const allProductCategories = deduplicateCategories([
     ...products.map(p => p.category || p.details?.category).filter(Boolean),
-    "Office Studio", "Workstation's", "Workstation", "Executive Table", "Conference Table", "Storages", "Reception's", "Seating Series", "Sitting Series",
+    "Office Studio", "Executive Table", "Conference Table", "Reception Table", "Workstations", "Storages", "Seating Series",
     "Homes", "Sofa/couch", "Armchairs/recliners", "Coffee table", "TV unit/entertainment console", "Side/end tables", "Dining sets", "Beds", "Wardrobes", "Desks",
     "Educational & Institutional", "School desks & chairs", "Library furniture", "Admin Furniture",
     "Factories & Warehouses", "Racks", "Lockers", "Customize",
     "Catalogues"
-  ]));
+  ]);
   const categories = ['All', ...allProductCategories];
   
   let filteredProducts = products.filter(p => {
@@ -165,26 +177,66 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
 
   
 
-  // Synchronize active variant and image when selected product changes
+  // Synchronize active variants and preselect 1 default option in each section when product changes
   useEffect(() => {
     if (selectedProduct) {
       if (selectedProduct.variants && selectedProduct.variants.length > 0) {
-        const firstVariant = selectedProduct.variants[0];
-        setSelectedVariantId(firstVariant.id);
-        if (firstVariant.imageData) {
-          setActiveImageSrc(firstVariant.imageData);
-        } else {
-          getVariantFile(firstVariant.id).then(data => {
+        const all = selectedProduct.variants.filter(Boolean);
+        const sizeVars = all.filter(v => v.variantType === 'size' || Boolean(v.size));
+        const sideStorageVars = all.filter(v => v.variantType === 'side_storage' || Boolean(v.sideStorage));
+        const electricVars = all.filter(v => v.variantType === 'electric' || Boolean(v.electricOption));
+        const colorVars = all.filter(v => v.variantType === 'color' || Boolean(v.colorCode || v.color));
+        const customVars = all.filter(v => v.variantType === 'custom' || Boolean(v.groupName && v.variantType !== 'color' && v.variantType !== 'size' && v.variantType !== 'side_storage' && v.variantType !== 'electric'));
+
+        const firstSize = sizeVars[0];
+        setSelectedSizeVariantId(firstSize ? firstSize.id : null);
+
+        const firstStorage = sideStorageVars[0];
+        setSelectedSideStorageVariantId(firstStorage ? firstStorage.id : null);
+
+        const firstElectric = electricVars[0];
+        setSelectedElectricVariantId(firstElectric ? firstElectric.id : null);
+
+        const firstColor = colorVars[0];
+        setSelectedColorVariantId(firstColor ? firstColor.id : null);
+
+        const initialCustomMap: Record<string, string> = {};
+        const groupNames = Array.from(new Set(customVars.map(v => v.groupName || 'Custom Options')));
+        for (const gName of groupNames) {
+          const gItem = customVars.find(v => (v.groupName || 'Custom Options') === gName);
+          if (gItem) initialCustomMap[gName] = gItem.id;
+        }
+        setSelectedCustomVariantIds(initialCustomMap);
+
+        const firstVar = firstSize || firstStorage || firstElectric || firstColor || all[0];
+        setSelectedVariantId(firstVar ? firstVar.id : null);
+
+        if (firstVar && firstVar.imageData) {
+          setActiveImageSrc(firstVar.imageData);
+        } else if (firstVar) {
+          getVariantFile(firstVar.id).then(data => {
             if (data) setActiveImageSrc(data);
             else setActiveImageSrc(null);
           });
+        } else {
+          setActiveImageSrc(null);
         }
       } else {
         setSelectedVariantId(null);
+        setSelectedSizeVariantId(null);
+        setSelectedSideStorageVariantId(null);
+        setSelectedElectricVariantId(null);
+        setSelectedColorVariantId(null);
+        setSelectedCustomVariantIds({});
         setActiveImageSrc(null);
       }
     } else {
       setSelectedVariantId(null);
+      setSelectedSizeVariantId(null);
+      setSelectedSideStorageVariantId(null);
+      setSelectedElectricVariantId(null);
+      setSelectedColorVariantId(null);
+      setSelectedCustomVariantIds({});
       setActiveImageSrc(null);
     }
   }, [selectedProduct]);
@@ -205,16 +257,25 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
 
 
 
-  const addToCart = (product: Product, workstationSetup?: any, variant?: ProductVariant) => {
+  const addToCart = (
+    product: Product, 
+    workstationSetup?: any, 
+    variant?: ProductVariant,
+    configuredPrice?: number,
+    selectedOptionsSummary?: string
+  ) => {
     setCart(prev => {
       const isWorkstation = isCategoryMatch(product.category, "Workstation");
-      const configuredPrice = isWorkstation && workstationSetup?.calculatedPrice 
-        ? workstationSetup.calculatedPrice 
-        : undefined;
+      const finalPrice = configuredPrice ?? (
+        isWorkstation && workstationSetup?.calculatedPrice 
+          ? workstationSetup.calculatedPrice 
+          : undefined
+      );
 
       const setupKey = workstationSetup 
         ? `_${workstationSetup.dimensions}_${workstationSetup.material}_${workstationSetup.thickness}_${workstationSetup.tableTopColor}_${workstationSetup.screenColor}_${workstationSetup.middlePartition}_${workstationSetup.legColor}_${workstationSetup.legSize}_${workstationSetup.legStyle}` 
-        : '';
+        : (selectedOptionsSummary ? `_${selectedOptionsSummary}` : '');
+
       const cartItemId = `${product.docId || product.id}_${variant?.id || 'base'}${setupKey}`;
       const existing = prev.find(item => item.id === cartItemId);
       if (existing) {
@@ -224,8 +285,10 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
         id: cartItemId, 
         product, 
         quantity: 1, 
-        workstationSetup: workstationSetup ? { ...workstationSetup, calculatedPrice: configuredPrice } : undefined, 
-        selectedVariant: variant 
+        workstationSetup: workstationSetup ? { ...workstationSetup, calculatedPrice: finalPrice } : undefined, 
+        selectedVariant: variant,
+        configuredPrice: finalPrice,
+        selectedOptionsSummary: selectedOptionsSummary || (variant ? (variant.size || variant.name) : undefined)
       }];
     });
   };
@@ -236,7 +299,9 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
 
   const cartTotal = cart.reduce((total, item) => {
     let price = 0;
-    if (item.workstationSetup?.calculatedPrice) {
+    if (item.configuredPrice !== undefined && item.configuredPrice !== null) {
+      price = item.configuredPrice;
+    } else if (item.workstationSetup?.calculatedPrice) {
       price = item.workstationSetup.calculatedPrice;
     } else if (item.selectedVariant) {
       const p = typeof item.selectedVariant.price === 'string' 
@@ -258,8 +323,21 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
         <div className="max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-10">
           <div className="flex items-center justify-between h-20 md:h-22">
             <div className="flex items-center gap-6">
-              <button className="md:hidden p-2 text-slate-700 hover:text-slate-900"><Menu className="w-6 h-6" /></button>
-              <div className="cursor-pointer flex items-center" onClick={() => setActiveTab?.('Orders')}>
+              <button 
+                onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                className="lg:hidden p-2 text-slate-700 hover:text-red-600 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
+                aria-label="Toggle Navigation Menu"
+              >
+                {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+              </button>
+              <div 
+                className="cursor-pointer flex items-center" 
+                onClick={() => {
+                  setSelectedCategory('All');
+                  setSelectedProduct(null);
+                  setSearchQuery('');
+                }}
+              >
                 <img src="/logo.png" alt="SRK Modular Furniture co" className="h-14 md:h-18 w-auto object-contain" />
               </div>
             </div>
@@ -268,7 +346,7 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
               {[
                 {
                   name: 'Office Studio',
-                  subItems: ["Workstation's", "Executive Table", "Conference Table", "Storages", "Reception's", "Seating Series", "Sitting Series"]
+                  subItems: ["Executive Table", "Conference Table", "Reception Table", "Workstations", "Storages", "Seating Series"]
                 },
                 {
                   name: 'Homes',
@@ -286,7 +364,11 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
               ].map(item => (
                 <div key={item.name} className="relative group">
                   <button 
-                    onClick={() => setSelectedCategory(item.name)}
+                    onClick={() => {
+                      setSelectedCategory(item.name);
+                      setSelectedProduct(null);
+                      setSearchQuery('');
+                    }}
                     className={`text-[12px] font-bold uppercase tracking-wider transition-colors whitespace-nowrap h-20 md:h-22 flex items-center cursor-pointer ${selectedCategory === item.name ? 'text-red-600 font-black' : 'text-slate-600 hover:text-slate-900'}`}
                   >
                     {item.name}
@@ -296,7 +378,11 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                       {item.subItems.map(sub => (
                         <button
                           key={sub}
-                          onClick={() => setSelectedCategory(sub)}
+                          onClick={() => {
+                            setSelectedCategory(sub);
+                            setSelectedProduct(null);
+                            setSearchQuery('');
+                          }}
                           className="block w-full text-left px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-red-600 transition-colors cursor-pointer"
                         >
                           {sub}
@@ -335,13 +421,75 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                   type="text" 
                   placeholder="Search modular furniture..."
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    if (e.target.value) {
+                      setSelectedProduct(null);
+                    }
+                  }}
                   className="bg-slate-100/90 border border-slate-200/80 text-slate-900 rounded-xl pl-9 pr-4 py-2 text-xs focus:outline-none focus:border-red-500 focus:bg-white focus:ring-2 focus:ring-red-500/20 transition-all w-52 placeholder:text-slate-400"
                 />
               </div>
             </div>
           </div>
         </div>
+
+        {/* Mobile Navigation Drawer */}
+        {isMobileMenuOpen && (
+          <div className="lg:hidden bg-white border-b border-slate-200 px-4 py-4 space-y-4 shadow-xl">
+            {[
+              {
+                name: 'Office Studio',
+                subItems: ["Executive Table", "Conference Table", "Reception Table", "Workstations", "Storages", "Seating Series"]
+              },
+              {
+                name: 'Homes',
+                subItems: ["Sofa/couch", "Armchairs/recliners", "Coffee table", "TV unit/entertainment console", "Side/end tables", "Dining sets", "Beds", "Wardrobes", "Desks"]
+              },
+              {
+                name: 'Educational & Institutional',
+                subItems: ["School desks & chairs", "Library furniture", "Admin Furniture"]
+              },
+              {
+                name: 'Factories & Warehouses',
+                subItems: ["Racks", "Lockers", "Customize"]
+              },
+              { name: 'Catalogues' }
+            ].map(item => (
+              <div key={item.name} className="space-y-1">
+                <button
+                  onClick={() => {
+                    setSelectedCategory(item.name);
+                    setSelectedProduct(null);
+                    setSearchQuery('');
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className="w-full text-left font-bold text-sm text-slate-800 uppercase tracking-wide py-1.5 hover:text-red-600 transition-colors"
+                >
+                  {item.name}
+                </button>
+                {item.subItems && (
+                  <div className="pl-4 border-l-2 border-red-100 space-y-1">
+                    {item.subItems.map(sub => (
+                      <button
+                        key={sub}
+                        onClick={() => {
+                          setSelectedCategory(sub);
+                          setSelectedProduct(null);
+                          setSearchQuery('');
+                          setIsMobileMenuOpen(false);
+                        }}
+                        className="block w-full text-left text-xs text-slate-600 hover:text-red-600 py-1 transition-colors"
+                      >
+                        {sub}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </header>
 
       {/* Hero Section */}
@@ -380,18 +528,99 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
               {/* Left: 3D Visualizer & Studio Media Column */}
               {(() => {
                 const isWorkstation = isCategoryMatch(selectedProduct.category, "Workstation");
-                const activeVariant = selectedProduct.variants?.find(v => v.id === selectedVariantId) || selectedProduct.variants?.[0];
-                const workstationCalculatedPrice = isWorkstation && currentWorkstationSetup?.calculatedPrice ? currentWorkstationSetup.calculatedPrice : null;
-                const currentPrice = workstationCalculatedPrice ?? (activeVariant 
-                  ? (typeof activeVariant.price === 'string' ? parseFloat(activeVariant.price.replace(/[^0-9.]/g, '')) || 0 : activeVariant.price)
-                  : (selectedProduct.salesRate || (typeof selectedProduct.price === 'string' ? parseFloat(selectedProduct.price.replace(/[^0-9.]/g, '')) : selectedProduct.price) || 14500));
+                const allVariants = (selectedProduct.variants || []).filter(Boolean);
+                const allSizeVariants = allVariants.filter(v => v.variantType === 'size' || Boolean(v.size));
+                const sideStorageVariants = allVariants.filter(v => v.variantType === 'side_storage' || Boolean(v.sideStorage));
+                const electricVariants = allVariants.filter(v => v.variantType === 'electric' || Boolean(v.electricOption));
+                const colorVariants = allVariants.filter(v => v.variantType === 'color' || Boolean((v.colorCode || v.color) && !v.sideStorage && !v.electricOption && v.variantType !== 'custom'));
+                const customVariants = allVariants.filter(v => v.variantType === 'custom' || Boolean(v.groupName && v.variantType !== 'color' && v.variantType !== 'size' && v.variantType !== 'side_storage' && v.variantType !== 'electric'));
 
-                const availableSizes = Array.from(new Set((selectedProduct.variants || []).map(v => v.size).filter(Boolean))) as string[];
-                const availableColors = Array.from(new Set((selectedProduct.variants || []).map(v => v.color).filter(Boolean))) as string[];
+                // Dynamically adjust size options when side storage, color, or option choices change
+                const sizeVariants = (() => {
+                  let list = allSizeVariants;
+                  if (selectedSideStorageVariantId) {
+                    const activeStorage = sideStorageVariants.find(s => s.id === selectedSideStorageVariantId);
+                    if (activeStorage) {
+                      const storageText = (activeStorage.sideStorage || activeStorage.name || '').toLowerCase().trim();
+                      if (storageText) {
+                        const matched = allSizeVariants.filter(v => {
+                          const vStorage = (v.sideStorage || v.name || '').toLowerCase();
+                          return vStorage.includes(storageText) || storageText.includes(vStorage);
+                        });
+                        if (matched.length > 0) list = matched;
+                      }
+                    }
+                  }
+                  if (selectedColorVariantId) {
+                    const activeColor = colorVariants.find(c => c.id === selectedColorVariantId);
+                    if (activeColor) {
+                      const colorText = (activeColor.color || activeColor.name || '').toLowerCase().trim();
+                      if (colorText) {
+                        const matched = list.filter(v => {
+                          const vColor = (v.color || v.name || '').toLowerCase();
+                          return vColor.includes(colorText) || colorText.includes(vColor);
+                        });
+                        if (matched.length > 0) list = matched;
+                      }
+                    }
+                  }
+                  return list;
+                })();
+
+                const activeSizeVar = sizeVariants.find(v => v.id === selectedSizeVariantId) || sizeVariants[0];
+                const activeStorageVar = sideStorageVariants.find(v => v.id === selectedSideStorageVariantId);
+                const activeElectricVar = electricVariants.find(v => v.id === selectedElectricVariantId);
+                const activeColorVar = colorVariants.find(v => v.id === selectedColorVariantId);
+
+                const activeVariant = activeSizeVar || activeStorageVar || activeElectricVar || activeColorVar || allVariants[0];
+
+                const workstationCalculatedPrice = isWorkstation && currentWorkstationSetup?.calculatedPrice ? currentWorkstationSetup.calculatedPrice : null;
+
+                let currentPrice = 0;
+                if (isWorkstation && workstationCalculatedPrice) {
+                  currentPrice = workstationCalculatedPrice;
+                } else {
+                  const sizePrice = activeSizeVar 
+                    ? (parseFloat(String(activeSizeVar.price).replace(/[^0-9.]/g, '')) || 0)
+                    : (selectedProduct.salesRate || parseFloat(String(selectedProduct.price).replace(/[^0-9.]/g, '')) || 0);
+
+                  const storagePrice = activeStorageVar 
+                    ? (parseFloat(String(activeStorageVar.price).replace(/[^0-9.]/g, '')) || 0)
+                    : 0;
+
+                  const electricPrice = activeElectricVar 
+                    ? (parseFloat(String(activeElectricVar.price).replace(/[^0-9.]/g, '')) || 0)
+                    : 0;
+
+                  const colorPrice = (activeColorVar && sizeVariants.length === 0)
+                    ? (parseFloat(String(activeColorVar.price).replace(/[^0-9.]/g, '')) || 0)
+                    : 0;
+
+                  let customPrice = 0;
+                  Object.values(selectedCustomVariantIds).forEach(vId => {
+                    const matchedCustom = customVariants.find(v => v.id === vId);
+                    if (matchedCustom) {
+                      customPrice += (parseFloat(String(matchedCustom.price).replace(/[^0-9.]/g, '')) || 0);
+                    }
+                  });
+
+                  currentPrice = (sizePrice || 0) + storagePrice + electricPrice + colorPrice + customPrice;
+                }
+
+                const summaryParts: string[] = [];
+                if (activeSizeVar) summaryParts.push(`Size: ${activeSizeVar.size || activeSizeVar.name}`);
+                if (activeStorageVar) summaryParts.push(`Storage: ${activeStorageVar.sideStorage || activeStorageVar.name}`);
+                if (activeElectricVar) summaryParts.push(`Electric: ${activeElectricVar.electricOption || activeElectricVar.name}`);
+                if (activeColorVar) summaryParts.push(`Color: ${activeColorVar.color || activeColorVar.name}`);
+                Object.entries(selectedCustomVariantIds).forEach(([gName, vId]) => {
+                  const cVar = customVariants.find(v => v.id === vId);
+                  if (cVar) summaryParts.push(`${gName}: ${cVar.name}`);
+                });
+                const optionsSummary = summaryParts.join(' | ');
 
                 return (
                   <>
-                    <div className="w-full lg:w-[60%] xl:w-[64%] 2xl:w-[68%] flex gap-3 sm:gap-4 shrink-0 lg:sticky lg:top-20 lg:self-start z-20">
+                    <div className="w-full lg:w-[50%] xl:w-[52%] flex gap-3 sm:gap-4 shrink-0 lg:sticky lg:top-20 lg:self-start z-20">
                       {/* Thumbnails Sidebar (Left Corner 5 Product Angles) */}
                       <div className="w-16 sm:w-20 shrink-0 flex flex-col gap-2.5 max-h-[calc(100vh-100px)] overflow-y-auto custom-scrollbar pr-1">
                         {/* 360 3D View Thumbnail for Workstations */}
@@ -409,13 +638,20 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                           </div>
                         )}
 
-                        {/* 5 Product Angles Thumbnails in Left Corner */}
+                        {/* Product Angles & Variant Thumbnails in Left Corner */}
                         {(() => {
                           const angleImages: string[] = [];
                           if (selectedProduct.details?.productImageData) angleImages.push(selectedProduct.details.productImageData);
                           if (Array.isArray(selectedProduct.images)) angleImages.push(...selectedProduct.images);
                           if (Array.isArray(selectedProduct.details?.images)) angleImages.push(...selectedProduct.details.images);
-                          const uniqueAngles = Array.from(new Set(angleImages.filter(Boolean))).slice(0, 5);
+                          if (Array.isArray(selectedProduct.variants)) {
+                            selectedProduct.variants.forEach(v => {
+                              if (v.imageData && !angleImages.includes(v.imageData)) {
+                                angleImages.push(v.imageData);
+                              }
+                            });
+                          }
+                          const uniqueAngles = Array.from(new Set(angleImages.filter(Boolean)));
 
                           if (uniqueAngles.length === 0) {
                             return (
@@ -433,9 +669,9 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                             );
                           }
 
+                          const labels = ['Front', 'Side', '3/4 View', 'Back', 'Detail'];
                           return uniqueAngles.map((src, aIdx) => {
-                            const isSelected = visualizerView === 'photo' && activeImageSrc === src;
-                            const labels = ['Front', 'Side', '3/4 View', 'Back', 'Detail'];
+                            const isSelected = visualizerView === 'photo' && (activeImageSrc === src || (!activeImageSrc && aIdx === 0));
                             return (
                               <div 
                                 key={aIdx} 
@@ -445,50 +681,23 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                                 }}
                                 className={`aspect-square rounded-xl border-2 flex items-center justify-center p-1 cursor-pointer transition-all relative overflow-hidden group ${
                                   isSelected 
-                                    ? 'border-indigo-600 bg-indigo-50 ring-2 ring-indigo-500/20 shadow-xs' 
-                                    : 'border-slate-200 hover:border-indigo-300 bg-slate-50'
+                                    ? 'border-indigo-600 bg-indigo-50 ring-2 ring-indigo-500/20 shadow-xs scale-105' 
+                                    : 'border-slate-200 hover:border-indigo-300 bg-slate-50 opacity-80 hover:opacity-100'
                                 }`}
                                 title={`Angle ${aIdx + 1}: ${labels[aIdx] || 'View'}`}
                               >
                                 <img src={src} alt={`Angle ${aIdx + 1}`} className="w-full h-full object-contain mix-blend-multiply" />
                                 <span className="absolute bottom-0 inset-x-0 bg-slate-900/85 backdrop-blur-xs text-[8px] text-white text-center py-0.5 truncate font-bold group-hover:bg-indigo-600 transition-colors">
-                                  Angle {aIdx + 1}
+                                  {labels[aIdx] ? `Angle ${aIdx + 1}` : `Photo ${aIdx + 1}`}
                                 </span>
                               </div>
                             );
                           });
                         })()}
-
-                        {/* Active Color Variant Thumbnail (Only visible when color option with photo is selected) */}
-                        {activeVariant?.imageData && (
-                          <div 
-                            onClick={() => {
-                              setActiveImageSrc(activeVariant.imageData!);
-                              setVisualizerView('photo');
-                            }}
-                            className={`aspect-square rounded-xl border-2 flex items-center justify-center p-1 cursor-pointer transition-all relative overflow-hidden group ${
-                              activeImageSrc === activeVariant.imageData
-                                ? 'border-amber-500 bg-amber-50 ring-2 ring-amber-500/20 shadow-xs'
-                                : 'border-slate-200 hover:border-amber-300 bg-slate-50'
-                            }`}
-                            title={`Color Variant: ${activeVariant.color || activeVariant.name}`}
-                          >
-                            <img src={activeVariant.imageData} alt={activeVariant.name} className="w-full h-full object-contain mix-blend-multiply" />
-                            {activeVariant.colorCode && (
-                              <span 
-                                className="absolute top-1 right-1 w-2.5 h-2.5 rounded-full border border-white shadow-xs" 
-                                style={{ backgroundColor: activeVariant.colorCode }} 
-                              />
-                            )}
-                            <span className="absolute bottom-0 inset-x-0 bg-amber-600 text-[8px] text-white text-center py-0.5 truncate font-bold">
-                              {activeVariant.color || 'Color'}
-                            </span>
-                          </div>
-                        )}
                       </div>
 
                       {/* Main Visualizer Stage Canvas */}
-                      <div className="flex-1 w-full bg-slate-900/[0.02] rounded-2xl border border-slate-200/90 shadow-xs flex flex-col items-center justify-center p-0 h-[580px] sm:h-[660px] lg:h-[740px] xl:h-[820px] 2xl:h-[880px] relative overflow-hidden group">
+                      <div className="flex-1 w-full bg-slate-900/[0.02] rounded-2xl border border-slate-200/90 shadow-xs flex flex-col items-center justify-center p-0 h-[380px] sm:h-[440px] lg:h-[480px] xl:h-[520px] relative overflow-hidden group">
                         {/* View Toggle for Workstations (Studio Photo Mode Switcher) */}
                         {/* View Toggle for Workstations (Studio Photo Mode Switcher & Fullscreen Button) */}
                         {/* Top Visualizer Mode Switcher Toolbar */}
@@ -559,59 +768,25 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                             }}
                           />
                         ) : (
-                          <div className="w-full h-full flex flex-col items-center justify-center relative">
-                            {(() => {
-                              const extraImages: string[] = [];
-                              if (selectedProduct.details?.productImageData) extraImages.push(selectedProduct.details.productImageData);
-                              if (Array.isArray(selectedProduct.images)) extraImages.push(...selectedProduct.images);
-                              if (selectedProduct.variants) {
-                                selectedProduct.variants.forEach(v => {
-                                  if (v.imageData && !extraImages.includes(v.imageData)) extraImages.push(v.imageData);
-                                });
-                              }
-                              const uniqueImgs = Array.from(new Set(extraImages));
-
-                              return (
-                                <>
-                                  {/* Center Main Photo Stage */}
-                                  <div 
-                                    className="w-full flex-1 flex items-center justify-center cursor-zoom-in p-4"
-                                    onClick={() => setIsPhotoFullscreen(true)}
-                                    title="Click to view full screen"
-                                  >
-                                    {activeImageSrc ? (
-                                      <img src={activeImageSrc} alt={selectedProduct.name} className="w-full h-full object-contain mix-blend-multiply transition-all duration-300 p-4" />
-                                    ) : activeVariant?.imageData ? (
-                                      <img src={activeVariant.imageData} alt={activeVariant.name} className="w-full h-full object-contain mix-blend-multiply transition-all duration-300 p-4" />
-                                    ) : (
-                                      <StorefrontProductImage 
-                                        variantId={activeVariant?.id} 
-                                        productId={selectedProduct.id} 
-                                        productName={activeVariant?.name || selectedProduct.name} 
-                                      />
-                                    )}
-                                  </div>
-
-                                  {/* Multiple Images Thumbnail Strip Below Main Photo */}
-                                  {uniqueImgs.length > 1 && (
-                                    <div className="absolute bottom-4 inset-x-4 bg-white/95 backdrop-blur-md rounded-xl p-2 border border-slate-200/90 shadow-md flex items-center justify-center gap-2 overflow-x-auto z-10 custom-scrollbar">
-                                      {uniqueImgs.map((src, i) => (
-                                        <button
-                                          key={i}
-                                          type="button"
-                                          onClick={() => setActiveImageSrc(src)}
-                                          className={`relative w-11 h-11 rounded-lg border overflow-hidden p-0.5 bg-white shrink-0 transition-all cursor-pointer ${
-                                            activeImageSrc === src ? 'border-indigo-600 ring-2 ring-indigo-500/25 shadow-xs scale-105' : 'border-slate-200 opacity-70 hover:opacity-100'
-                                          }`}
-                                        >
-                                          <img src={src} alt={`Product Photo ${i + 1}`} className="w-full h-full object-contain mix-blend-multiply" />
-                                        </button>
-                                      ))}
-                                    </div>
-                                  )}
-                                </>
-                              );
-                            })()}
+                          <div className="w-full h-full flex items-center justify-center relative p-3">
+                            {/* Center Main Photo Stage */}
+                            <div 
+                              className="w-full h-full flex items-center justify-center cursor-zoom-in p-2 min-h-[350px]"
+                              onClick={() => setIsPhotoFullscreen(true)}
+                              title="Click to view full screen"
+                            >
+                              {activeImageSrc ? (
+                                <img src={activeImageSrc} alt={selectedProduct.name} className="max-w-full max-h-[500px] object-contain mix-blend-multiply transition-all duration-300 p-2" />
+                              ) : activeVariant?.imageData ? (
+                                <img src={activeVariant.imageData} alt={activeVariant.name} className="max-w-full max-h-[500px] object-contain mix-blend-multiply transition-all duration-300 p-2" />
+                              ) : (
+                                <StorefrontProductImage 
+                                  variantId={activeVariant?.id} 
+                                  productId={selectedProduct.id} 
+                                  productName={activeVariant?.name || selectedProduct.name} 
+                                />
+                              )}
+                            </div>
                           </div>
                         )}
 
@@ -636,10 +811,16 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
 
                         {/* Fullscreen Photo Lightbox Modal */}
                         {isPhotoFullscreen && (
-                          <div className="fixed inset-0 z-[999999] bg-black/95 backdrop-blur-md flex flex-col items-center justify-center p-4">
+                          <div 
+                            className="fixed inset-0 z-[999999] bg-black/95 backdrop-blur-md flex flex-row items-center justify-center p-4 cursor-pointer"
+                            onClick={() => setIsPhotoFullscreen(false)}
+                          >
                             {/* Top Bar */}
-                            <div className="absolute top-4 inset-x-4 z-10 flex items-center justify-between text-white">
-                              <div className="flex items-center gap-3">
+                            <div 
+                              className="absolute top-4 inset-x-4 z-20 flex items-center justify-between text-white"
+                              onClick={e => e.stopPropagation()}
+                            >
+                              <div className="flex items-center gap-3 bg-black/50 backdrop-blur-md px-4 py-2 rounded-xl border border-white/10 shadow-lg">
                                 <span className="font-bold text-sm sm:text-base">{selectedProduct.name}</span>
                                 {activeVariant?.size && (
                                   <span className="px-2 py-0.5 rounded bg-white/20 text-xs font-medium">
@@ -650,15 +831,19 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                               <button
                                 type="button"
                                 onClick={() => setIsPhotoFullscreen(false)}
-                                className="p-2.5 rounded-full bg-white/10 hover:bg-white/25 text-white transition-colors cursor-pointer"
-                                title="Close Fullscreen (Esc)"
+                                className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-bold text-sm shadow-xl transition-all flex items-center gap-2 cursor-pointer border border-red-400 hover:scale-105"
+                                title="Close Enlarge Image (Esc)"
                               >
-                                <X className="w-6 h-6" />
+                                <X className="w-5 h-5" />
+                                <span>Close Enlarge Image</span>
                               </button>
                             </div>
 
                             {/* Main Image */}
-                            <div className="w-full h-full flex items-center justify-center p-8 max-w-6xl max-h-[85vh]">
+                            <div 
+                              className="w-full h-full flex items-center justify-center p-8 max-w-6xl max-h-[85vh]"
+                              onClick={e => e.stopPropagation()}
+                            >
                               {activeImageSrc ? (
                                 <img src={activeImageSrc} alt={selectedProduct.name} className="max-w-full max-h-full object-contain rounded-xl shadow-2xl" />
                               ) : activeVariant?.imageData ? (
@@ -672,9 +857,22 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                               )}
                             </div>
 
-                            {/* Bottom Note */}
-                            <div className="absolute bottom-4 text-center text-xs text-slate-400">
-                              Press <kbd className="px-2 py-1 bg-white/10 rounded text-white font-mono">Esc</kbd> or click Close to exit
+                            {/* Bottom Bar Close Button */}
+                            <div 
+                              className="absolute bottom-4 inset-x-4 flex flex-col items-center justify-center gap-1.5 z-20"
+                              onClick={e => e.stopPropagation()}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => setIsPhotoFullscreen(false)}
+                                className="px-6 py-2.5 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-black text-sm rounded-full shadow-2xl transition-all hover:scale-105 active:scale-95 flex items-center gap-2 cursor-pointer border-2 border-white/30"
+                              >
+                                <X className="w-5 h-5" />
+                                <span>Close Enlarge Image</span>
+                              </button>
+                              <div className="text-center text-[11px] text-slate-300 font-medium drop-shadow-sm">
+                                Press <kbd className="px-1.5 py-0.5 bg-white/20 rounded text-white font-mono text-[10px]">Esc</kbd> or click anywhere to exit
+                              </div>
                             </div>
                           </div>
                         )}
@@ -682,7 +880,7 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                     </div>
 
                     {/* Right: Product Details & Configurator Column */}
-                    <div className="w-full lg:w-[42%] xl:w-[38%] 2xl:w-[35%] flex flex-col min-w-0">
+                    <div className="w-full lg:w-[50%] xl:w-[48%] flex flex-col min-w-0">
                       <div className="flex items-center gap-2 mb-3">
                         <div className="flex items-center">
                           {[1, 2, 3, 4, 5].map(star => (
@@ -697,12 +895,12 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                         )}
                       </div>
 
-                      <h1 className="text-3xl font-black text-slate-900 mb-2">{selectedProduct.name}</h1>
+                      <h1 className="text-2xl sm:text-3xl font-black text-slate-900 mb-2">{selectedProduct.name}</h1>
                       {(() => {
-                        const typedDesc = selectedProduct.description || selectedProduct.details?.details || selectedProduct.details?.description;
-                        if (typedDesc) {
+                        const typedDesc = (selectedProduct.description || selectedProduct.details?.details || selectedProduct.details?.description || '').trim();
+                        if (typedDesc && typedDesc.length > 2) {
                           return (
-                            <p className="text-slate-600 mb-6 leading-relaxed whitespace-pre-wrap text-sm bg-slate-50/80 p-3.5 rounded-xl border border-slate-200/70">
+                            <p className="text-slate-600 mb-5 leading-relaxed whitespace-pre-wrap text-sm bg-slate-50/80 p-3.5 rounded-xl border border-slate-200/70">
                               {typedDesc}
                             </p>
                           );
@@ -728,99 +926,355 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                         </p>
                       </div>
 
-                      {/* Variants: Size Selector (for non-workstations only; hidden for Sitting Series since Sitting Series has ONLY color variants) */}
-                      {(() => {
-                        const isSittingSeriesProduct = 
-                          selectedProduct.category?.toLowerCase().includes('sitting') ||
-                          selectedProduct.category?.toLowerCase().includes('seating') ||
-                          selectedProduct.name?.toLowerCase().includes('chair');
-
-                        if (!isCategoryMatch(selectedProduct.category, "Workstation") && !isSittingSeriesProduct && availableSizes.length > 0) {
-                          return (
-                            <div className="mb-5">
-                              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">
-                                Select Size: <span className="text-indigo-600 font-bold">{activeVariant?.size || 'Standard'}</span>
-                              </label>
-                              <div className="flex flex-wrap gap-2">
-                                {availableSizes.map(size => {
-                                  const isSelected = activeVariant?.size === size;
-                                  const matchedVariant = selectedProduct.variants!.find(v => v.size === size);
-                                  return (
-                                    <button
-                                      key={size}
-                                      type="button"
-                                      onClick={() => {
-                                        if (matchedVariant) handleSelectVariant(matchedVariant);
-                                      }}
-                                      className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all ${
-                                        isSelected
-                                          ? 'border-indigo-600 bg-indigo-50 text-indigo-900 shadow-sm ring-1 ring-indigo-600'
-                                          : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
-                                      }`}
-                                    >
-                                      {size}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          );
-                        }
-                        return null;
-                      })()}
-
-
-                      {/* Variants: Colour / Finish Selector (For Sitting Series: shows ONLY color variants & their distinct prices) */}
-                      {!isCategoryMatch(selectedProduct.category, "Workstation") && availableColors.length > 0 && (
-                        <div className="mb-6">
-                          <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">
-                            {(selectedProduct.category?.toLowerCase().includes('sit') || selectedProduct.category?.toLowerCase().includes('seat') || selectedProduct.name?.toLowerCase().includes('chair'))
-                              ? 'Sitting Series Color Variants & Pricing:'
-                              : 'Choose Colour / Finish:'} <span className="text-indigo-600 font-semibold">{activeVariant?.color || 'Selected'}</span>
+                      {/* 1. Size Variants & Prices (Step 1) */}
+                      {!isCategoryMatch(selectedProduct.category, "Workstation") && sizeVariants.length > 0 && (
+                        <div className="mb-5 bg-indigo-50/50 p-3.5 rounded-2xl border border-indigo-100">
+                          <label className="block text-xs font-bold uppercase tracking-wider text-slate-800 mb-2.5 flex items-center justify-between">
+                            <span className="flex items-center gap-2">
+                              <span className="w-5 h-5 rounded-full bg-indigo-600 text-white font-extrabold text-[10px] flex items-center justify-center">1</span>
+                              Select Size Option: <span className="text-indigo-600 font-extrabold">{activeSizeVar ? (activeSizeVar.size || activeSizeVar.name) : 'Standard'}</span>
+                            </span>
+                            <span className="text-[11px] font-semibold text-indigo-700 bg-indigo-100/80 px-2 py-0.5 rounded-full">
+                              (Pick 1 Option)
+                            </span>
                           </label>
-                          <div className="flex flex-wrap gap-2.5">
-                            {availableColors.map(color => {
-                              const matchingVariant = selectedProduct.variants!.find(v => v.color === color);
-                              const isSelected = activeVariant?.color === color;
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                            {sizeVariants.map(v => {
+                              const sizeLabel = v.size || v.name;
+                              const isSelected = selectedSizeVariantId === v.id;
+                              const vPrice = parseFloat(String(v.price).replace(/[^0-9.]/g, '')) || 0;
                               return (
                                 <button
-                                  key={color}
+                                  key={v.id}
                                   type="button"
                                   onClick={() => {
-                                    const matched = selectedProduct.variants!.find(v => v.color === color && (activeVariant?.size ? v.size === activeVariant.size : true))
-                                      || selectedProduct.variants!.find(v => v.color === color);
-                                    if (matched) {
-                                      handleSelectVariant(matched);
-                                      if (matched.imageData) {
-                                        setActiveImageSrc(matched.imageData);
-                                      }
+                                    setSelectedSizeVariantId(v.id);
+                                    if (v.imageData) {
+                                      setActiveImageSrc(v.imageData);
                                       setVisualizerView('photo');
                                     }
                                   }}
-                                  className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-medium transition-all ${
+                                  className={`p-2.5 rounded-xl border text-xs font-semibold transition-all flex items-center justify-between gap-2.5 text-left cursor-pointer ${
+                                    isSelected
+                                      ? 'border-indigo-600 bg-white text-indigo-900 shadow-sm ring-2 ring-indigo-500/30 font-bold'
+                                      : 'border-slate-200 bg-white/80 text-slate-700 hover:border-indigo-300 hover:bg-white'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    {v.imageData ? (
+                                      <img src={v.imageData} alt={sizeLabel} className="w-8 h-8 rounded-lg object-cover border border-slate-200 shrink-0 bg-white" />
+                                    ) : (
+                                      <div className="w-7 h-7 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-[10px] shrink-0">
+                                        <Maximize2 className="w-3.5 h-3.5" />
+                                      </div>
+                                    )}
+                                    <span className="truncate text-slate-800">{sizeLabel}</span>
+                                  </div>
+                                  <div className="shrink-0 flex items-center gap-1">
+                                    {vPrice > 0 && (
+                                      <span className="text-indigo-600 font-extrabold text-xs bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100">
+                                        ₹{vPrice.toLocaleString()}
+                                      </span>
+                                    )}
+                                    {isSelected && <Check className="w-4 h-4 text-indigo-600 shrink-0" />}
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 2. Side Storage Option (Step 2) */}
+                      {!isCategoryMatch(selectedProduct.category, "Workstation") && sideStorageVariants.length > 0 && (
+                        <div className="mb-5 bg-emerald-50/50 p-3.5 rounded-2xl border border-emerald-100">
+                          <label className="block text-xs font-bold uppercase tracking-wider text-slate-800 mb-2.5 flex items-center justify-between">
+                            <span className="flex items-center gap-2">
+                              <span className="w-5 h-5 rounded-full bg-emerald-600 text-white font-extrabold text-[10px] flex items-center justify-center">2</span>
+                              Select Side Storage: <span className="text-emerald-700 font-extrabold">{activeStorageVar ? (activeStorageVar.sideStorage || activeStorageVar.name) : 'Without Side Storage'}</span>
+                            </span>
+                            <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-full">
+                              (Pick 1 Option)
+                            </span>
+                          </label>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                            {/* Without Side Storage Option */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedSideStorageVariantId(null);
+                                if (activeSizeVar?.imageData) {
+                                  setActiveImageSrc(activeSizeVar.imageData);
+                                }
+                              }}
+                              className={`p-2.5 rounded-xl border text-xs font-semibold transition-all flex items-center justify-between gap-2.5 text-left cursor-pointer ${
+                                !selectedSideStorageVariantId
+                                  ? 'border-emerald-600 bg-white text-emerald-900 shadow-sm ring-2 ring-emerald-500/30 font-bold'
+                                  : 'border-slate-200 bg-white/80 text-slate-700 hover:border-emerald-300 hover:bg-white'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <div className="w-7 h-7 rounded-lg bg-slate-100 text-slate-500 flex items-center justify-center font-bold text-[10px] shrink-0">
+                                  <X className="w-3.5 h-3.5" />
+                                </div>
+                                <span className="truncate text-slate-800">Without Side Storage</span>
+                              </div>
+                              <div className="shrink-0 flex items-center gap-1">
+                                <span className="text-slate-500 font-bold text-xs bg-slate-100 px-2 py-0.5 rounded-md">
+                                  Included
+                                </span>
+                                {!selectedSideStorageVariantId && <Check className="w-4 h-4 text-emerald-600 shrink-0" />}
+                              </div>
+                            </button>
+
+                            {/* Storage Variants */}
+                            {sideStorageVariants.map(v => {
+                              const storageLabel = v.sideStorage || v.name;
+                              const isSelected = selectedSideStorageVariantId === v.id;
+                              const vPrice = parseFloat(String(v.price).replace(/[^0-9.]/g, '')) || 0;
+                              return (
+                                <button
+                                  key={v.id}
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedSideStorageVariantId(v.id);
+                                    if (v.imageData) {
+                                      setActiveImageSrc(v.imageData);
+                                      setVisualizerView('photo');
+                                    }
+                                  }}
+                                  className={`p-2.5 rounded-xl border text-xs font-semibold transition-all flex items-center justify-between gap-2.5 text-left cursor-pointer ${
+                                    isSelected
+                                      ? 'border-emerald-600 bg-white text-emerald-900 shadow-sm ring-2 ring-emerald-500/30 font-bold'
+                                      : 'border-slate-200 bg-white/80 text-slate-700 hover:border-emerald-300 hover:bg-white'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    {v.imageData ? (
+                                      <img src={v.imageData} alt={storageLabel} className="w-8 h-8 rounded-lg object-cover border border-slate-200 shrink-0 bg-white" />
+                                    ) : (
+                                      <div className="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-[10px] shrink-0">
+                                        <Boxes className="w-3.5 h-3.5" />
+                                      </div>
+                                    )}
+                                    <span className="truncate text-slate-800">{storageLabel}</span>
+                                  </div>
+                                  <div className="shrink-0 flex items-center gap-1">
+                                    {vPrice > 0 ? (
+                                      <span className="text-emerald-700 font-extrabold text-xs bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100">
+                                        +₹{vPrice.toLocaleString()}
+                                      </span>
+                                    ) : (
+                                      <span className="text-slate-500 font-bold text-xs bg-slate-100 px-2 py-0.5 rounded-md">
+                                        Included
+                                      </span>
+                                    )}
+                                    {isSelected && <Check className="w-4 h-4 text-emerald-600 shrink-0" />}
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 3. Electric & Cabling Variant Selector (Step 3) */}
+                      {!isCategoryMatch(selectedProduct.category, "Workstation") && electricVariants.length > 0 && (
+                        <div className="mb-5 bg-purple-50/50 p-3.5 rounded-2xl border border-purple-100">
+                          <label className="block text-xs font-bold uppercase tracking-wider text-slate-800 mb-2.5 flex items-center justify-between">
+                            <span className="flex items-center gap-2">
+                              <span className="w-5 h-5 rounded-full bg-purple-600 text-white font-extrabold text-[10px] flex items-center justify-center">3</span>
+                              Electric & Cabling: <span className="text-purple-700 font-extrabold">{activeElectricVar ? (activeElectricVar.electricOption || activeElectricVar.name) : 'Standard / None'}</span>
+                            </span>
+                            <span className="text-[11px] font-semibold text-purple-700 bg-purple-100/80 px-2 py-0.5 rounded-full">
+                              (Pick 1 Option)
+                            </span>
+                          </label>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                            {electricVariants.map(v => {
+                              const electricLabel = v.electricOption || v.name;
+                              const isSelected = selectedElectricVariantId === v.id;
+                              const vPrice = parseFloat(String(v.price).replace(/[^0-9.]/g, '')) || 0;
+                              return (
+                                <button
+                                  key={v.id}
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedElectricVariantId(selectedElectricVariantId === v.id ? null : v.id);
+                                    if (v.imageData) {
+                                      setActiveImageSrc(v.imageData);
+                                      setVisualizerView('photo');
+                                    }
+                                  }}
+                                  className={`p-2.5 rounded-xl border text-xs font-semibold transition-all flex items-center justify-between gap-2.5 text-left cursor-pointer ${
+                                    isSelected
+                                      ? 'border-purple-600 bg-white text-purple-900 shadow-sm ring-2 ring-purple-500/30 font-bold'
+                                      : 'border-slate-200 bg-white/80 text-slate-700 hover:border-purple-300 hover:bg-white'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    {v.imageData ? (
+                                      <img src={v.imageData} alt={electricLabel} className="w-8 h-8 rounded-lg object-cover border border-slate-200 shrink-0 bg-white" />
+                                    ) : (
+                                      <div className="w-7 h-7 rounded-lg bg-purple-100 text-purple-800 flex items-center justify-center font-bold text-[10px] shrink-0">
+                                        <Zap className="w-3.5 h-3.5" />
+                                      </div>
+                                    )}
+                                    <span className="truncate text-slate-800">{electricLabel}</span>
+                                  </div>
+                                  <div className="shrink-0 flex items-center gap-1">
+                                    {vPrice > 0 ? (
+                                      <span className="text-purple-700 font-extrabold text-xs bg-purple-50 px-2 py-0.5 rounded-md border border-purple-100">
+                                        +₹{vPrice.toLocaleString()}
+                                      </span>
+                                    ) : (
+                                      <span className="text-slate-500 font-bold text-xs bg-slate-100 px-2 py-0.5 rounded-md">
+                                        Included
+                                      </span>
+                                    )}
+                                    {isSelected && <Check className="w-4 h-4 text-purple-600 shrink-0" />}
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 4. Custom Variants Selector */}
+                      {!isCategoryMatch(selectedProduct.category, "Workstation") && customVariants.length > 0 && (
+                        <div className="mb-5 space-y-4">
+                          {Array.from(new Set(customVariants.map(v => v.groupName || 'Custom Options'))).map(gName => {
+                            const groupItems = customVariants.filter(v => (v.groupName || 'Custom Options') === gName);
+                            return (
+                              <div key={gName} className="bg-blue-50/50 p-3.5 rounded-2xl border border-blue-100">
+                                <label className="block text-xs font-bold uppercase tracking-wider text-slate-800 mb-2.5">
+                                  {gName}:
+                                </label>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                  {groupItems.map(v => {
+                                    const isSelected = selectedCustomVariantIds[gName] === v.id;
+                                    const vPrice = parseFloat(String(v.price).replace(/[^0-9.]/g, '')) || 0;
+                                    return (
+                                      <button
+                                        key={v.id}
+                                        type="button"
+                                        onClick={() => {
+                                          setSelectedCustomVariantIds(prev => ({ ...prev, [gName]: prev[gName] === v.id ? '' : v.id }));
+                                          if (v.imageData) {
+                                            setActiveImageSrc(v.imageData);
+                                            setVisualizerView('photo');
+                                          }
+                                        }}
+                                        className={`p-2.5 rounded-xl border text-xs font-semibold transition-all flex items-center justify-between gap-2.5 text-left cursor-pointer ${
+                                          isSelected
+                                            ? 'border-blue-600 bg-white text-blue-900 shadow-sm ring-2 ring-blue-500/30 font-bold'
+                                            : 'border-slate-200 bg-white/80 text-slate-700 hover:border-blue-300 hover:bg-white'
+                                        }`}
+                                      >
+                                        <div className="flex items-center gap-2 min-w-0">
+                                          {v.imageData && (
+                                            <img src={v.imageData} alt={v.name} className="w-8 h-8 rounded-lg object-cover border border-slate-200 shrink-0 bg-white" />
+                                          )}
+                                          <span className="truncate text-slate-800">{v.name}</span>
+                                        </div>
+                                        <div className="shrink-0 flex items-center gap-1">
+                                          {vPrice > 0 && (
+                                            <span className="text-blue-700 font-extrabold text-xs bg-blue-50 px-2 py-0.5 rounded-md border border-blue-100">
+                                              +₹{vPrice.toLocaleString()}
+                                            </span>
+                                          )}
+                                          {isSelected && <Check className="w-4 h-4 text-blue-600 shrink-0" />}
+                                        </div>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* 5. Colour / Finish Selector */}
+                      {!isCategoryMatch(selectedProduct.category, "Workstation") && colorVariants.length > 0 && (
+                        <div className="mb-5">
+                          <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">
+                            {(selectedProduct.category?.toLowerCase().includes('sit') || selectedProduct.category?.toLowerCase().includes('seat') || selectedProduct.name?.toLowerCase().includes('chair'))
+                              ? 'Sitting Series Color Variants & Pricing:'
+                              : 'Choose Colour / Finish:'} <span className="text-indigo-600 font-semibold">{activeColorVar ? (activeColorVar.color || activeColorVar.name) : 'Selected'}</span>
+                          </label>
+                          <div className="flex flex-wrap gap-2.5">
+                            {colorVariants.map(v => {
+                              const colorLabel = v.color || v.name;
+                              const isSelected = selectedColorVariantId === v.id;
+                              const vPrice = parseFloat(String(v.price).replace(/[^0-9.]/g, '')) || 0;
+                              return (
+                                <button
+                                  key={v.id}
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedColorVariantId(v.id);
+                                    if (v.imageData) {
+                                      setActiveImageSrc(v.imageData);
+                                      setVisualizerView('photo');
+                                    }
+                                  }}
+                                  className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-medium transition-all cursor-pointer ${
                                     isSelected 
                                       ? 'border-indigo-600 bg-indigo-50 text-indigo-900 font-bold ring-2 ring-indigo-500/20' 
                                       : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
                                   }`}
                                 >
-                                  {matchingVariant?.colorCode ? (
+                                  {v.imageData ? (
+                                    <img src={v.imageData} alt={colorLabel} className="w-5 h-5 rounded-full object-cover border border-slate-300 shrink-0" />
+                                  ) : v.colorCode ? (
                                     <span 
                                       className="w-4 h-4 rounded-full border border-slate-300 shrink-0 shadow-xs" 
-                                      style={{ backgroundColor: matchingVariant.colorCode }} 
+                                      style={{ backgroundColor: v.colorCode }} 
                                     />
                                   ) : (
                                     <span className="w-4 h-4 rounded-full bg-slate-300 shrink-0" />
                                   )}
-                                  <span>{color}</span>
-                                  {matchingVariant?.price && (
+                                  <span>{colorLabel}</span>
+                                  {vPrice > 0 && sizeVariants.length === 0 && (
                                     <span className="text-indigo-600 font-bold text-[11px] ml-1 bg-white px-2 py-0.5 rounded border border-indigo-100 shadow-2xs">
-                                      ₹{Number(matchingVariant.price).toLocaleString()}
+                                      ₹{vPrice.toLocaleString()}
                                     </span>
                                   )}
                                   {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600 ml-0.5" />}
                                 </button>
                               );
                             })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Selected Configuration Combination Summary Box */}
+                      {!isCategoryMatch(selectedProduct.category, "Workstation") && (sizeVariants.length > 0 || sideStorageVariants.length > 0) && (
+                        <div className="mb-5 p-3.5 bg-slate-900 text-white rounded-2xl border border-slate-800 shadow-sm">
+                          <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-2 flex items-center justify-between">
+                            <span>Selected Combination Summary</span>
+                            <span className="text-emerald-400 font-bold">Total: ₹{Number(currentPrice).toLocaleString()}</span>
+                          </div>
+                          <div className="flex flex-wrap gap-2 text-xs font-semibold">
+                            {activeSizeVar && (
+                              <span className="bg-indigo-950 text-indigo-200 px-2.5 py-1 rounded-lg border border-indigo-800 flex items-center gap-1">
+                                <span className="text-slate-400 font-normal">Size:</span> {activeSizeVar.size || activeSizeVar.name}
+                              </span>
+                            )}
+                            <span className={`px-2.5 py-1 rounded-lg border flex items-center gap-1 ${
+                              activeStorageVar 
+                                ? 'bg-emerald-950 text-emerald-200 border-emerald-800' 
+                                : 'bg-slate-800 text-slate-300 border-slate-700'
+                            }`}>
+                              <span className="text-slate-400 font-normal">Storage:</span> {activeStorageVar ? (activeStorageVar.sideStorage || activeStorageVar.name) : 'Without Side Storage'}
+                            </span>
+                            {activeElectricVar && (
+                              <span className="bg-purple-950 text-purple-200 px-2.5 py-1 rounded-lg border border-purple-800 flex items-center gap-1">
+                                <span className="text-slate-400 font-normal">Electric:</span> {activeElectricVar.electricOption || activeElectricVar.name}
+                              </span>
+                            )}
                           </div>
                         </div>
                       )}
@@ -858,19 +1312,29 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                         />
                       )}
                       
-                      <div className="mt-auto pt-6 flex gap-4">
+                      <div className="mt-auto pt-6 flex flex-col sm:flex-row gap-3">
                         <button 
-                          onClick={() => addToCart(selectedProduct, currentWorkstationSetup, activeVariant)}
-                          className="flex-1 py-4 rounded-full bg-slate-900 text-white font-bold hover:bg-black transition-colors flex items-center justify-center gap-2 shadow-lg"
+                          onClick={() => addToCart(selectedProduct, currentWorkstationSetup, activeVariant, currentPrice, optionsSummary)}
+                          className="flex-1 py-3.5 rounded-full bg-slate-900 text-white font-bold hover:bg-black transition-colors flex items-center justify-center gap-2 shadow-lg cursor-pointer text-sm"
                         >
                           <ShoppingCart className="w-5 h-5" /> Add To Quote
                         </button>
                         <button 
                           onClick={() => {
-                            addToCart(selectedProduct, currentWorkstationSetup, activeVariant);
+                            setQuotationProduct(selectedProduct);
+                            setQuotationVariant(activeVariant);
+                            setIsQuotationModalOpen(true);
+                          }}
+                          className="flex-1 py-3.5 rounded-full bg-indigo-600 text-white font-bold hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2 shadow-lg cursor-pointer text-sm"
+                        >
+                          <FileText className="w-5 h-5" /> Create Quotation
+                        </button>
+                        <button 
+                          onClick={() => {
+                            addToCart(selectedProduct, currentWorkstationSetup, activeVariant, currentPrice, optionsSummary);
                             setIsCartOpen(true);
                           }}
-                          className="flex-1 py-4 rounded-full bg-amber-400 text-slate-900 font-bold hover:bg-amber-500 transition-colors shadow-lg"
+                          className="flex-1 py-3.5 rounded-full bg-amber-400 text-slate-900 font-bold hover:bg-amber-500 transition-colors shadow-lg cursor-pointer text-sm"
                         >
                           Buy Now
                         </button>
@@ -921,13 +1385,16 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                   <div className="mb-8">
                     <h4 className="font-semibold text-slate-900 mb-4 text-sm uppercase tracking-wide">Categories</h4>
                     <div className="space-y-3">
-                      {['All', "Workstation's", "Workstation", "Executive Table", "Conference Table", "Storages"].map(cat => (
+                      {['All', "Executive Table", "Conference Table", "Reception Table", "Workstations", "Storages", "Seating Series"].map(cat => (
                         <label key={cat} className="flex items-center gap-3 cursor-pointer group">
                           <input 
                             type="radio" 
                             name="category"
-                            checked={selectedCategory === cat || (cat === "Workstation's" && isCategoryMatch(selectedCategory, "Workstation"))}
-                            onChange={() => setSelectedCategory(cat)}
+                            checked={selectedCategory === cat || (cat === "Workstations" && isCategoryMatch(selectedCategory, "Workstation"))}
+                            onChange={() => {
+                              setSelectedCategory(cat);
+                              setSelectedProduct(null);
+                            }}
                             className="w-4 h-4 text-amber-500 focus:ring-amber-500 border-slate-300" 
                           />
                           <span className={`text-sm transition-colors ${selectedCategory === cat ? 'text-amber-600 font-medium' : 'text-slate-600 group-hover:text-amber-600'}`}>
@@ -1021,6 +1488,7 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                           transition={{ delay: i * 0.05 }}
                           onClick={() => {
                             setSelectedCategory(cat as string);
+                            setSelectedProduct(null);
                             setSearchQuery('');
                           }}
                           className="bg-white rounded-2xl border border-slate-200 hover:border-amber-500 hover:shadow-lg transition-all duration-300 cursor-pointer p-8 flex flex-col items-center justify-center text-center group"
@@ -1124,21 +1592,34 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                               )}
                             </div>
                             
-                            <div className="mt-auto pt-2">
+                             <div className="mt-auto pt-2">
                               <div className="text-2xl font-semibold text-slate-900 mb-3 flex items-start">
                                 <span className="text-sm font-normal mt-1 mr-0.5">₹</span>
                                 <span className="text-xs font-normal text-slate-500 mt-2 mr-1">{hasVariants ? 'From ' : ''}</span>
                                 {lowestPrice.toLocaleString()}
                               </div>
-                              <button 
-                                onClick={(e) => { 
-                                  e.stopPropagation(); 
-                                  addToCart(product, undefined, hasVariants ? product.variants![0] : undefined); 
-                                }}
-                                className="w-full py-2.5 rounded-full bg-amber-400 text-slate-900 font-medium hover:bg-amber-500 transition-colors flex items-center justify-center gap-2 shadow-sm"
-                              >
-                                <ShoppingCart className="w-4 h-4" /> Add to Quote
-                              </button>
+                              <div className="space-y-2">
+                                <button 
+                                  onClick={(e) => { 
+                                    e.stopPropagation(); 
+                                    addToCart(product, undefined, hasVariants ? product.variants![0] : undefined); 
+                                  }}
+                                  className="w-full py-2.5 rounded-full bg-amber-400 text-slate-900 font-medium hover:bg-amber-500 transition-colors flex items-center justify-center gap-2 shadow-sm"
+                                >
+                                  <ShoppingCart className="w-4 h-4" /> Add to Quote
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setQuotationProduct(product);
+                                    setQuotationVariant(hasVariants ? product.variants![0] : null);
+                                    setIsQuotationModalOpen(true);
+                                  }}
+                                  className="w-full py-2.5 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs transition-colors flex items-center justify-center gap-2 shadow-sm"
+                                >
+                                  <FileText className="w-4 h-4" /> Create Quotation
+                                </button>
+                              </div>
                             </div>
                           </div>
                         </motion.div>
@@ -1195,11 +1676,13 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                 ) : (
                   <div className="space-y-4">
                     {cart.map(item => {
-                      const itemPrice = item.workstationSetup?.calculatedPrice
-                        ? item.workstationSetup.calculatedPrice
-                        : item.selectedVariant
-                          ? (typeof item.selectedVariant.price === 'string' ? parseFloat(item.selectedVariant.price.replace(/[^0-9.]/g, '')) || 0 : item.selectedVariant.price)
-                          : (parseFloat((item.product.details?.perUnitPrice || item.product.details?.totalUnitPrice || item.product.price || '0').replace(/[^0-9.]/g, '')) || 0);
+                      const itemPrice = item.configuredPrice ?? (
+                        item.workstationSetup?.calculatedPrice
+                          ? item.workstationSetup.calculatedPrice
+                          : item.selectedVariant
+                            ? (typeof item.selectedVariant.price === 'string' ? parseFloat(item.selectedVariant.price.replace(/[^0-9.]/g, '')) || 0 : item.selectedVariant.price)
+                            : (parseFloat((item.product.details?.perUnitPrice || item.product.details?.totalUnitPrice || item.product.price || '0').replace(/[^0-9.]/g, '')) || 0)
+                      );
 
                       return (
                         <div key={item.id} className="bg-white p-4 rounded-2xl border border-slate-100 flex gap-4 relative group">
@@ -1213,10 +1696,16 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                           </div>
                           <div className="flex-1 py-1">
                             <h4 className="font-bold text-sm text-slate-900 line-clamp-1 leading-snug pr-6">{item.product.name}</h4>
-                            {item.selectedVariant && (
+                            {item.selectedOptionsSummary ? (
+                              <div className="text-[11px] text-indigo-700 font-semibold mt-1 leading-relaxed flex items-center flex-wrap gap-1">
+                                <span className="bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">
+                                  {item.selectedOptionsSummary}
+                                </span>
+                              </div>
+                            ) : item.selectedVariant && (
                               <div className="text-xs text-indigo-600 font-semibold mt-1 flex items-center gap-1.5 flex-wrap">
                                 <span className="bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">
-                                  {item.selectedVariant.size || 'Standard'}
+                                  {item.selectedVariant.size || item.selectedVariant.name || 'Standard'}
                                 </span>
                                 {item.selectedVariant.color && (
                                   <span className="flex items-center gap-1 bg-slate-50 px-2 py-0.5 rounded border border-slate-200 text-slate-700">
@@ -1339,6 +1828,15 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
         onClose={() => setIsInfographicOpen(false)}
         setup={currentWorkstationSetup}
         previewImageSrc={activeImageSrc || selectedProduct?.variants?.find(v => v.id === selectedVariantId)?.imageData || null}
+      />
+
+      {/* Commercial Quotation Generator Modal */}
+      <CreateQuotationModal
+        isOpen={isQuotationModalOpen}
+        onClose={() => setIsQuotationModalOpen(false)}
+        initialProduct={quotationProduct}
+        initialVariant={quotationVariant}
+        allProducts={products}
       />
 
     </div>

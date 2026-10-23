@@ -130,6 +130,80 @@ export function addDeletedHistoryId(id: string, docId?: string) {
   } catch (e) {}
 }
 
+const STORAGE_ADDED_INVOICES = 'srk_added_invoices_cache';
+
+export function getAddedInvoiceNumbers(): string[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_ADDED_INVOICES);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return [];
+}
+
+export function registerAddedInvoiceNumber(invNo?: string) {
+  if (!invNo || !invNo.trim()) return;
+  try {
+    const clean = invNo.trim().toUpperCase();
+    const current = getAddedInvoiceNumbers();
+    if (!current.includes(clean)) {
+      current.push(clean);
+      localStorage.setItem(STORAGE_ADDED_INVOICES, JSON.stringify(current));
+    }
+  } catch (e) {}
+}
+
+export function findExistingInvoice(invoiceNo?: string): { isDuplicate: boolean; matchedRef?: string; source?: string } {
+  if (!invoiceNo || !invoiceNo.trim()) return { isDuplicate: false };
+
+  const target = invoiceNo.trim().toLowerCase();
+  const targetNorm = normalizeName(target);
+  if (targetNorm.length < 2) return { isDuplicate: false };
+
+  // 1. Check registered invoices cache
+  const addedList = getAddedInvoiceNumbers();
+  const addedMatch = addedList.find(inv => {
+    const invNorm = normalizeName(inv);
+    return inv.toLowerCase() === target || (invNorm.length >= 2 && invNorm === targetNorm);
+  });
+  if (addedMatch) {
+    return { isDuplicate: true, matchedRef: addedMatch, source: 'Previously Scanned Invoices' };
+  }
+
+  // 2. Check Inventory History ledger
+  const history = getLocalHistory();
+  const historyMatch = history.find(h => {
+    if (!h.challanOrPoNo) return false;
+    const ref = h.challanOrPoNo.trim().toLowerCase();
+    const refNorm = normalizeName(ref);
+    return ref === target || (refNorm.length >= 2 && refNorm === targetNorm);
+  });
+  if (historyMatch) {
+    return { 
+      isDuplicate: true, 
+      matchedRef: historyMatch.challanOrPoNo, 
+      source: `Movement History (${historyMatch.timestamp || historyMatch.billDate || 'Inward Record'})` 
+    };
+  }
+
+  // 3. Check Raw Materials items
+  const materials = getLocalRawMaterials();
+  const materialMatch = materials.find(m => {
+    if (!m.challanOrPoNo) return false;
+    const ref = m.challanOrPoNo.trim().toLowerCase();
+    const refNorm = normalizeName(ref);
+    return ref === target || (refNorm.length >= 2 && refNorm === targetNorm);
+  });
+  if (materialMatch) {
+    return { 
+      isDuplicate: true, 
+      matchedRef: materialMatch.challanOrPoNo, 
+      source: `Raw Materials Inventory ("${materialMatch.name}")` 
+    };
+  }
+
+  return { isDuplicate: false };
+}
+
 export function getLocalRawMaterials(): RawMaterialItem[] {
   try {
     const raw = localStorage.getItem(STORAGE_RAW_MATERIALS);
@@ -268,12 +342,6 @@ export function subscribeToRawMaterials(callback: (items: RawMaterialItem[]) => 
 // Realtime Inventory History Subscription
 export function subscribeToInventoryHistory(callback: (history: InventoryHistoryEntry[]) => void) {
   let unsubscribeSnapshot: (() => void) | null = null;
-
-  if (typeof window !== 'undefined' && localStorage.getItem('srk_history_cleared_v2') !== 'true') {
-    localStorage.setItem('srk_history_cleared_v2', 'true');
-    setLocalHistory([]);
-    clearAllInventoryHistory().catch(() => {});
-  }
 
   const cached = getLocalHistory();
   callback(cached);
@@ -427,40 +495,15 @@ export async function saveRawMaterialItem(material: Partial<RawMaterialItem>): P
   const invoiceNo = material.challanOrPoNo || extractRef(material.notes);
   const vendorName = material.receivedFrom || extractVendor(material.notes) || '';
 
+  if (invoiceNo) {
+    registerAddedInvoiceNumber(invoiceNo);
+  }
+
   // 1. Find matching item in local list
   let existingIdx = findMatchingItemIndex(material, currentList);
 
-  // 2. Fallback check in Firestore if no match in local list
-  if (existingIdx < 0 && inputName && auth.currentUser) {
-    try {
-      const snap = await getDocs(getRawMaterialsCol());
-      if (!snap.empty) {
-        const firestoreItems = snap.docs.map(d => ({
-          ...d.data(),
-          id: d.data().id || d.id,
-          docId: d.id
-        })) as RawMaterialItem[];
-
-        const fsMatchIdx = findMatchingItemIndex(material, firestoreItems);
-        if (fsMatchIdx >= 0) {
-          const matchedFsItem = firestoreItems[fsMatchIdx];
-          const localIdx = currentList.findIndex(x => x.id === matchedFsItem.id || (x.docId && x.docId === matchedFsItem.docId));
-          if (localIdx >= 0) {
-            existingIdx = localIdx;
-          } else {
-            currentList.push(matchedFsItem);
-            existingIdx = currentList.length - 1;
-          }
-        }
-      }
-    } catch (fsErr) {
-      console.warn('Firestore fallback matching check warning:', fsErr);
-    }
-  }
-
   if (existingIdx >= 0 && !material.id && !material.docId) {
-    // === PRODUCT NAME MATCHED IN EXISTING INVENTORY ===
-    // Add incoming quantity to existing product stock and record history movement record!
+    // === PRODUCT MATCHED IN EXISTING INVENTORY ===
     const existingItem = currentList[existingIdx];
     const qtyToAdd = Number(material.availableQuantity || 0);
     const prevQty = Number(existingItem.availableQuantity || 0);
@@ -515,31 +558,27 @@ export async function saveRawMaterialItem(material: Partial<RawMaterialItem>): P
     history.unshift(historyEntry);
     setLocalHistory(history);
 
-    // Sync to Firestore
-    try {
-      if (existingItem.docId) {
-        await updateDoc(doc(db, 'raw_materials', existingItem.docId), {
-          availableQuantity: newQty,
-          totalReceived: newTotalReceived,
-          ...(material.specs ? { specs: material.specs } : {}),
-          ...(material.boardClassification ? { boardClassification: material.boardClassification } : {}),
-          ...(material.boardType ? { boardType: material.boardType } : {}),
-          ...(material.boardCompany ? { boardCompany: material.boardCompany } : {}),
-          ...(material.boardThickness ? { boardThickness: material.boardThickness } : {}),
-          ...(material.boardSize ? { boardSize: material.boardSize } : {}),
-          ...(material.colorCode ? { colorCode: material.colorCode } : {}),
-          updatedAt: serverTimestamp()
-        });
-      }
-
-      const cleanHistory = removeUndefined({
-        ...historyEntry,
-        createdAt: serverTimestamp()
-      });
-      await addDoc(getInventoryHistoryCol(), cleanHistory);
-    } catch (err) {
-      console.warn('Firestore saveRawMaterialItem quantity update offline:', err);
+    // Background Firestore Sync
+    if (existingItem.docId) {
+      updateDoc(doc(db, 'raw_materials', existingItem.docId), {
+        availableQuantity: newQty,
+        totalReceived: newTotalReceived,
+        ...(material.specs ? { specs: material.specs } : {}),
+        ...(material.boardClassification ? { boardClassification: material.boardClassification } : {}),
+        ...(material.boardType ? { boardType: material.boardType } : {}),
+        ...(material.boardCompany ? { boardCompany: material.boardCompany } : {}),
+        ...(material.boardThickness ? { boardThickness: material.boardThickness } : {}),
+        ...(material.boardSize ? { boardSize: material.boardSize } : {}),
+        ...(material.colorCode ? { colorCode: material.colorCode } : {}),
+        updatedAt: serverTimestamp()
+      }).catch(() => {});
     }
+
+    const cleanHistory = removeUndefined({
+      ...historyEntry,
+      createdAt: serverTimestamp()
+    });
+    addDoc(getInventoryHistoryCol(), cleanHistory).catch(() => {});
 
     return existingItem.docId || existingItem.id;
 
@@ -573,23 +612,19 @@ export async function saveRawMaterialItem(material: Partial<RawMaterialItem>): P
     currentList[existingIdx] = updatedItem;
     setLocalRawMaterials(currentList);
 
-    try {
+    if (updatedItem.docId) {
       const cleanData = removeUndefined({
         ...updatedItem,
         updatedAt: serverTimestamp()
       });
-      if (updatedItem.docId) {
-        await updateDoc(doc(db, 'raw_materials', updatedItem.docId), cleanData);
-      }
-    } catch (err) {
-      console.warn('Firestore edit material offline:', err);
+      updateDoc(doc(db, 'raw_materials', updatedItem.docId), cleanData).catch(() => {});
     }
 
     return updatedItem.docId || updatedItem.id;
 
   } else {
     // === BRAND NEW PRODUCT (NO MATCH FOUND) ===
-    const id = material.id || `rm-${Date.now()}`;
+    const id = material.id || `rm-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
     const initialQty = Number(material.availableQuantity || 0);
 
     const newItem: RawMaterialItem = {
@@ -648,27 +683,29 @@ export async function saveRawMaterialItem(material: Partial<RawMaterialItem>): P
     history.unshift(historyEntry);
     setLocalHistory(history);
 
-    try {
-      const cleanData = removeUndefined({
-        ...newItem,
-        createdAt: serverTimestamp()
-      });
+    // Sync to Firestore in background
+    const cleanData = removeUndefined({
+      ...newItem,
+      createdAt: serverTimestamp()
+    });
 
-      const docRef = await addDoc(getRawMaterialsCol(), cleanData);
+    addDoc(getRawMaterialsCol(), cleanData).then(docRef => {
       newItem.docId = docRef.id;
-      setLocalRawMaterials(currentList);
+      const updatedList = getLocalRawMaterials();
+      const idx = updatedList.findIndex(x => x.id === newItem.id);
+      if (idx >= 0) {
+        updatedList[idx].docId = docRef.id;
+        setLocalRawMaterials(updatedList);
+      }
+    }).catch(() => {});
 
-      const cleanHistory = removeUndefined({
-        ...historyEntry,
-        createdAt: serverTimestamp()
-      });
-      await addDoc(getInventoryHistoryCol(), cleanHistory);
+    const cleanHistory = removeUndefined({
+      ...historyEntry,
+      createdAt: serverTimestamp()
+    });
+    addDoc(getInventoryHistoryCol(), cleanHistory).catch(() => {});
 
-      return docRef.id;
-    } catch (err) {
-      console.warn('Firestore saveRawMaterialItem offline fallback:', err);
-      return id;
-    }
+    return id;
   }
 }
 
@@ -679,37 +716,20 @@ export async function deleteRawMaterialItem(id: string, docId?: string): Promise
   const current = getLocalRawMaterials().filter(x => x.id !== id && (!docId || x.docId !== docId));
   setLocalRawMaterials(current);
 
-  try {
-    const deletePromises: Promise<void>[] = [];
-
-    if (docId) {
-      deletePromises.push(deleteDoc(doc(db, 'raw_materials', docId)).catch(() => {}));
-    }
-    if (id && id !== docId) {
-      deletePromises.push(deleteDoc(doc(db, 'raw_materials', id)).catch(() => {}));
-    }
-
-    if (id) {
+  // Background fire-and-forget Firestore deletion
+  if (docId) {
+    deleteDoc(doc(db, 'raw_materials', docId)).catch(() => {});
+  }
+  if (id && id !== docId) {
+    deleteDoc(doc(db, 'raw_materials', id)).catch(() => {});
+    try {
       const q = query(getRawMaterialsCol(), where('id', '==', id));
-      const snap = await getDocs(q).catch(() => null);
-      if (snap && !snap.empty) {
-        snap.docs.forEach(d => deletePromises.push(deleteDoc(d.ref).catch(() => {})));
-      }
-    }
-
-    const allSnap = await getDocs(getRawMaterialsCol()).catch(() => null);
-    if (allSnap && !allSnap.empty) {
-      allSnap.docs.forEach(d => {
-        const data = d.data();
-        if (d.id === id || d.id === docId || data.id === id || data.docId === docId) {
-          deletePromises.push(deleteDoc(d.ref).catch(() => {}));
+      getDocs(q).then(snap => {
+        if (!snap.empty) {
+          snap.docs.forEach(d => deleteDoc(d.ref).catch(() => {}));
         }
-      });
-    }
-
-    await Promise.all(deletePromises);
-  } catch (err) {
-    console.warn('Firestore deleteRawMaterialItem error:', err);
+      }).catch(() => {});
+    } catch (_) {}
   }
 }
 
@@ -732,37 +752,20 @@ export async function deleteInventoryHistoryEntry(id: string, docId?: string): P
   const current = getLocalHistory().filter(x => x.id !== id && (!docId || x.docId !== docId));
   setLocalHistory(current);
 
-  try {
-    const deletePromises: Promise<void>[] = [];
-
-    if (docId) {
-      deletePromises.push(deleteDoc(doc(db, 'inventory_history', docId)).catch(() => {}));
-    }
-    if (id && id !== docId) {
-      deletePromises.push(deleteDoc(doc(db, 'inventory_history', id)).catch(() => {}));
-    }
-
-    if (id) {
+  // Background fire-and-forget Firestore deletion
+  if (docId) {
+    deleteDoc(doc(db, 'inventory_history', docId)).catch(() => {});
+  }
+  if (id && id !== docId) {
+    deleteDoc(doc(db, 'inventory_history', id)).catch(() => {});
+    try {
       const q = query(getInventoryHistoryCol(), where('id', '==', id));
-      const snap = await getDocs(q).catch(() => null);
-      if (snap && !snap.empty) {
-        snap.docs.forEach(d => deletePromises.push(deleteDoc(d.ref).catch(() => {})));
-      }
-    }
-
-    const allSnap = await getDocs(getInventoryHistoryCol()).catch(() => null);
-    if (allSnap && !allSnap.empty) {
-      allSnap.docs.forEach(d => {
-        const data = d.data();
-        if (d.id === id || d.id === docId || data.id === id || data.docId === docId) {
-          deletePromises.push(deleteDoc(d.ref).catch(() => {}));
+      getDocs(q).then(snap => {
+        if (!snap.empty) {
+          snap.docs.forEach(d => deleteDoc(d.ref).catch(() => {}));
         }
-      });
-    }
-
-    await Promise.all(deletePromises);
-  } catch (err) {
-    console.warn('Firestore deleteInventoryHistoryEntry error:', err);
+      }).catch(() => {});
+    } catch (_) {}
   }
 }
 
@@ -771,9 +774,11 @@ export async function clearAllInventoryHistory(): Promise<void> {
   // Clear local cache immediately
   setLocalHistory([]);
   try {
-    const snap = await getDocs(getInventoryHistoryCol());
-    const deletePromises = snap.docs.map(d => deleteDoc(d.ref));
-    await Promise.all(deletePromises);
+    const snap = await getDocs(getInventoryHistoryCol()).catch(() => null);
+    if (snap && !snap.empty) {
+      const deletePromises = snap.docs.map(d => deleteDoc(d.ref).catch(() => {}));
+      await Promise.all(deletePromises).catch(() => {});
+    }
   } catch (err) {
     console.warn('Firestore clearAllInventoryHistory error:', err);
   }

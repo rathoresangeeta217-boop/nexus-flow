@@ -366,7 +366,7 @@ export function VendorQuoteForm({ quoteId }: { quoteId: string }) {
 
       {/* Full Screen Image Modal */}
       {viewingImage && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/90 backdrop-blur-sm p-4" onClick={() => setViewingImage(null)}>
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/90 backdrop-blur-sm p-4 cursor-pointer" onClick={() => setViewingImage(null)}>
           <div className="relative w-full max-w-5xl max-h-screen flex flex-col items-center justify-center" onClick={e => e.stopPropagation()}>
             <div className="absolute top-4 right-4 flex items-center gap-3 z-50">
               <a
@@ -379,9 +379,10 @@ export function VendorQuoteForm({ quoteId }: { quoteId: string }) {
               </a>
               <button
                 onClick={() => setViewingImage(null)}
-                className="p-2 bg-white/20 text-white rounded-lg hover:bg-white/30 transition-colors"
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white rounded-lg font-bold transition-colors shadow-lg flex items-center gap-2 cursor-pointer border border-red-400"
               >
-                <X className="w-6 h-6" />
+                <X className="w-5 h-5" />
+                <span>Close Enlarge Image</span>
               </button>
             </div>
             <img src={viewingImage} alt="Full screen reference" className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl" />

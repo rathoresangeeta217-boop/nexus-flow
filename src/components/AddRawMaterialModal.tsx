@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { X, Upload, Package, AlertCircle, Sparkles, Image as ImageIcon, Camera, CameraOff, RefreshCw, Check } from 'lucide-react';
-import { RawMaterialItem, saveRawMaterialItem } from '../lib/inventory';
+import { RawMaterialItem, saveRawMaterialItem, findExistingInvoice } from '../lib/inventory';
 import { compressImageFile } from '../lib/fileStorage';
 import { ScanInvoiceModal } from './ScanInvoiceModal';
 
@@ -208,6 +208,13 @@ export const AddRawMaterialModal: React.FC<AddRawMaterialModalProps> = ({
     };
   }, [isOpen, initialItem]);
 
+  const openDirectNativeCamera = () => {
+    stopCamera();
+    if (cameraInputRef.current) {
+      cameraInputRef.current.click();
+    }
+  };
+
   const startCamera = async (facing: 'environment' | 'user' = cameraFacingMode) => {
     try {
       stopCamera();
@@ -219,17 +226,19 @@ export const AddRawMaterialModal: React.FC<AddRawMaterialModalProps> = ({
         throw new Error('Camera access is not supported by your browser.');
       }
 
-      const constraints: MediaStreamConstraints = {
-        video: {
-          facingMode: { ideal: facing },
-          width: { ideal: 1080 },
-          height: { ideal: 1528 },
-          aspectRatio: { ideal: 0.7071 } // A4 portrait paper ratio (210/297)
-        },
-        audio: false,
-      };
+      let stream: MediaStream | null = null;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: facing } },
+          audio: false,
+        });
+      } catch (e) {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false,
+        });
+      }
 
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       mediaStreamRef.current = stream;
 
       if (videoRef.current) {
@@ -241,9 +250,11 @@ export const AddRawMaterialModal: React.FC<AddRawMaterialModalProps> = ({
       console.warn('Direct camera getUserMedia failed:', err);
       setCameraLoading(false);
       setIsCameraActive(false);
-      setCameraError('Live camera scan is available on Tablet & Mobile. On PC, please click "Upload Photo" below.');
+      setCameraError('Opening native camera app...');
       
-      if (fileInputRef.current) {
+      if (cameraInputRef.current) {
+        cameraInputRef.current.click();
+      } else if (fileInputRef.current) {
         fileInputRef.current.click();
       }
     }
@@ -936,21 +947,31 @@ export const AddRawMaterialModal: React.FC<AddRawMaterialModalProps> = ({
 
               {/* Action Buttons: Open Camera & Upload File */}
               <div className="flex-1 w-full space-y-2.5">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {/* BUTTON 1: Open Camera & Click */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {/* BUTTON 1: Direct Tablet Camera Snap */}
+                  <button
+                    type="button"
+                    onClick={openDirectNativeCamera}
+                    className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border-2 border-amber-500 bg-amber-50 hover:bg-amber-100 text-amber-950 text-xs font-black transition-all shadow-xs cursor-pointer group"
+                  >
+                    <Camera className="w-4 h-4 text-amber-600 group-hover:scale-110 transition-transform" />
+                    <span>Snap Photo (Tablet)</span>
+                  </button>
+
+                  {/* BUTTON 2: Live Viewfinder */}
                   <button
                     type="button"
                     onClick={() => startCamera()}
-                    className="flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-xl border-2 border-indigo-600 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold transition-all shadow-xs cursor-pointer group"
+                    className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border-2 border-indigo-600 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold transition-all shadow-xs cursor-pointer group"
                   >
-                    <Camera className="w-4 h-4 text-indigo-600 group-hover:scale-110 transition-transform" />
-                    <span>Open Camera &amp; Click</span>
+                    <RefreshCw className="w-4 h-4 text-indigo-600 group-hover:scale-110 transition-transform" />
+                    <span>Live Viewfinder</span>
                   </button>
 
-                  {/* BUTTON 2: Upload Image File */}
-                  <label className="flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer transition-colors shadow-xs">
+                  {/* BUTTON 3: Upload Image File */}
+                  <label className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer transition-colors shadow-xs">
                     <Upload className="w-4 h-4 text-slate-600" />
-                    <span>{imageUrl ? 'Upload from Device' : 'Upload File (JPG, PNG)'}</span>
+                    <span>{imageUrl ? 'Upload Photo' : 'Upload File'}</span>
                     <input
                       ref={fileInputRef}
                       type="file"
@@ -1035,6 +1056,17 @@ export const AddRawMaterialModal: React.FC<AddRawMaterialModalProps> = ({
                 placeholder="e.g. INV-2026-904"
                 className="w-full px-3 py-2 rounded-xl border border-amber-300 text-xs font-semibold text-slate-900 bg-white"
               />
+              {challanOrPoNo && (() => {
+                const dupCheck = findExistingInvoice(challanOrPoNo);
+                if (dupCheck.isDuplicate) {
+                  return (
+                    <p className="text-[10px] font-bold text-amber-900 bg-amber-100/90 border border-amber-300 p-1.5 rounded-md mt-1">
+                      ⚠️ Invoice #{challanOrPoNo} was already added to inventory previously ({dupCheck.source})!
+                    </p>
+                  );
+                }
+                return null;
+              })()}
             </div>
           </div>
 

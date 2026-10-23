@@ -3,8 +3,10 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { db, auth } from './firebase';
 import { 
   saveProductFile, 
+  getProductFile,
   deleteProductFile, 
   saveVariantFile, 
+  getVariantFile,
   deleteVariantFile,
   saveProductImages,
   getProductImages,
@@ -16,10 +18,14 @@ import {
 
 export interface ProductVariant {
   id: string;
+  variantType?: 'color' | 'size' | 'side_storage' | 'electric' | 'custom' | string;
+  groupName?: string;
   name: string;
   size?: string;
   color?: string;
   colorCode?: string;
+  sideStorage?: string;
+  electricOption?: string;
   price: string | number;
   originalPrice?: string | number;
   imageName?: string;
@@ -49,6 +55,7 @@ export interface Product {
   id: string;
   docId?: string;
   name: string;
+  productName?: string;
   specification?: string;
   description?: string;
   price: string;
@@ -59,6 +66,7 @@ export interface Product {
   category?: string;
   variants?: ProductVariant[];
   hasVariants?: boolean;
+  productImageData?: string;
   images?: string[];
   spin360Images?: string[];
   createdAt: any;
@@ -69,6 +77,21 @@ const getProductsCollection = () => collection(db, 'products');
 export const normalizeCategory = (cat?: string): string => {
   if (!cat) return '';
   return cat.trim().toLowerCase().replace(/['’]/g, '');
+};
+
+export const deduplicateCategories = (catList: (string | undefined | null)[]): string[] => {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const cat of catList) {
+    if (!cat) continue;
+    const trimmed = cat.trim();
+    const norm = normalizeCategory(trimmed);
+    if (!seen.has(norm)) {
+      seen.add(norm);
+      result.push(trimmed);
+    }
+  }
+  return result;
 };
 
 export const isCategoryMatch = (productCategory?: string, targetCategory?: string): boolean => {
@@ -82,9 +105,14 @@ export const isCategoryMatch = (productCategory?: string, targetCategory?: strin
   if (normProduct === normTarget) return true;
 
   // Workstation flexible matching: workstation, workstations, workstation's
-  const isTargetWorkstation = normTarget.includes('workstation');
-  const isProductWorkstation = normProduct.includes('workstation');
-  if (isTargetWorkstation && isProductWorkstation) return true;
+  if (normTarget.includes('workstation') && normProduct.includes('workstation')) return true;
+
+  // Reception flexible matching: reception, receptions, reception table, reception's
+  if (normTarget.includes('reception') && normProduct.includes('reception')) return true;
+
+  // Seating flexible matching: seating, sitting, seating series, sitting series
+  if ((normTarget.includes('seating') || normTarget.includes('sitting')) && 
+      (normProduct.includes('seating') || normProduct.includes('sitting'))) return true;
 
   return false;
 };
@@ -111,50 +139,80 @@ export const saveProduct = async (productData: Partial<Product> & { productName?
   const resolvedCategory = finalData.category || finalData.details?.category || '';
   const resolvedDescription = finalData.description || finalData.details?.details || finalData.details?.description || '';
 
-  // Save variant images to IndexedDB if present
-  if (Array.isArray(finalData.variants)) {
-    for (const v of finalData.variants) {
-      if (v.id && v.imageData) {
+  // 1. Save variant images to IndexedDB and create lightweight variants for Firestore
+  const cleanVariants = await Promise.all((finalData.variants || []).map(async (v: any) => {
+    if (v.id && v.imageData) {
+      try {
         await saveVariantFile(v.id, v.imageData);
+      } catch (err) {
+        console.warn("Error saving variant file to IndexedDB:", err);
       }
     }
-  }
+    const { imageData, ...lightweightVariant } = v;
+    return lightweightVariant;
+  }));
 
-  // Separate heavy images from Firestore doc payload if needed
+  // 2. Extract heavy image data
   const multiImages = finalData.images || [];
   const spin360Frames = finalData.spin360Images || [];
+  const primaryImage = finalData.productImageData;
+
+  // 3. Omit heavy Base64 images from Firestore doc payload to stay strictly under 1MB limit
+  const {
+    productImageData,
+    images,
+    spin360Images,
+    variants,
+    ...docPayload
+  } = finalData;
+
+  const cleanDetails = { ...finalData.details };
+  delete cleanDetails.productImageData;
+  delete cleanDetails.images;
 
   const docRef = await addDoc(getProductsCollection(), {
-    ...finalData,
+    ...docPayload,
     name: resolvedName,
     productName: resolvedName,
     category: resolvedCategory,
     description: resolvedDescription,
-    variants: finalData.variants || [],
-    hasVariants: Array.isArray(finalData.variants) && finalData.variants.length > 0,
+    variants: cleanVariants,
+    hasVariants: cleanVariants.length > 0,
     details: {
-      ...finalData.details,
+      ...cleanDetails,
       productName: resolvedName,
       category: resolvedCategory,
       details: resolvedDescription,
       description: resolvedDescription
     },
-    // Keep lightweight indicator of multi-images count in Firestore
     imageCount: multiImages.length,
     hasSpin360: spin360Frames.length > 0,
     createdAt: serverTimestamp()
   });
 
-  if (finalData.productImageData) {
-    await saveProductFile(docRef.id, finalData.productImageData);
+  // 4. Save heavy images to IndexedDB
+  if (primaryImage) {
+    try {
+      await saveProductFile(docRef.id, primaryImage);
+    } catch (err) {
+      console.warn("Error saving product file to IndexedDB:", err);
+    }
   }
 
   if (multiImages.length > 0) {
-    await saveProductImages(docRef.id, multiImages);
+    try {
+      await saveProductImages(docRef.id, multiImages);
+    } catch (err) {
+      console.warn("Error saving product images to IndexedDB:", err);
+    }
   }
 
   if (spin360Frames.length > 0) {
-    await saveProduct360(docRef.id, spin360Frames);
+    try {
+      await saveProduct360(docRef.id, spin360Frames);
+    } catch (err) {
+      console.warn("Error saving 360 frames to IndexedDB:", err);
+    }
   }
 
   return docRef.id;
@@ -209,18 +267,46 @@ export const subscribeToProducts = (callback: (products: Product[]) => void) => 
             }
           }
 
-          return {
-            ...data,
+          // Load primary product image from IndexedDB if not directly in doc
+          let primaryImg = data.productImageData;
+          if (!primaryImg) {
+            try {
+              const loadedPrimary = await getProductFile(docSnap.id);
+              if (loadedPrimary) primaryImg = loadedPrimary;
+            } catch (err) {}
+          }
+
+          // Load variant images from IndexedDB if present
+          const variantsWithImages = await Promise.all((data.variants || []).map(async (v: any) => {
+            if (v && v.id && !v.imageData) {
+              try {
+                const vImg = await getVariantFile(v.id);
+                if (vImg) return { ...v, imageData: vImg };
+              } catch (err) {
+                console.warn("Could not load variant image:", err);
+              }
+            }
+            return v;
+          }));
+
+          const productItem: Product = {
+            id: data.id || docSnap.id,
+            docId: docSnap.id,
             name: resolvedName,
             category: resolvedCategory,
             description: resolvedDescription,
-            variants: data.variants || [],
-            hasVariants: Boolean(data.variants && data.variants.length > 0),
+            price: data.price || data.details?.price || data.totalUnitPrice || '0',
+            vendorId: data.vendorId || '',
+            vendorName: data.vendorName || '',
+            createdAt: data.createdAt || null,
+            ...data,
+            productImageData: primaryImg,
+            variants: variantsWithImages,
+            hasVariants: Boolean(variantsWithImages && variantsWithImages.length > 0),
             images,
-            spin360Images,
-            id: data.id || docSnap.id,
-            docId: docSnap.id
+            spin360Images
           };
+          return productItem;
         })) as Product[];
         callback(products);
       }, (error) => {
@@ -249,19 +335,34 @@ export const updateProductData = async (docId: string, productData: Partial<Prod
   const resolvedCategory = finalData.category || finalData.details?.category;
   const resolvedDescription = finalData.description || finalData.details?.details || finalData.details?.description;
   
-  // Save variant images to IndexedDB if present
+  // 1. Save variant images to IndexedDB and create clean variants for Firestore
+  let cleanVariants: any[] | undefined = undefined;
   if (Array.isArray(finalData.variants)) {
-    for (const v of finalData.variants) {
+    cleanVariants = await Promise.all(finalData.variants.map(async (v: any) => {
       if (v.id && v.imageData) {
-        await saveVariantFile(v.id, v.imageData);
+        try {
+          await saveVariantFile(v.id, v.imageData);
+        } catch (err) {
+          console.warn("Error saving variant file to IndexedDB:", err);
+        }
       }
-    }
+      const { imageData, ...lightweightVariant } = v;
+      return lightweightVariant;
+    }));
   }
 
   const multiImages = finalData.images || [];
   const spin360Frames = finalData.spin360Images || [];
+  const primaryImage = finalData.productImageData;
 
-  const updates: any = { ...finalData };
+  const {
+    productImageData,
+    images,
+    spin360Images,
+    variants,
+    ...updates
+  } = finalData;
+
   if (resolvedName) {
     updates.name = resolvedName;
     updates.productName = resolvedName;
@@ -272,13 +373,16 @@ export const updateProductData = async (docId: string, productData: Partial<Prod
   if (resolvedDescription !== undefined) {
     updates.description = resolvedDescription;
   }
-  if (finalData.variants !== undefined) {
-    updates.variants = finalData.variants;
-    updates.hasVariants = Array.isArray(finalData.variants) && finalData.variants.length > 0;
+  if (cleanVariants !== undefined) {
+    updates.variants = cleanVariants;
+    updates.hasVariants = cleanVariants.length > 0;
   }
   if (updates.details) {
+    const cleanDetails = { ...updates.details };
+    delete cleanDetails.productImageData;
+    delete cleanDetails.images;
     updates.details = {
-      ...updates.details,
+      ...cleanDetails,
       ...(resolvedName ? { productName: resolvedName } : {}),
       ...(resolvedCategory ? { category: resolvedCategory } : {}),
       ...(resolvedDescription !== undefined ? { details: resolvedDescription, description: resolvedDescription } : {})
@@ -287,16 +391,22 @@ export const updateProductData = async (docId: string, productData: Partial<Prod
   
   await updateDoc(doc(db, 'products', docId), updates);
   
-  if (finalData.productImageData) {
-    await saveProductFile(docId, finalData.productImageData);
+  if (primaryImage) {
+    try {
+      await saveProductFile(docId, primaryImage);
+    } catch (err) {}
   }
 
   if (multiImages.length > 0) {
-    await saveProductImages(docId, multiImages);
+    try {
+      await saveProductImages(docId, multiImages);
+    } catch (err) {}
   }
 
   if (spin360Frames.length > 0) {
-    await saveProduct360(docId, spin360Frames);
+    try {
+      await saveProduct360(docId, spin360Frames);
+    } catch (err) {}
   }
 
   return docId;

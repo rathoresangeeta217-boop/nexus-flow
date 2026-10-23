@@ -9,8 +9,8 @@ export interface PaymentPhase {
   utrNumber?: string;     // Transaction reference
   screenshotUrl?: string; // or base64 data
   date?: string;          // Expected or Received date
-  sourceType?: 'Bank' | 'Cash' | 'Cheque';
-  bankName?: 'SBI' | 'Union' | 'PR';
+  sourceType?: 'Bank' | 'Cash' | 'ICICI BANK' | 'ICICI' | 'Cheque';
+  bankName?: 'SBI' | 'Union' | 'PNB' | 'ICICI' | 'PR';
 }
 
 export interface RateEditHistoryEntry {
@@ -61,12 +61,35 @@ export const subscribeToPayments = (callback: (payments: PaymentRecord[]) => voi
 };
 
 
-export const getPaymentForOrder = async (orderId: string): Promise<PaymentRecord | null> => {
-  const q = query(getPaymentsCollection(), where("orderId", "==", orderId));
-  const snapshot = await getDocs(q);
-  if (!snapshot.empty) {
-    const docData = snapshot.docs[0];
-    return { docId: docData.id, ...docData.data() } as PaymentRecord;
+export const getPaymentForOrder = async (orderId: string, docId?: string): Promise<PaymentRecord | null> => {
+  try {
+    const idsToSearch = new Set<string>();
+    if (orderId) idsToSearch.add(orderId);
+    if (docId) idsToSearch.add(docId);
+
+    const matches: PaymentRecord[] = [];
+    for (const id of idsToSearch) {
+      const q = query(getPaymentsCollection(), where("orderId", "==", id));
+      const snapshot = await getDocs(q);
+      snapshot.docs.forEach(d => {
+        matches.push({ docId: d.id, ...d.data() } as PaymentRecord);
+      });
+    }
+
+    if (matches.length > 0) {
+      matches.sort((a, b) => {
+        const aPhases = a.phases?.length || 0;
+        const bPhases = b.phases?.length || 0;
+        if (aPhases !== bPhases) return bPhases - aPhases;
+
+        const aTime = a.updatedAt?.seconds || 0;
+        const bTime = b.updatedAt?.seconds || 0;
+        return bTime - aTime;
+      });
+      return matches[0];
+    }
+  } catch (err) {
+    console.warn('getPaymentForOrder error:', err);
   }
   return null;
 };
@@ -89,13 +112,22 @@ const removeUndefined = (obj: any): any => {
 export const savePaymentRecord = async (record: Partial<PaymentRecord>) => {
   try {
     const cleanData = removeUndefined(record);
-    if (cleanData.docId) {
+    let targetDocId = cleanData.docId;
+
+    if (!targetDocId && cleanData.orderId) {
+      const existing = await getPaymentForOrder(cleanData.orderId);
+      if (existing?.docId) {
+        targetDocId = existing.docId;
+      }
+    }
+
+    if (targetDocId) {
       const { docId, ...updateData } = cleanData;
-      await updateDoc(doc(db, 'payments', docId), {
+      await updateDoc(doc(db, 'payments', targetDocId), {
         ...updateData,
         updatedAt: serverTimestamp()
       });
-      return docId;
+      return targetDocId;
     } else {
       const docRef = await addDoc(getPaymentsCollection(), {
         ...cleanData,
@@ -124,7 +156,7 @@ export function calculatePhaseGstAdjustment(
   gstRate: number = 18,
   baseGrandTotal: number = 0
 ): PhaseGstAdjustment {
-  const isPRorCash = sourceType === 'Cash' || bankName === 'PR' || (bankName && bankName.toUpperCase() === 'PR') || (sourceType === 'Bank' && (bankName === 'PR' || bankName?.toUpperCase() === 'PR'));
+  const isPRorCash = sourceType === 'Cash' || sourceType === 'ICICI BANK' || sourceType === 'ICICI' || bankName === 'PR' || bankName === 'PNB' || bankName === 'ICICI' || (bankName && ['PR', 'PNB', 'ICICI', 'ICICI BANK'].includes(bankName.toUpperCase())) || (sourceType === 'Bank' && (bankName && ['PR', 'PNB', 'ICICI', 'ICICI BANK'].includes(bankName.toUpperCase())));
 
   let grossAmount = 0;
   if (phaseAmountStr !== undefined && phaseAmountStr !== null) {

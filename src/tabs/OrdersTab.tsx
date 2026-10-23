@@ -1,15 +1,16 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { ShoppingCart, TrendingUp, Clock, CheckCircle2, MoreHorizontal, Filter, Plus, FileText, Download, Loader2, X, Truck, Calendar } from 'lucide-react';
+import { ShoppingCart, TrendingUp, Clock, CheckCircle2, MoreHorizontal, Filter, Plus, FileText, Download, Loader2, X, Truck, Calendar, AlertTriangle, Trash2, Check } from 'lucide-react';
 import { StatCard } from '../components/StatCard';
 import { Badge } from '../components/Badge';
 import { NewOrderModal } from '../components/NewOrderModal';
 import { OrderDetailsModal } from '../components/OrderDetailsModal';
-import { subscribeToOrders, saveOrder, deleteOrder, Order } from '../lib/orders';
-
+import { subscribeToOrders, saveOrder, deleteOrder, Order, getOverdueUnconfirmedDispatches } from '../lib/orders';
+import { useAuth } from '../contexts/AuthContext';
 import { saveOrderFiles } from '../lib/fileStorage';
 
 export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
+  const { profile } = useAuth();
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [dateFilter, setDateFilter] = useState('all');
@@ -17,6 +18,7 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
   const [salespersonFilter, setSalespersonFilter] = useState('all');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [activeMenuOrderId, setActiveMenuOrderId] = useState<string | null>(null);
   
   const [isEmployeeModalOpen, setIsEmployeeModalOpen] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState('');
@@ -40,7 +42,19 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
   return () => unsubscribe();
   }, []);
 
+  const overdueDispatches = getOverdueUnconfirmedDispatches(orders);
+
   const handleNewOrderClick = () => {
+    if (overdueDispatches.length > 0) {
+      const overdue = overdueDispatches[0];
+      alert(
+        `❌ NEW ORDER SCHEDULING BLOCKED!\n\n` +
+        `Term Enforcement: It is compulsory to confirm dispatch within 2 days of Delivery Challan creation or Scheduled Dispatch.\n\n` +
+        `Order #${overdue.id} (${overdue.customer}) has an unconfirmed delivery challan / scheduled dispatch created over 2 days ago.\n\n` +
+        `You cannot schedule any new order until dispatch is confirmed for Order #${overdue.id}.`
+      );
+      return;
+    }
     setIsEmployeeModalOpen(true);
   };
 
@@ -105,6 +119,24 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
   };
 
   const handleAddOrder = async (newOrder: any) => {
+    const isAnshuman = Boolean(
+      profile?.displayName?.toLowerCase().includes('anshuman') || 
+      profile?.email?.toLowerCase().includes('anshuman') ||
+      profile?.role === 'super_admin'
+    );
+
+    const overdueDispatches = getOverdueUnconfirmedDispatches(orders);
+    if (overdueDispatches.length > 0 && !isAnshuman) {
+      const overdue = overdueDispatches[0];
+      alert(
+        `❌ NEW ORDER CREATION BLOCKED!\n\n` +
+        `Term Enforcement: It is compulsory to confirm dispatch within 2 days of Delivery Challan creation or Scheduled Dispatch.\n\n` +
+        `Order #${overdue.id} (${overdue.customer}) has an unconfirmed delivery challan / scheduled dispatch created over 2 days ago.\n\n` +
+        `You cannot create any new order until dispatch is confirmed for Order #${overdue.id}.`
+      );
+      return;
+    }
+
     // Extract file data to avoid Firebase size limits
     const { poFileData, drawingFileData, ...orderDetails } = newOrder;
 
@@ -143,6 +175,35 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
     } catch (error: any) {
       console.error('Error deleting order:', error);
       alert(`Failed to delete order: ${error.message}`);
+    }
+  };
+
+  const handleSelectScheduledReason = async (order: Order, reason: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setActiveMenuOrderId(null);
+    try {
+      const updated = {
+        ...order,
+        docId: order.docId || order.id,
+        details: {
+          ...(order.details || {}),
+          scheduledReason: reason
+        }
+      };
+      if (reason && (!order.status || order.status === 'New Order' || order.status === 'New')) {
+        updated.status = 'Scheduled Dispatched';
+      }
+      await saveOrder(updated);
+
+      const toast = document.createElement('div');
+      toast.textContent = reason 
+        ? `Scheduled Reason updated to "${reason}" for Order #${order.id}` 
+        : `Scheduled Reason cleared for Order #${order.id}`;
+      toast.className = 'fixed bottom-5 right-5 z-[200] bg-slate-900 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-xl transition-all border border-slate-700';
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 3000);
+    } catch (err) {
+      console.error('Failed to update scheduled reason:', err);
     }
   };
 
@@ -389,6 +450,31 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
         onDelete={() => selectedOrder?.docId && handleDeleteOrder(selectedOrder.docId)}
       />
 
+      {/* Overdue Dispatch Confirmation Compulsory Term Banner */}
+      {overdueDispatches.length > 0 && (
+        <div className="p-4 rounded-2xl bg-rose-50 border-2 border-rose-300 text-rose-950 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-rose-600 text-white flex items-center justify-center shrink-0 font-bold">
+              <AlertTriangle className="w-5 h-5 animate-bounce" />
+            </div>
+            <div>
+              <h4 className="font-extrabold text-sm text-rose-900 flex items-center gap-2">
+                <span>⚠️ COMPULSORY DISPATCH CONFIRMATION OVERDUE ({overdueDispatches.length})</span>
+              </h4>
+              <p className="text-xs text-rose-800 font-semibold mt-0.5">
+                Term Violation: Delivery Challan or Scheduled Dispatch created over 2 days ago requires confirmation. <strong>Scheduling new orders is BLOCKED</strong> until dispatch is confirmed for Order #{overdueDispatches[0].id} ({overdueDispatches[0].customer}).
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setSelectedOrder(overdueDispatches[0])}
+            className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl transition-all shrink-0 cursor-pointer shadow-sm"
+          >
+            Confirm Order #{overdueDispatches[0].id}
+          </button>
+        </div>
+      )}
+
       {/* Action Bar */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
         <div>
@@ -620,22 +706,60 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600 font-medium">{order.items} units</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-800 font-bold">{order.amount}</td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <Badge variant={
-                      order.status === 'Installation Complete' ? 'success' : 
-                      order.status === 'Installation Scheduled' ? 'info' :
-                      order.status === 'Dispatched' ? 'success' : 
-                      order.status === 'Scheduled Dispatched' ? 'indigo' :
-                      order.status === 'Production' ? 'warning' :
-                      order.status === 'Purchase' ? 'purple' :
-                      (order.status === 'New Order' || order.status === 'New') ? 'default' : 'default'
-                    }>
-                      {order.status === 'New' ? 'New Order' : order.status}
-                    </Badge>
+                    <div className="flex flex-col gap-1 items-start">
+                      <Badge variant={
+                        order.status === 'Installation Complete' ? 'success' : 
+                        order.status === 'Installation Scheduled' ? 'info' :
+                        order.status === 'Dispatched' ? 'success' : 
+                        order.status === 'Scheduled Dispatched' ? 'indigo' :
+                        order.status === 'Production' ? 'warning' :
+                        order.status === 'Purchase' ? 'purple' :
+                        (order.status === 'New Order' || order.status === 'New') ? 'default' : 'default'
+                      }>
+                        {order.status === 'New' ? 'New Order' : order.status}
+                      </Badge>
+                      {order.details?.scheduledReason && (
+                        <span className="text-[10px] font-black text-amber-900 bg-amber-100 border border-amber-300 px-1.5 py-0.5 rounded shadow-2xs">
+                          {order.details.scheduledReason}
+                        </span>
+                      )}
+                    </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-md hover:bg-indigo-50 transition-colors">
+                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium relative" onClick={(e) => e.stopPropagation()}>
+                    <button 
+                      onClick={() => setActiveMenuOrderId(activeMenuOrderId === (order.docId || order.id) ? null : (order.docId || order.id))}
+                      className="text-slate-500 hover:text-indigo-600 p-1.5 rounded-md hover:bg-indigo-50 transition-colors cursor-pointer"
+                      title="Actions & Scheduled Reason"
+                    >
                       <MoreHorizontal className="w-5 h-5" />
                     </button>
+
+                    {activeMenuOrderId === (order.docId || order.id) && (
+                      <div className="absolute right-6 top-12 z-50 w-52 bg-white rounded-xl shadow-2xl border border-slate-200 py-2 text-left text-xs space-y-1 animate-fadeIn">
+                        <div className="px-3 py-1.5 border-b border-slate-100 font-bold text-slate-800 flex items-center justify-between">
+                          <span>Order Actions #{order.id}</span>
+                          <button onClick={() => setActiveMenuOrderId(null)} className="text-slate-400 hover:text-slate-600 p-0.5 rounded">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        <button 
+                          onClick={() => { setActiveMenuOrderId(null); setSelectedOrder(order); }}
+                          className="w-full px-3 py-1.5 hover:bg-indigo-50/70 flex items-center gap-2 text-indigo-700 font-bold cursor-pointer transition-colors"
+                        >
+                          <FileText className="w-3.5 h-3.5 text-indigo-600" /> View Order Details
+                        </button>
+
+                        <div className="border-t border-slate-100 pt-1">
+                          <button 
+                            onClick={() => { setActiveMenuOrderId(null); handleDeleteOrder(order.docId || order.id); }}
+                            className="w-full px-3 py-1.5 hover:bg-rose-50 text-rose-600 font-semibold flex items-center gap-2 cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 text-rose-600" /> Delete Order
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </td>
                 </motion.tr>
               )))}

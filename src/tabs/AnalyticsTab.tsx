@@ -241,7 +241,32 @@ export function AnalyticsTab() {
     let otherBankTotal = 0;
     let chequeTotal = 0;
 
+    const coveredOrderIds = new Set<string>();
+
+    const getAccountCategory = (srcType: string, bnkName: string) => {
+      const bnkUpper = (bnkName || '').toUpperCase();
+      const srcUpper = (srcType || '').toUpperCase();
+
+      if (srcUpper.includes('ICICI') || srcUpper.includes('CASH') || bnkUpper.includes('ICICI') || bnkUpper.includes('CASH')) {
+        return 'ICICI';
+      }
+      if (bnkUpper.includes('PNB') || bnkUpper.includes('PR') || srcUpper.includes('PNB') || srcUpper.includes('PR')) {
+        return 'PNB';
+      }
+      if (bnkUpper.includes('SBI') || srcUpper.includes('SBI')) {
+        return 'SBI';
+      }
+      if (bnkUpper.includes('UNION') || srcUpper.includes('UNION')) {
+        return 'Union';
+      }
+      if (srcUpper.includes('CHEQUE') || bnkUpper.includes('CHEQUE')) {
+        return 'Cheque';
+      }
+      return 'Other';
+    };
+
     payments.forEach(record => {
+      coveredOrderIds.add(record.orderId);
       const order = ordersMap.get(record.orderId);
       const customerName = order?.customer || order?.details?.customerName || 'N/A';
       const orderDeliveryDate = record.deliveryDate || order?.details?.deliveryDate || 'N/A';
@@ -254,16 +279,31 @@ export function AnalyticsTab() {
       const baseGrandTotal = parseVal(record.grandTotal || order?.amount);
 
       (record.phases || []).forEach((phase) => {
-        if (phase.status !== 'Received') return;
+        const phaseStatus = String(phase.status || '').trim().toLowerCase();
+        if (phaseStatus !== 'received' && phaseStatus !== 'paid' && phaseStatus !== 'completed') return;
 
-        // Parse phase date
+        // Parse phase date with flexible format support
         let pDate: Date | null = null;
         if (phase.date) {
-          pDate = new Date(phase.date);
-        } else if (record.updatedAt?.seconds) {
+          const trimmed = String(phase.date).trim();
+          const isoMatch = trimmed.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+          const dmyMatch = trimmed.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+          if (isoMatch) {
+            pDate = new Date(parseInt(isoMatch[1], 10), parseInt(isoMatch[2], 10) - 1, parseInt(isoMatch[3], 10));
+          } else if (dmyMatch) {
+            pDate = new Date(parseInt(dmyMatch[3], 10), parseInt(dmyMatch[2], 10) - 1, parseInt(dmyMatch[1], 10));
+          } else {
+            const parsed = new Date(trimmed);
+            if (!isNaN(parsed.getTime())) pDate = parsed;
+          }
+        }
+        if (!pDate && record.updatedAt?.seconds) {
           pDate = new Date(record.updatedAt.seconds * 1000);
-        } else if (order?.createdAt?.seconds) {
+        } else if (!pDate && order?.createdAt?.seconds) {
           pDate = new Date(order.createdAt.seconds * 1000);
+        } else if (!pDate && order?.date) {
+          const parsedOrderDate = new Date(order.date);
+          if (!isNaN(parsedOrderDate.getTime())) pDate = parsedOrderDate;
         }
 
         // Apply date filter
@@ -272,46 +312,41 @@ export function AnalyticsTab() {
 
         const srcType = phase.sourceType || 'Bank';
         const bnkName = phase.bankName || '';
-
-        // Apply source filter
-        if (selectedSource !== 'ALL') {
-          if (selectedSource === 'Cash' && srcType !== 'Cash') return;
-          if (selectedSource === 'PR' && (srcType !== 'Bank' || (bnkName !== 'PR' && bnkName.toUpperCase() !== 'PR'))) return;
-          if (selectedSource === 'SBI' && (srcType !== 'Bank' || (bnkName !== 'SBI' && bnkName.toUpperCase() !== 'SBI'))) return;
-          if (selectedSource === 'Union' && (srcType !== 'Bank' || (bnkName !== 'Union' && bnkName.toUpperCase() !== 'UNION'))) return;
-          if (selectedSource === 'Cheque' && srcType !== 'Cheque') return;
-        }
+        const category = getAccountCategory(srcType, bnkName);
 
         const adj = calculatePhaseGstAdjustment(phase.amount, srcType, bnkName, 18, baseGrandTotal);
-
         const gross = adj.grossAmount;
         const gstSub = adj.gstAmount;
         const netCredited = adj.netCreditedAmount;
 
+        // Account breakdown totals
+        if (category === 'ICICI') cashTotal += netCredited;
+        else if (category === 'PNB') prBankTotal += netCredited;
+        else if (category === 'SBI') sbiBankTotal += netCredited;
+        else if (category === 'Union') unionBankTotal += netCredited;
+        else if (category === 'Cheque') chequeTotal += netCredited;
+        else otherBankTotal += netCredited;
+
+        // Check active source filter
+        let matchesFilter = true;
+        if (selectedSource === 'PNB' || selectedSource === 'PR') matchesFilter = (category === 'PNB');
+        else if (selectedSource === 'ICICI' || selectedSource === 'Cash') matchesFilter = (category === 'ICICI');
+        else if (selectedSource === 'SBI') matchesFilter = (category === 'SBI');
+        else if (selectedSource === 'Union') matchesFilter = (category === 'Union');
+        else if (selectedSource === 'Cheque') matchesFilter = (category === 'Cheque');
+
+        if (!matchesFilter) return;
+
         totalGross += gross;
         totalGstSub += gstSub;
         totalNetCredited += netCredited;
-
-        if (srcType === 'Cash') {
-          cashTotal += netCredited;
-        } else if (srcType === 'Bank' && (bnkName === 'PR' || bnkName.toUpperCase() === 'PR')) {
-          prBankTotal += netCredited;
-        } else if (srcType === 'Bank' && (bnkName === 'SBI' || bnkName.toUpperCase() === 'SBI')) {
-          sbiBankTotal += netCredited;
-        } else if (srcType === 'Bank' && (bnkName === 'Union' || bnkName.toUpperCase() === 'UNION')) {
-          unionBankTotal += netCredited;
-        } else if (srcType === 'Cheque') {
-          chequeTotal += netCredited;
-        } else {
-          otherBankTotal += netCredited;
-        }
 
         items.push({
           orderId: record.orderId,
           customer: customerName,
           phaseTitle: phase.title || 'Payment Phase',
           sourceType: srcType,
-          bankName: bnkName,
+          bankName: bnkName || category,
           utrNumber: phase.utrNumber || 'N/A',
           date: pDate,
           dateFormatted: pDate ? pDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : 'N/A',
@@ -322,6 +357,102 @@ export function AnalyticsTab() {
           deliveryDate: orderDeliveryDate
         });
       });
+    });
+
+    // Fallback for orders that don't have an explicit payment record document in payments collection
+    orders.forEach(order => {
+      const oId = order.id || order.docId;
+      if (!oId || coveredOrderIds.has(oId)) return;
+
+      const parseVal = (str: any) => {
+        if (!str) return 0;
+        const m = str.toString().match(/\d[\d,]*(\.\d+)?/);
+        return m ? parseFloat(m[0].replace(/,/g, "")) : 0;
+      };
+
+      const advanceAmt = parseVal(order.details?.advancePayment);
+      const totalAmt = parseVal(order.amount || order.details?.totalAmount);
+
+      if (advanceAmt > 0 || (order.status && ['completed', 'dispatched', 'received'].includes(order.status.toLowerCase()))) {
+        const phaseAmt = advanceAmt > 0 ? advanceAmt : totalAmt;
+        if (phaseAmt <= 0) return;
+
+        let pDate: Date | null = null;
+        if (order.date) {
+          const parsed = new Date(order.date);
+          if (!isNaN(parsed.getTime())) pDate = parsed;
+        }
+        if (!pDate && order.createdAt?.seconds) {
+          pDate = new Date(order.createdAt.seconds * 1000);
+        }
+
+        if (startDate && pDate && pDate < startDate) return;
+        if (endDate && pDate && pDate > endDate) return;
+
+        // Detect bank and source type dynamically from order details
+        const bankDetailsStr = String(order.details?.bankDetails || (order as any).bankName || (order as any).sourceType || '');
+        let srcType = (order as any).sourceType || 'Bank';
+        let bnkName = (order as any).bankName || '';
+
+        const upperDetails = bankDetailsStr.toUpperCase();
+        if (upperDetails.includes('ICICI') || upperDetails.includes('CASH')) {
+          srcType = 'ICICI BANK';
+          bnkName = 'ICICI';
+        } else if (upperDetails.includes('SBI')) {
+          srcType = 'Bank';
+          bnkName = 'SBI';
+        } else if (upperDetails.includes('UNION')) {
+          srcType = 'Bank';
+          bnkName = 'Union';
+        } else if (upperDetails.includes('CHEQUE')) {
+          srcType = 'Cheque';
+          bnkName = 'Cheque';
+        } else if (upperDetails.includes('PNB') || upperDetails.includes('PR')) {
+          srcType = 'Bank';
+          bnkName = 'PNB';
+        }
+
+        const category = getAccountCategory(srcType, bnkName);
+        const adj = calculatePhaseGstAdjustment(phaseAmt, srcType, bnkName, 18, totalAmt);
+
+        // Account breakdown totals
+        if (category === 'ICICI') cashTotal += adj.netCreditedAmount;
+        else if (category === 'PNB') prBankTotal += adj.netCreditedAmount;
+        else if (category === 'SBI') sbiBankTotal += adj.netCreditedAmount;
+        else if (category === 'Union') unionBankTotal += adj.netCreditedAmount;
+        else if (category === 'Cheque') chequeTotal += adj.netCreditedAmount;
+        else otherBankTotal += adj.netCreditedAmount;
+
+        // Check active source filter
+        let matchesFilter = true;
+        if (selectedSource === 'PNB' || selectedSource === 'PR') matchesFilter = (category === 'PNB');
+        else if (selectedSource === 'ICICI' || selectedSource === 'Cash') matchesFilter = (category === 'ICICI');
+        else if (selectedSource === 'SBI') matchesFilter = (category === 'SBI');
+        else if (selectedSource === 'Union') matchesFilter = (category === 'Union');
+        else if (selectedSource === 'Cheque') matchesFilter = (category === 'Cheque');
+
+        if (!matchesFilter) return;
+
+        totalGross += adj.grossAmount;
+        totalGstSub += adj.gstAmount;
+        totalNetCredited += adj.netCreditedAmount;
+
+        items.push({
+          orderId: oId,
+          customer: order.customer || order.details?.customerName || 'N/A',
+          phaseTitle: advanceAmt > 0 ? 'Advance Payment' : 'Initial Payment',
+          sourceType: srcType,
+          bankName: bnkName || category,
+          utrNumber: 'N/A',
+          date: pDate,
+          dateFormatted: pDate ? pDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : 'N/A',
+          grossAmount: adj.grossAmount,
+          gstSubtracted: adj.gstAmount,
+          netCreditedAmount: adj.netCreditedAmount,
+          isPRorCash: adj.isPRorCash,
+          deliveryDate: order.details?.deliveryDate || 'N/A'
+        });
+      }
     });
 
     // Sort items by date descending
@@ -386,8 +517,8 @@ export function AnalyticsTab() {
 
     const summaryHead = [
       'Total Net Credited',
-      'PR Bank Account',
-      'Cash Received',
+      'PNB Bank Account',
+      'ICICI Bank Account',
       'SBI Bank Account',
       'Union Bank Account',
       'Cheque / Other',
@@ -485,7 +616,7 @@ export function AnalyticsTab() {
       "Gross Received Amount (INR)": item.grossAmount,
       "GST Subtracted (INR)": item.gstSubtracted,
       "Net Credited Amount (INR)": item.netCreditedAmount,
-      "PR or Cash Exemption": item.isPRorCash ? "Yes" : "No",
+      "PNB / ICICI GST Exemption": item.isPRorCash ? "Yes" : "No",
       "Order Delivery Date": item.deliveryDate
     }));
 
@@ -502,7 +633,7 @@ export function AnalyticsTab() {
       "Gross Received Amount (INR)": paymentReportData.totals.totalGross,
       "GST Subtracted (INR)": paymentReportData.totals.totalGstSub,
       "Net Credited Amount (INR)": paymentReportData.totals.totalNetCredited,
-      "PR or Cash Exemption": "",
+      "PNB / ICICI GST Exemption": "",
       "Order Delivery Date": ""
     });
 
@@ -575,7 +706,7 @@ export function AnalyticsTab() {
               <h3 className="text-lg font-black text-slate-900">Payment Receipts & Accounts Report</h3>
             </div>
             <p className="text-xs text-slate-500 font-medium mt-1">
-              Download complete payments received across PR Bank, SBI, Union, Cash, and Cheque with time period filters.
+              Download complete payments received across PNB Bank, ICICI Bank, SBI, Union, and Cheque with time period filters.
             </p>
           </div>
 
@@ -648,7 +779,7 @@ export function AnalyticsTab() {
               <Filter className="w-3.5 h-3.5 text-indigo-600" />
               Source:
             </div>
-            {['ALL', 'PR', 'Cash', 'SBI', 'Union', 'Cheque'].map((src) => (
+            {['ALL', 'PNB', 'ICICI', 'SBI', 'Union', 'Cheque'].map((src) => (
               <button
                 key={src}
                 onClick={() => setSelectedSource(src)}
@@ -658,7 +789,7 @@ export function AnalyticsTab() {
                     : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
                 }`}
               >
-                {src === 'ALL' ? 'All Accounts' : src === 'PR' ? 'PR Bank' : src}
+                {src === 'ALL' ? 'All Accounts' : src === 'PNB' ? 'PNB Bank' : src === 'ICICI' ? 'ICICI Bank' : src}
               </button>
             ))}
           </div>
@@ -685,24 +816,24 @@ export function AnalyticsTab() {
 
           <div className="p-4 bg-amber-50/60 border border-amber-200/80 rounded-xl shadow-2xs">
             <div className="flex items-center justify-between text-amber-700 mb-1">
-              <span className="text-xs font-bold uppercase tracking-wider text-amber-900">PR Bank Account</span>
+              <span className="text-xs font-bold uppercase tracking-wider text-amber-900">PNB Bank Account</span>
               <Landmark className="w-4 h-4" />
             </div>
             <div className="text-xl font-black text-amber-950">
               {fmtUI(paymentReportData.totals.prBankTotal)}
             </div>
-            <p className="text-[11px] text-amber-800/80 font-medium mt-1">Credited to PR Bank</p>
+            <p className="text-[11px] text-amber-800/80 font-medium mt-1">Credited to PNB Bank</p>
           </div>
 
           <div className="p-4 bg-emerald-50/60 border border-emerald-200/80 rounded-xl shadow-2xs">
             <div className="flex items-center justify-between text-emerald-700 mb-1">
-              <span className="text-xs font-bold uppercase tracking-wider text-emerald-900">Cash Received</span>
+              <span className="text-xs font-bold uppercase tracking-wider text-emerald-900">ICICI Bank Account</span>
               <DollarSign className="w-4 h-4" />
             </div>
             <div className="text-xl font-black text-emerald-950">
               {fmtUI(paymentReportData.totals.cashTotal)}
             </div>
-            <p className="text-[11px] text-emerald-800/80 font-medium mt-1">Cash in hand</p>
+            <p className="text-[11px] text-emerald-800/80 font-medium mt-1">Credited to ICICI Bank</p>
           </div>
 
           <div className="p-4 bg-blue-50/60 border border-blue-200/80 rounded-xl shadow-2xs">
@@ -721,7 +852,7 @@ export function AnalyticsTab() {
         {paymentReportData.totals.totalGstSub > 0 && (
           <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs font-semibold text-amber-900 flex items-center justify-between">
             <span>
-              <strong>Note on GST Exemption Adjustments:</strong> GST worth <strong>{fmtUI(paymentReportData.totals.totalGstSub)}</strong> was subtracted for PR Bank and Cash payments in this period.
+              <strong>Note on GST Exemption Adjustments:</strong> GST worth <strong>{fmtUI(paymentReportData.totals.totalGstSub)}</strong> was subtracted for PNB Bank and ICICI Bank payments in this period.
             </span>
             <span className="font-extrabold text-amber-950">Total Gross: {fmtUI(paymentReportData.totals.totalGross)}</span>
           </div>
@@ -751,31 +882,41 @@ export function AnalyticsTab() {
                   </td>
                 </tr>
               ) : (
-                paymentReportData.items.map((item, idx) => (
-                  <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                    <td className="py-3 px-4 whitespace-nowrap font-bold text-slate-800">{item.dateFormatted}</td>
-                    <td className="py-3 px-4 whitespace-nowrap font-bold text-indigo-600">{item.orderId}</td>
-                    <td className="py-3 px-4 font-semibold text-slate-800">{item.customer}</td>
-                    <td className="py-3 px-4 font-medium">{item.phaseTitle}</td>
-                    <td className="py-3 px-4 whitespace-nowrap">
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-extrabold ${
-                        item.sourceType === 'Cash' 
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : item.bankName === 'PR' || item.bankName?.toUpperCase() === 'PR'
-                          ? 'bg-amber-100 text-amber-900'
-                          : 'bg-blue-100 text-blue-900'
-                      }`}>
-                        {item.sourceType === 'Bank' ? `Bank (${item.bankName || 'Gen'})` : item.sourceType}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 font-mono text-[11px] text-slate-600">{item.utrNumber}</td>
-                    <td className="py-3 px-4 text-right font-semibold text-slate-700">{fmtUI(item.grossAmount)}</td>
-                    <td className="py-3 px-4 text-right font-bold text-rose-700">
-                      {item.gstSubtracted > 0 ? `-${fmtUI(item.gstSubtracted)}` : '₹0'}
-                    </td>
-                    <td className="py-3 px-4 text-right font-black text-slate-900">{fmtUI(item.netCreditedAmount)}</td>
-                  </tr>
-                ))
+                paymentReportData.items.map((item, idx) => {
+                  const isIcici = item.sourceType === 'Cash' || item.sourceType === 'ICICI' || item.sourceType === 'ICICI BANK' || item.bankName === 'ICICI';
+                  const isPnb = item.bankName === 'PNB' || item.bankName === 'PR' || item.bankName?.toUpperCase() === 'PNB' || item.bankName?.toUpperCase() === 'PR';
+                  const modeLabel = isIcici 
+                    ? 'ICICI Bank' 
+                    : item.sourceType === 'Bank' 
+                    ? `Bank (${item.bankName === 'PR' ? 'PNB' : (item.bankName || 'General')})` 
+                    : item.sourceType;
+
+                  return (
+                    <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                      <td className="py-3 px-4 whitespace-nowrap font-bold text-slate-800">{item.dateFormatted}</td>
+                      <td className="py-3 px-4 whitespace-nowrap font-bold text-indigo-600">{item.orderId}</td>
+                      <td className="py-3 px-4 font-semibold text-slate-800">{item.customer}</td>
+                      <td className="py-3 px-4 font-medium">{item.phaseTitle}</td>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-extrabold ${
+                          isIcici 
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : isPnb
+                            ? 'bg-amber-100 text-amber-900'
+                            : 'bg-blue-100 text-blue-900'
+                        }`}>
+                          {modeLabel}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 font-mono text-[11px] text-slate-600">{item.utrNumber}</td>
+                      <td className="py-3 px-4 text-right font-semibold text-slate-700">{fmtUI(item.grossAmount)}</td>
+                      <td className="py-3 px-4 text-right font-bold text-rose-700">
+                        {item.gstSubtracted > 0 ? `-${fmtUI(item.gstSubtracted)}` : '₹0'}
+                      </td>
+                      <td className="py-3 px-4 text-right font-black text-slate-900">{fmtUI(item.netCreditedAmount)}</td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
             {paymentReportData.items.length > 0 && (

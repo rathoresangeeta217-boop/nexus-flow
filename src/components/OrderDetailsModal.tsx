@@ -5,7 +5,7 @@ import { Badge } from './Badge';
 import { getOrderFiles } from '../lib/fileStorage';
 import { getPaymentForOrder, PaymentRecord, calculatePhaseGstAdjustment } from '../lib/payments';
 import { saveOrder } from '../lib/orders';
-import { Clock, TrendingUp, Edit2, Check } from 'lucide-react';
+import { Clock, TrendingUp, Edit2, Check, AlertTriangle } from 'lucide-react';
 
 interface OrderDetailsModalProps {
   isOpen: boolean;
@@ -21,6 +21,15 @@ export function OrderDetailsModal({ isOpen, onClose, order, onDelete }: OrderDet
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const [isEditingDate, setIsEditingDate] = useState(false);
   const [editedDate, setEditedDate] = useState('');
+
+  const [currentScheduledReason, setCurrentScheduledReason] = useState(order?.details?.scheduledReason || '');
+  const [isSavingReason, setIsSavingReason] = useState(false);
+
+  useEffect(() => {
+    if (order) {
+      setCurrentScheduledReason(order.details?.scheduledReason || '');
+    }
+  }, [order]);
 
   useEffect(() => {
     if (order?.date) {
@@ -389,6 +398,54 @@ You have a new dispatch scheduled.\n\nOrder ID: ${order.id}\n${items}\n${vehicle
                      <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Bank Details</p>
                      <p className="text-sm font-semibold text-slate-800">{order.details?.bankDetails || 'N/A'}</p>
                   </div>
+                  <div className="md:col-span-4 bg-amber-50/90 p-3.5 rounded-xl border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 mt-2 shadow-2xs">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                      <div>
+                        <p className="text-xs font-bold text-amber-950">Reason Order is Scheduled</p>
+                        <p className="text-[11px] text-amber-800">Select reason if order is scheduled and unconfirmed:</p>
+                      </div>
+                    </div>
+                    <div className="w-full sm:w-64">
+                      <select
+                        value={currentScheduledReason}
+                        disabled={isSavingReason}
+                        onChange={async (e) => {
+                          const val = e.target.value;
+                          setCurrentScheduledReason(val);
+                          setIsSavingReason(true);
+                          try {
+                            const updated = {
+                              ...order,
+                              docId: order.docId || order.id,
+                              details: {
+                                ...(order.details || {}),
+                                scheduledReason: val
+                              }
+                            };
+                            if (val && (!order.status || order.status === 'New Order' || order.status === 'New')) {
+                              updated.status = 'Scheduled Dispatched';
+                            }
+                            await saveOrder(updated);
+                            if (order.details) {
+                              order.details.scheduledReason = val;
+                            }
+                          } catch (err) {
+                            console.error('Failed to update scheduled reason:', err);
+                          } finally {
+                            setIsSavingReason(false);
+                          }
+                        }}
+                        className="w-full px-3 py-1.5 bg-white border border-amber-300 rounded-lg text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer shadow-2xs"
+                      >
+                        <option value="">-- Select Scheduled Reason --</option>
+                        <option value="CUSTOMER ISSUE">1. CUSTOMER ISSUE</option>
+                        <option value="LOGISTIC ISSUE">2. LOGISTIC ISSUE</option>
+                        <option value="PAYMENT DELAY">3. PAYMENT DELAY</option>
+                        <option value="UNSATISFACTION">4. UNSATISFACTION</option>
+                      </select>
+                    </div>
+                  </div>
                 </div>
                 
                 {paymentRecord?.phases && paymentRecord.phases.length > 0 && (
@@ -396,7 +453,7 @@ You have a new dispatch scheduled.\n\nOrder ID: ${order.id}\n${items}\n${vehicle
                     <h5 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3">Payment Phases</h5>
                     <div className="space-y-3">
                       {paymentRecord.phases.map((phase, idx) => {
-                        const isPRorCash = phase.sourceType === 'Cash' || (phase.sourceType === 'Bank' && (phase.bankName === 'PR' || phase.bankName?.toUpperCase() === 'PR'));
+                        const isPRorCash = phase.sourceType === 'Cash' || phase.sourceType === 'ICICI BANK' || phase.sourceType === 'ICICI' || (phase.sourceType === 'Bank' && (phase.bankName === 'PR' || phase.bankName === 'PNB' || phase.bankName === 'ICICI' || phase.bankName?.toUpperCase() === 'PNB' || phase.bankName?.toUpperCase() === 'ICICI' || phase.bankName?.toUpperCase() === 'PR'));
                         const parseVal = (str: any) => {
                           if (!str) return 0;
                           const m = str.toString().match(/\d[\d,]*(\.\d+)?/);
@@ -426,8 +483,8 @@ You have a new dispatch scheduled.\n\nOrder ID: ${order.id}\n${items}\n${vehicle
 
                             {isPRorCash && phase.status === 'Received' && (
                               <div className="text-[11px] font-medium bg-amber-50 text-amber-900 border border-amber-200 p-2 rounded-md flex items-center justify-between">
-                                <span>⚡ <strong>PR/Cash Rule:</strong> GST Excluded (-₹{adj.gstAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })})</span>
-                                <span className="font-bold text-emerald-800">Credited to {phase.sourceType === 'Cash' ? 'Cash' : 'PR Bank'}: ₹{adj.netCreditedAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
+                                <span>⚡ <strong>PNB/ICICI Rule:</strong> GST Excluded (-₹{adj.gstAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })})</span>
+                                <span className="font-bold text-emerald-800">Credited to {phase.bankName || phase.sourceType}: ₹{adj.netCreditedAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
                               </div>
                             )}
                           </div>

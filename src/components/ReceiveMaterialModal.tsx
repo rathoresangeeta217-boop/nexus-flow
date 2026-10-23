@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, ArrowDownLeft, AlertCircle, Calendar, Clock, PlusCircle } from 'lucide-react';
-import { RawMaterialItem, receiveRawMaterialStock, formatInventoryDateTime, InventoryHistoryEntry } from '../lib/inventory';
+import { RawMaterialItem, receiveRawMaterialStock, formatInventoryDateTime, InventoryHistoryEntry, findExistingInvoice } from '../lib/inventory';
 
 interface ReceiveMaterialModalProps {
   isOpen: boolean;
@@ -252,6 +252,17 @@ export const ReceiveMaterialModal: React.FC<ReceiveMaterialModalProps> = ({
                 placeholder="e.g. INV-8821 / PO-302"
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 text-sm text-slate-900 bg-white"
               />
+              {challanOrPoNo && (() => {
+                const dupCheck = findExistingInvoice(challanOrPoNo);
+                if (dupCheck.isDuplicate) {
+                  return (
+                    <p className="text-[10px] font-bold text-amber-900 bg-amber-100/90 border border-amber-300 p-1.5 rounded-md mt-1">
+                      ⚠️ Invoice #{challanOrPoNo} was already added to inventory previously ({dupCheck.source})!
+                    </p>
+                  );
+                }
+                return null;
+              })()}
             </div>
 
             <div>

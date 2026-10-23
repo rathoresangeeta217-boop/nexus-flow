@@ -47,13 +47,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
           let p = await Promise.race([fetchPromise, timeoutPromise]);
           if (!p) {
-            const isAdmin = currentUser.email === 'marketing.srkmodular@gmail.com' || currentUser.email === 'rathoresangeeta217@gmail.com';
+            const isSuperAdmin = currentUser.email === 'marketing.srkmodular@gmail.com' || currentUser.email === 'rathoresangeeta217@gmail.com';
+            const isAdmin = isSuperAdmin || currentUser.email === 'nidhi@srkmodular.com';
             
             const pData: UserProfile = {
               uid: currentUser.uid,
               email: currentUser.email || '',
-              displayName: currentUser.displayName || 'SRK Administrator',
-              role: isAdmin ? 'super_admin' : 'employee',
+              displayName: currentUser.displayName || (currentUser.email === 'nidhi@srkmodular.com' ? 'Nidhi Sharma' : 'SRK Administrator'),
+              role: isSuperAdmin ? 'super_admin' : isAdmin ? 'admin' : 'employee',
               isActive: true,
             };
             try {
@@ -66,12 +67,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           setProfile(p);
         } catch (err: any) {
           console.warn("Error fetching/creating profile", err);
-          const isAdmin = currentUser.email === 'marketing.srkmodular@gmail.com' || currentUser.email === 'rathoresangeeta217@gmail.com';
+          const isSuperAdmin = currentUser.email === 'marketing.srkmodular@gmail.com' || currentUser.email === 'rathoresangeeta217@gmail.com';
+          const isAdmin = isSuperAdmin || currentUser.email === 'nidhi@srkmodular.com';
           setProfile({
             uid: currentUser.uid,
             email: currentUser.email || '',
-            displayName: currentUser.displayName || 'SRK Administrator',
-            role: isAdmin ? 'super_admin' : 'employee',
+            displayName: currentUser.displayName || (currentUser.email === 'nidhi@srkmodular.com' ? 'Nidhi Sharma' : 'SRK Administrator'),
+            role: isSuperAdmin ? 'super_admin' : isAdmin ? 'admin' : 'employee',
             isActive: true,
           });
         }

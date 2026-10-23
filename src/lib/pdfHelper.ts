@@ -935,3 +935,287 @@ export const generateSatisfactionFormPDF = async (order: any, installerDetails: 
   addPageBorder(doc);
   doc.save(`Customer-Satisfaction-Letter-${order.id || order.docId}.pdf`);
 };
+
+export interface QuotationData {
+  quotationNo: string;
+  quotationDate: string;
+  validTillDate: string;
+  customerName: string;
+  companyName: string;
+  gstNumber: string;
+  customerAddress: string;
+  customerMobile: string;
+  items: Array<{
+    product: any;
+    selectedVariant?: any;
+    selectedOptionsSummary?: string;
+    imageSrc?: string;
+    unitPrice: number;
+    quantity: number;
+    discountPct?: number;
+    amount: number;
+  }>;
+  subtotal: number;
+  discountTotal: number;
+  gstRate: number;
+  gstAmount: number;
+  grandTotal: number;
+  notes?: string;
+  paymentTerms?: string;
+}
+
+export const generateQuotationPDF = async (quote: QuotationData) => {
+  // A4 Landscape orientation: 297mm width x 210mm height
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const setBlackText = () => doc.setTextColor(0, 0, 0);
+  const setGrayText = () => doc.setTextColor(100, 100, 100);
+
+  // Fetch images for all items in the quotation
+  const images: Record<string, string> = {};
+  for (let i = 0; i < quote.items.length; i++) {
+    const item = quote.items[i];
+    if (item.imageSrc) {
+      images[i] = item.imageSrc;
+    } else if (item.product?.details?.productImageData) {
+      images[i] = item.product.details.productImageData;
+    } else if (item.product?.docId || item.product?.id) {
+      try {
+        const idToFetch = item.product.docId || item.product.id;
+        const imgData = await getProductFile(idToFetch);
+        if (imgData) images[i] = imgData;
+      } catch (e) {
+        console.error("Could not fetch quotation item image", e);
+      }
+    }
+  }
+
+  // Header Background Banner
+  doc.setFillColor(248, 250, 252);
+  doc.rect(0, 0, 297, 38, 'F');
+
+  // Company Name & Info Header
+  doc.setFontSize(20);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(139, 69, 19);
+  doc.text('Srk Modular furniture co.', 148.5, 15, { align: 'center' });
+
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "normal");
+  setGrayText();
+  doc.text('7 Km, Behind Halt Restaurant, Agra Road, Jaipur, Rajasthan - 302031, India', 148.5, 21, { align: 'center' });
+  doc.text('Mobile: +91-7878590209 | Email: Sales@srkmodular.com | Website: https://srkmodular.com/', 148.5, 26, { align: 'center' });
+  doc.text('GSTIN: 08AAIPM7265R1ZR', 148.5, 31, { align: 'center' });
+
+  // Top Accent Border Line
+  doc.setDrawColor(139, 69, 19);
+  doc.setLineWidth(0.8);
+  doc.line(14, 36, 283, 36);
+
+  // Title Banner
+  doc.setFillColor(245, 247, 250);
+  doc.rect(14, 39, 269, 8, 'F');
+  doc.setFontSize(12);
+  doc.setFont("helvetica", "bold");
+  setBlackText();
+  doc.text('COMMERCIAL QUOTATION', 148.5, 45, { align: 'center' });
+
+  // Customer & Quotation Information
+  const boxY = 50;
+  doc.setFontSize(9.5);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(139, 69, 19);
+  doc.text('CUSTOMER DETAILS:', 16, boxY + 4);
+
+  doc.setFont("helvetica", "bold");
+  setBlackText();
+  doc.text(`Customer Name: ${quote.customerName || 'N/A'}`, 16, boxY + 10);
+
+  doc.setFont("helvetica", "normal");
+  if (quote.companyName) doc.text(`Company: ${quote.companyName}`, 16, boxY + 15);
+  if (quote.customerMobile) doc.text(`Mobile: ${quote.customerMobile}`, 16, boxY + 20);
+  if (quote.gstNumber) doc.text(`GSTIN: ${quote.gstNumber}`, 16, boxY + 25);
+  if (quote.customerAddress) {
+    const addrLines = doc.splitTextToSize(`Address: ${quote.customerAddress}`, 125);
+    doc.text(addrLines, 16, boxY + (quote.gstNumber ? 30 : 25));
+  }
+
+  // Right Column: Quotation Meta
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(139, 69, 19);
+  doc.text('QUOTATION DETAILS:', 160, boxY + 4);
+
+  doc.setFont("helvetica", "normal");
+  setBlackText();
+  doc.text(`Quotation No: ${quote.quotationNo}`, 160, boxY + 10);
+  doc.text(`Date: ${quote.quotationDate}`, 160, boxY + 15);
+  doc.text(`Valid Until: ${quote.validTillDate}`, 160, boxY + 20);
+  doc.text(`Payment Terms: ${quote.paymentTerms || '50% Advance, 50% Before Dispatch'}`, 160, boxY + 25);
+
+  // Table Data Preparation
+  const tableBody: any[][] = [];
+  quote.items.forEach((item, index) => {
+    const prodName = item.product?.name || item.product?.productName || 'Custom Modular Product';
+    const specStr = item.selectedOptionsSummary || item.product?.specification || item.selectedVariant?.size || '-';
+    const unitP = item.unitPrice || 0;
+    const discPct = item.discountPct || 0;
+    const qty = item.quantity || 1;
+    const amt = item.amount || (unitP * qty * (1 - discPct / 100));
+
+    tableBody.push([
+      (index + 1).toString(),
+      '', // Image cell
+      `${prodName}\n${specStr !== '-' ? `Spec: ${specStr}` : ''}`.trim(),
+      specStr,
+      qty.toString(),
+      `INR ${unitP.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      discPct > 0 ? `${discPct}%` : '-',
+      `INR ${amt.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    ]);
+  });
+
+  const tableStartY = boxY + 36;
+
+  autoTable(doc, {
+    startY: tableStartY,
+    head: [['Sl.', 'Image', 'Product Details', 'Size / Configuration', 'Qty', 'Unit Price', 'Disc', 'Amount']],
+    body: tableBody,
+    headStyles: {
+      fillColor: [139, 69, 19],
+      textColor: 255,
+      fontStyle: 'bold',
+      fontSize: 8.5,
+    },
+    styles: { fontSize: 8, cellPadding: 2.5, valign: 'middle' },
+    bodyStyles: { minCellHeight: 18 },
+    columnStyles: {
+      0: { cellWidth: 10, halign: 'center' },
+      1: { cellWidth: 24, halign: 'center' },
+      2: { cellWidth: 100 },
+      3: { cellWidth: 50 },
+      4: { cellWidth: 15, halign: 'center' },
+      5: { cellWidth: 28, halign: 'right' },
+      6: { cellWidth: 15, halign: 'center' },
+      7: { cellWidth: 27, halign: 'right' }
+    },
+    didDrawCell: (data) => {
+      if (data.section === 'body' && data.column.index === 1) {
+        const imgData = images[data.row.index];
+        if (imgData && imgData.startsWith('data:image')) {
+          const imgSize = 14;
+          const x = data.cell.x + (data.cell.width - imgSize) / 2;
+          const y = data.cell.y + (data.cell.height - imgSize) / 2;
+          try {
+            let format = 'JPEG';
+            if (imgData.includes('image/png')) format = 'PNG';
+            else if (imgData.includes('image/webp')) format = 'WEBP';
+            doc.addImage(imgData, format, x, y, imgSize, imgSize);
+          } catch (e) {
+            console.error('Error drawing image in quotation cell', e);
+          }
+        }
+      }
+    }
+  });
+
+  const finalY = (doc as any).lastAutoTable.finalY + 6;
+  const subtotal = quote.subtotal || 0;
+  const gstAmount = quote.gstAmount || (subtotal * (quote.gstRate || 18) / 100);
+  const grandTotal = quote.grandTotal || (subtotal + gstAmount);
+
+  // Totals Box (Right Side)
+  const totalsBoxX = 205;
+  const totalsBoxW = 78;
+
+  doc.setFillColor(248, 250, 252);
+  doc.rect(totalsBoxX, finalY, totalsBoxW, 30, 'F');
+  doc.setDrawColor(226, 232, 240);
+  doc.rect(totalsBoxX, finalY, totalsBoxW, 30, 'S');
+
+  doc.setFontSize(8.5);
+  doc.setFont("helvetica", "normal");
+  setBlackText();
+  doc.text('Subtotal:', totalsBoxX + 4, finalY + 7);
+  doc.text(`INR ${subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, totalsBoxX + totalsBoxW - 4, finalY + 7, { align: 'right' });
+
+  if (quote.discountTotal > 0) {
+    doc.text('Discount:', totalsBoxX + 4, finalY + 13);
+    doc.text(`-INR ${quote.discountTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, totalsBoxX + totalsBoxW - 4, finalY + 13, { align: 'right' });
+  }
+
+  doc.text(`GST (${quote.gstRate || 18}%):`, totalsBoxX + 4, finalY + 19);
+  doc.text(`INR ${gstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, totalsBoxX + totalsBoxW - 4, finalY + 19, { align: 'right' });
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9.5);
+  doc.setTextColor(139, 69, 19);
+  doc.text('Grand Total:', totalsBoxX + 4, finalY + 26);
+  doc.text(`INR ${grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, totalsBoxX + totalsBoxW - 4, finalY + 26, { align: 'right' });
+
+  // Notes & Signatory Section
+  let notesY = finalY + 4;
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "bold");
+  setBlackText();
+  doc.text('Terms & Notes:', 14, notesY);
+  doc.setFont("helvetica", "normal");
+  setGrayText();
+  const defaultNotes = quote.notes || '1. Prices are valid until the specified expiry date.\n2. Standard 18% GST applicable.\n3. Delivery timeframe: 10-15 business days from order confirmation & advance.\n4. Warranty: 1 Year Manufacturing Defect Warranty.';
+  const notesLines = doc.splitTextToSize(defaultNotes, 185);
+  doc.text(notesLines, 14, notesY + 4);
+
+  // Authorised Signatory
+  await addSignatureToPDF(doc, 220, finalY + 34);
+
+  // Footer text
+  const footerY = 195;
+  doc.setDrawColor(139, 69, 19);
+  doc.setLineWidth(0.5);
+  doc.line(14, footerY - 4, 283, footerY - 4);
+
+  doc.setFontSize(7.5);
+  setGrayText();
+  doc.text('Thank you for choosing Srk Modular furniture co. For any queries, please reach us at +91-7878590209 or Sales@srkmodular.com', 148.5, footerY, { align: 'center' });
+
+  // Page Border for Landscape A4 (297x210)
+  const addLandscapePageBorder = (d: any) => {
+    const pageCount = (d as any).internal.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+      d.setPage(i);
+      d.setDrawColor(139, 69, 19);
+      d.setLineWidth(0.5);
+      d.rect(5, 5, 287, 200);
+      d.setLineWidth(0.2);
+      d.rect(6.5, 6.5, 284, 197);
+    }
+  };
+
+  addLandscapePageBorder(doc);
+
+  const cleanCustomerName = (quote.customerName || 'Customer').replace(/[^a-zA-Z0-9]/g, '_');
+  const fileName = `Quotation-${quote.quotationNo}-${cleanCustomerName}.pdf`;
+
+  try {
+    const pdfBlob = doc.output('blob');
+    const blobUrl = URL.createObjectURL(pdfBlob);
+    const downloadLink = document.createElement('a');
+    downloadLink.href = blobUrl;
+    downloadLink.download = fileName;
+    downloadLink.style.display = 'none';
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+
+    setTimeout(() => {
+      if (document.body.contains(downloadLink)) {
+        document.body.removeChild(downloadLink);
+      }
+      URL.revokeObjectURL(blobUrl);
+    }, 2500);
+
+    return { success: true, fileName, blob: pdfBlob, blobUrl };
+  } catch (err) {
+    console.warn('Fallback to doc.save for quotation:', err);
+    doc.save(fileName);
+    return { success: true, fileName };
+  }
+};
+

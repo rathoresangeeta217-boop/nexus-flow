@@ -90,8 +90,8 @@ export const PRODUCT_ANGLE_SLOTS = [
 ] as const;
 
 export const CATALOG_CATEGORIES: Record<string, string[]> = {
-  "Workstation": ["Workstation's", "Linear Workstation", "L-Shape Workstation", "Cluster Workstation", "Face to face", "Wall facing", "Cubical"],
-  "Office Studio": ["Workstation's", "Workstation", "Executive Table", "Conference Table", "Storages", "Reception's", "Seating Series", "Sitting Series"],
+  "Workstation": ["Linear Workstation", "L-Shape Workstation", "Cluster Workstation", "Face to Face", "Wall Facing", "Cubicle"],
+  "Office Studio": ["Executive Table", "Conference Table", "Reception Table", "Workstations", "Storages", "Seating Series"],
   "Homes": ["Sofa/couch", "Armchairs/recliners", "Coffee table", "TV unit/entertainment console", "Side/end tables", "Dining sets", "Beds", "Wardrobes", "Desks"],
   "Educational & Institutional": ["School desks & chairs", "Library furniture", "Admin Furniture"],
   "Factories & Warehouses": ["Racks", "Lockers", "Customize"],
@@ -150,6 +150,108 @@ export function NewProductModal({
       formData.category?.toLowerCase().includes('seat') || 
       formData.category?.toLowerCase().includes('sit')
     ));
+
+  // Determine if this product belongs to Office Studio Executive/Conference/Reception Table
+  const subCatLower = (formData.category || '').toLowerCase();
+  const mainCatLower = (selectedMainCategory || '').toLowerCase();
+  const isOfficeStudioTableCategory = 
+    (mainCatLower.includes('office studio') || subCatLower.includes('office studio') || mainCatLower.includes('executive') || mainCatLower.includes('conference') || mainCatLower.includes('reception')) && (
+      subCatLower.includes('executive') ||
+      subCatLower.includes('conference') ||
+      subCatLower.includes('conferene') ||
+      subCatLower.includes('reception') ||
+      subCatLower.includes('table') ||
+      subCatLower.includes('desk')
+    );
+
+  const handleAddOfficeStudioVariant = (
+    type: 'color' | 'size' | 'side_storage' | 'electric',
+    defaultName?: string,
+    defaultPrice?: string,
+    defaultColorCode?: string
+  ) => {
+    const id = `var_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    let name = defaultName || '';
+    if (!name) {
+      if (type === 'color') name = 'Classic Walnut';
+      else if (type === 'size') name = '1800 x 900 x 750 mm';
+      else if (type === 'side_storage') name = 'Left Side Storage (LHS)';
+      else if (type === 'electric') name = 'Pop-up Electric Socket Box';
+    }
+
+    const newVar: ProductVariant = {
+      id,
+      variantType: type,
+      name,
+      color: type === 'color' ? name : undefined,
+      colorCode: type === 'color' ? (defaultColorCode || '#4E342E') : undefined,
+      size: type === 'size' ? name : undefined,
+      sideStorage: type === 'side_storage' ? name : undefined,
+      electricOption: type === 'electric' ? name : undefined,
+      price: defaultPrice || '0',
+      imageData: ''
+    };
+
+    setVariants(prev => [...prev, newVar]);
+  };
+
+  const [customGroupName, setCustomGroupName] = useState('');
+
+  const handleAddCustomVariantGroup = (groupTitle?: string, initialSubOptions?: { name: string; price?: string; colorCode?: string }[]) => {
+    const title = (groupTitle || customGroupName).trim() || 'Custom Option Group';
+    const subOptions = initialSubOptions && initialSubOptions.length > 0 
+      ? initialSubOptions 
+      : [
+          { name: 'Variant One / Sub-Option 1', price: '0' },
+          { name: 'Variant Two / Sub-Option 2', price: '0' }
+        ];
+
+    const newVars: ProductVariant[] = subOptions.map((opt, i) => ({
+      id: `var_${Date.now()}_${i}_${Math.random().toString(36).substring(2, 6)}`,
+      variantType: 'custom',
+      groupName: title,
+      name: opt.name,
+      price: opt.price || '0',
+      colorCode: opt.colorCode,
+      imageData: ''
+    }));
+
+    setVariants(prev => [...prev, ...newVars]);
+    setCustomGroupName('');
+  };
+
+  const handleAddSingleSubOption = (groupName: string, name?: string, price?: string) => {
+    const existingInGroup = variants.filter(v => 
+      (v.groupName || '').toLowerCase() === groupName.toLowerCase()
+    );
+    const count = existingInGroup.length + 1;
+    const oName = name || `Sub-Option ${count}`;
+
+    const newVar: ProductVariant = {
+      id: `var_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      variantType: 'custom',
+      groupName: groupName,
+      name: oName,
+      price: price || '0',
+      imageData: ''
+    };
+
+    setVariants(prev => [...prev, newVar]);
+  };
+
+  const handleRenameGroup = (oldGroupName: string, newGroupName: string) => {
+    if (!newGroupName.trim()) return;
+    setVariants(prev => prev.map(v => {
+      if ((v.groupName || '') === oldGroupName) {
+        return { ...v, groupName: newGroupName.trim() };
+      }
+      return v;
+    }));
+  };
+
+  const handleDeleteGroup = (groupName: string) => {
+    setVariants(prev => prev.filter(v => (v.groupName || '') !== groupName));
+  };
 
   // Stop camera stream cleanup
   const stopCamera = () => {
@@ -461,13 +563,19 @@ export function NewProductModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!formData.productName || !formData.productName.trim()) {
+      alert("Please enter a Product Name before saving.");
+      return;
+    }
+
     setIsProcessing(true);
     
     try {
       const selectedVendor = vendors.find(v => v.id === formData.vendorId);
       const finalCategory = customCategoryMode && customCategoryVal.trim() 
         ? customCategoryVal.trim() 
-        : (formData.category || selectedMainCategory || (isSittingSeries ? "Seating Series" : "Workstation's"));
+        : (formData.category || selectedMainCategory || (isSittingSeries ? "Seating Series" : "Workstations"));
       
       const validImages = productImages.filter(img => typeof img === 'string' && img.trim().length > 0);
       const primaryImage = validImages[0] || undefined;
@@ -476,8 +584,8 @@ export function NewProductModal({
       if (onAddProduct) {
         await onAddProduct({
           ...formData,
-          name: formData.productName,
-          productName: formData.productName,
+          name: formData.productName.trim(),
+          productName: formData.productName.trim(),
           category: finalCategory,
           vendorName: selectedVendor?.name || '',
           productImageName: primaryImage ? `${formData.productName.toLowerCase().replace(/\s+/g, '_')}.jpg` : undefined,
@@ -491,7 +599,7 @@ export function NewProductModal({
             details: typedDescription,
             description: typedDescription,
             specification: typedDescription,
-            productName: formData.productName,
+            productName: formData.productName.trim(),
             category: finalCategory,
             totalUnitPrice: formData.totalUnitPrice,
             perUnitPrice: formData.perUnitPrice,
@@ -500,13 +608,8 @@ export function NewProductModal({
           }
         });
       }
-    } catch (error) {
-      console.error("Error saving product", error);
-    } finally {
-      setIsProcessing(false);
-      stopCamera();
-      
-      // Reset form
+
+      // Reset form on success
       setFormData({
         productName: '',
         specification: '',
@@ -523,14 +626,318 @@ export function NewProductModal({
       setCustomCategoryMode(false);
       setCustomCategoryVal('');
       
+      stopCamera();
       onClose();
+    } catch (error: any) {
+      console.error("Error saving product:", error);
+      alert(`❌ Failed to save product: ${error?.message || 'An unexpected error occurred. Please check your network connection and try again.'}`);
+    } finally {
+      setIsProcessing(false);
     }
+  };
+
+  const seatingPresets = [
+    {
+      label: 'Armrest Types',
+      title: 'Armrest Options',
+      options: [
+        { name: '3D Adjustable Armrests', price: '800' },
+        { name: '2D Height Adjustable Armrests', price: '400' },
+        { name: 'Fixed Ergonomic Armrests', price: '0' }
+      ]
+    },
+    {
+      label: 'Lumbar & Headrest',
+      title: 'Support Options',
+      options: [
+        { name: '2D Adjustable Lumbar + Headrest', price: '1200' },
+        { name: 'Standard Lumbar Support', price: '0' }
+      ]
+    },
+    {
+      label: 'Chair Base',
+      title: 'Base & Castors',
+      options: [
+        { name: 'Heavy Duty Chrome Steel Base', price: '1500' },
+        { name: 'High Tensile Nylon Base', price: '0' }
+      ]
+    }
+  ];
+
+  const tablePresets = [
+    {
+      label: 'Leg Finishes',
+      title: 'Leg Finish',
+      options: [
+        { name: 'Black Powder Coated Metal', price: '0' },
+        { name: 'White Powder Coated Metal', price: '0' },
+        { name: 'Chrome Stainless Steel Base', price: '1200' }
+      ]
+    },
+    {
+      label: 'Board Materials',
+      title: 'Table Top Material',
+      options: [
+        { name: '18mm Action TESA HDHMR', price: '0' },
+        { name: '25mm Pre-Laminated Board', price: '1500' }
+      ]
+    }
+  ];
+
+  const generalPresets = [
+    {
+      label: 'Storage Options',
+      title: 'Side Storage Options',
+      options: [
+        { name: 'Left Hand Side Storage (LHS)', price: '2500' },
+        { name: 'Right Hand Side Storage (RHS)', price: '2500' },
+        { name: 'Both Sides Storage (LHS + RHS)', price: '4800' },
+        { name: 'Without Side Storage', price: '0' }
+      ]
+    },
+    {
+      label: 'Wood Shades',
+      title: 'Table Top Finish',
+      options: [
+        { name: 'Classic Walnut', price: '0', colorCode: '#4E342E' },
+        { name: 'Natural Teak', price: '0', colorCode: '#8D6E63' },
+        { name: 'Frosty White', price: '0', colorCode: '#F8FAFC' },
+        { name: 'Gothic Grey', price: '0', colorCode: '#78909C' }
+      ]
+    },
+    {
+      label: 'Power Outlets',
+      title: 'Electric & Power Socket',
+      options: [
+        { name: 'Dual Pop-up Power Box', price: '1800' },
+        { name: 'Wire Pass-Through Grommet', price: '350' },
+        { name: 'Under-Desk Wire Tray', price: '650' }
+      ]
+    }
+  ];
+
+  const renderCustomVariantBuilder = (extraPresets?: { label: string; title: string; options: { name: string; price?: string; colorCode?: string }[] }[]) => {
+    const customGroups: Record<string, ProductVariant[]> = {};
+    variants.forEach(v => {
+      if (v.variantType === 'custom' || (v.groupName && v.variantType !== 'color' && v.variantType !== 'size' && v.variantType !== 'side_storage' && v.variantType !== 'electric')) {
+        const gName = v.groupName?.trim() || 'Custom Option Group';
+        if (!customGroups[gName]) customGroups[gName] = [];
+        customGroups[gName].push(v);
+      }
+    });
+
+    const groupEntries = Object.entries(customGroups);
+
+    return (
+      <div className="mt-6 bg-slate-50 border border-slate-200 p-4.5 rounded-2xl space-y-4 shadow-2xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/80 pb-3">
+          <div>
+            <h5 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-indigo-600" />
+              Custom Variant Categories & Sub-Options Builder
+            </h5>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              Create custom variant groups (e.g. "Table Top Finish", "Storage Drawer Position", "Leg Structure", "Armrest Type", "Upholstery") and add sub-options with custom prices & photos.
+            </p>
+          </div>
+
+          {/* Quick Preset Group Adders */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[10px] font-bold text-slate-400 uppercase">Presets:</span>
+            {extraPresets?.map(p => (
+              <button
+                key={p.label}
+                type="button"
+                onClick={() => handleAddCustomVariantGroup(p.title, p.options)}
+                className="px-2 py-1 bg-white hover:bg-indigo-50 hover:border-indigo-300 border border-slate-200 rounded-md text-[10px] font-semibold text-slate-700 transition-colors cursor-pointer"
+              >
+                + {p.label}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => handleAddCustomVariantGroup('Side Storage Options', [
+                { name: 'Left Hand Side Storage (LHS)', price: '2500' },
+                { name: 'Right Hand Side Storage (RHS)', price: '2500' },
+                { name: 'Both Sides Storage (LHS + RHS)', price: '4800' },
+                { name: 'Without Side Storage', price: '0' }
+              ])}
+              className="px-2 py-1 bg-white hover:bg-indigo-50 hover:border-indigo-300 border border-slate-200 rounded-md text-[10px] font-semibold text-slate-700 transition-colors cursor-pointer"
+            >
+              + Storage Options
+            </button>
+            <button
+              type="button"
+              onClick={() => handleAddCustomVariantGroup('Table Top Finish', [
+                { name: 'Classic Walnut', price: '0', colorCode: '#4E342E' },
+                { name: 'Natural Teak', price: '0', colorCode: '#8D6E63' },
+                { name: 'Frosty White', price: '0', colorCode: '#F8FAFC' },
+                { name: 'Gothic Grey', price: '0', colorCode: '#78909C' }
+              ])}
+              className="px-2 py-1 bg-white hover:bg-indigo-50 hover:border-indigo-300 border border-slate-200 rounded-md text-[10px] font-semibold text-slate-700 transition-colors cursor-pointer"
+            >
+              + Wood Shades
+            </button>
+          </div>
+        </div>
+
+        {/* Input to create a new Custom Variant Category / Group */}
+        <div className="p-3 bg-white rounded-xl border border-slate-200 flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 shadow-2xs">
+          <div className="flex-1">
+            <label className="block text-[10px] font-extrabold text-slate-500 uppercase mb-1">New Variant Category Title</label>
+            <input 
+              type="text"
+              value={customGroupName}
+              onChange={(e) => setCustomGroupName(e.target.value)}
+              placeholder="e.g. Leg Finish, Storage Position, Upholstery Fabric, Armrest Style..."
+              className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => handleAddCustomVariantGroup()}
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-2xs transition-colors cursor-pointer flex items-center justify-center gap-1.5 shrink-0 self-end sm:self-auto h-[38px] mt-auto"
+          >
+            <Plus className="w-4 h-4" />
+            <span>+ Create Variant Category</span>
+          </button>
+        </div>
+
+        {/* Grouped Custom Variants Cards */}
+        {groupEntries.length === 0 ? (
+          <div className="p-4 border border-dashed border-slate-200 rounded-xl bg-white/60 text-center">
+            <p className="text-xs text-slate-500 font-medium">No custom variant categories added yet. Type a category title above or click a preset shortcut.</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {groupEntries.map(([gName, subOptions]) => (
+              <div key={gName} className="bg-white rounded-xl border border-indigo-200 shadow-2xs overflow-hidden">
+                {/* Group Header */}
+                <div className="bg-gradient-to-r from-indigo-50 to-slate-50 px-4 py-2.5 border-b border-indigo-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <span className="w-2 h-2 rounded-full bg-indigo-600 shrink-0" />
+                    <span className="text-[10px] font-black text-indigo-900 uppercase tracking-wider shrink-0">Category:</span>
+                    <input
+                      type="text"
+                      value={gName}
+                      onChange={(e) => handleRenameGroup(gName, e.target.value)}
+                      placeholder="Group Title"
+                      className="text-xs font-bold text-slate-900 bg-white/80 px-2 py-1 border border-indigo-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 max-w-xs"
+                    />
+                    <span className="text-[10px] font-bold bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-md shrink-0">
+                      {subOptions.length} sub-option(s)
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+                    <button
+                      type="button"
+                      onClick={() => handleAddSingleSubOption(gName)}
+                      className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>+ Add Sub-Option</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteGroup(gName)}
+                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                      title={`Delete category "${gName}"`}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Sub Options Table / List */}
+                <div className="p-3 divide-y divide-slate-100 space-y-2.5">
+                  {subOptions.map((v, subIndex) => (
+                    <div key={v.id} className="pt-2.5 first:pt-0 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                      {/* Sub-Option Name */}
+                      <div className="flex-1 min-w-[140px]">
+                        <label className="block text-[10px] font-extrabold text-slate-500 uppercase mb-1">
+                          Sub-Option {subIndex + 1} Name
+                        </label>
+                        <input 
+                          type="text"
+                          value={v.name || ''}
+                          onChange={(e) => handleUpdateVariant(v.id, { name: e.target.value })}
+                          placeholder="e.g. Sub-Option Name"
+                          className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                        />
+                      </div>
+
+                      {/* Price (₹) */}
+                      <div className="sm:w-32 relative">
+                        <label className="block text-[10px] font-extrabold text-slate-500 uppercase mb-1">
+                          Add-on Price (₹)
+                        </label>
+                        <div className="relative">
+                          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">₹</span>
+                          <input 
+                            type="number" 
+                            value={v.price || ''} 
+                            onChange={(e) => handleUpdateVariant(v.id, { price: e.target.value })} 
+                            placeholder="0" 
+                            className="w-full pl-6 pr-2 py-1.5 border border-slate-300 rounded-lg text-xs font-bold text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Sub-Option Photo */}
+                      <div className="sm:w-48">
+                        <label className="block text-[10px] font-extrabold text-slate-500 uppercase mb-1">Sub-Option Photo</label>
+                        <input 
+                          type="file" 
+                          id={`sub-opt-file-${v.id}`} 
+                          className="hidden" 
+                          accept="image/*"
+                          onChange={(e) => e.target.files?.[0] && handleVariantImageChange(v.id, e.target.files[0])}
+                        />
+                        {v.imageData ? (
+                          <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 p-1 rounded-lg">
+                            <img src={v.imageData} alt="Custom option" className="w-6 h-6 object-cover rounded bg-white shrink-0 border border-slate-200" />
+                            <span className="text-[10px] font-bold text-emerald-800 flex-1 truncate">Photo Uploaded</span>
+                            <button type="button" onClick={() => handleRemoveVariantImage(v.id)} className="text-[10px] text-rose-600 font-bold hover:underline cursor-pointer">Remove</button>
+                          </div>
+                        ) : (
+                          <button 
+                            type="button" 
+                            onClick={() => document.getElementById(`sub-opt-file-${v.id}`)?.click()} 
+                            className="w-full py-1.5 border border-dashed border-slate-300 hover:border-indigo-500 rounded-lg text-xs font-semibold text-slate-600 hover:text-indigo-600 flex items-center justify-center gap-1.5 bg-slate-50 cursor-pointer"
+                          >
+                            <Upload className="w-3 h-3 text-slate-400" /> Upload Image
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Delete Sub-Option */}
+                      <div className="flex items-center justify-end pt-1 sm:pt-4">
+                        <button 
+                          type="button" 
+                          onClick={() => handleDeleteVariant(v.id)} 
+                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer" 
+                          title="Delete sub-option"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
     <AnimatePresence>
       {isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-0 md:p-4 sm:p-6">
+
           <motion.div 
             initial={{ opacity: 0 }} 
             animate={{ opacity: 1 }} 
@@ -922,9 +1329,358 @@ export function NewProductModal({
                   </p>
                 </div>
 
-                {/* 4. VARIANTS SECTION: COLOR VARIANTS WITH CUSTOM PHOTO & PRICE */}
+                {/* 4. VARIANTS SECTION: COLOR, SIZES, SIDE STORAGE & ELECTRIC OPTIONS */}
                 <div className="border-t border-slate-200 pt-6">
-                  {isSittingSeries ? (
+                  {isOfficeStudioTableCategory ? (
+                    /* OFFICE STUDIO EXECUTIVE/CONFERENCE/RECEPTION TABLE VARIANTS */
+                    <div className="space-y-6">
+                      <div className="bg-indigo-50/80 border border-indigo-200 p-4 rounded-2xl flex items-start gap-3">
+                        <Sparkles className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
+                        <div>
+                          <h4 className="text-sm font-bold text-indigo-950">Office Studio Table Options & Variants</h4>
+                          <p className="text-xs text-indigo-800 mt-0.5">
+                            Configure Colour Options (with custom image upload), Sizes (with image + price), Side Storage (with image + price), and Electric Options (with image + price).
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* 1. COLOUR OPTION */}
+                      <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl space-y-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <h5 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                            <Palette className="w-4 h-4 text-amber-600" />
+                            1. Colour Option (Upload Image)
+                          </h5>
+                          <button
+                            type="button"
+                            onClick={() => handleAddOfficeStudioVariant('color')}
+                            className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shadow-2xs transition-colors cursor-pointer"
+                          >
+                            + Add Colour Option
+                          </button>
+                        </div>
+
+                        {/* Quick Add Colours */}
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[11px] font-bold text-slate-500 mr-1">Quick Add:</span>
+                          {WORKSTATION_COLORS.map(c => (
+                            <button
+                              key={c.name}
+                              type="button"
+                              onClick={() => handleAddOfficeStudioVariant('color', c.name, '0', c.hex)}
+                              className="px-2 py-0.5 bg-white border border-slate-200 rounded text-[11px] font-semibold text-slate-700 hover:bg-amber-50 flex items-center gap-1 cursor-pointer"
+                            >
+                              <span className="w-2.5 h-2.5 rounded-full border border-slate-300" style={{ backgroundColor: c.hex }} />
+                              {c.name}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* List of Colour Variants */}
+                        {variants.filter(v => v.variantType === 'color' || v.colorCode).map((v) => (
+                          <div key={v.id} className="p-3 bg-white rounded-xl border border-slate-200 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                            <input 
+                              type="color"
+                              value={v.colorCode || '#4E342E'}
+                              onChange={(e) => handleUpdateVariant(v.id, { colorCode: e.target.value })}
+                              className="w-8 h-8 rounded-lg border border-slate-300 p-0.5 cursor-pointer shrink-0"
+                              title="Choose color swatch"
+                            />
+                            <input 
+                              type="text"
+                              value={v.color || v.name || ''}
+                              onChange={(e) => handleUpdateVariant(v.id, { color: e.target.value, name: e.target.value })}
+                              placeholder="Colour Name (e.g. Classic Walnut)"
+                              className="flex-1 px-3 py-1.5 border border-slate-300 rounded-lg text-xs font-bold text-slate-800 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                            />
+                            {/* Image Upload */}
+                            <div className="sm:w-52">
+                              <input 
+                                type="file" 
+                                id={`office-col-${v.id}`} 
+                                className="hidden" 
+                                accept="image/*"
+                                onChange={(e) => e.target.files?.[0] && handleVariantImageChange(v.id, e.target.files[0])}
+                              />
+                              {v.imageData ? (
+                                <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 p-1 rounded-lg">
+                                  <img src={v.imageData} alt="Colour" className="w-7 h-7 object-cover rounded bg-white shrink-0 border border-slate-200" />
+                                  <span className="text-[10px] font-bold text-emerald-800 flex-1 truncate">Image Uploaded</span>
+                                  <button type="button" onClick={() => handleRemoveVariantImage(v.id)} className="text-[10px] text-rose-600 font-bold hover:underline cursor-pointer">Remove</button>
+                                </div>
+                              ) : (
+                                <button 
+                                  type="button" 
+                                  onClick={() => document.getElementById(`office-col-${v.id}`)?.click()} 
+                                  className="w-full py-1.5 border border-dashed border-slate-300 hover:border-amber-500 rounded-lg text-xs font-semibold text-slate-600 hover:text-amber-700 flex items-center justify-center gap-1.5 bg-slate-50 cursor-pointer"
+                                >
+                                  <Upload className="w-3 h-3 text-slate-400" /> Upload Colour Image
+                                </button>
+                              )}
+                            </div>
+                            <button type="button" onClick={() => handleDeleteVariant(v.id)} className="p-1.5 text-slate-400 hover:text-rose-600 cursor-pointer" title="Delete">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* 2. SIZES OPTION */}
+                      <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl space-y-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <h5 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                            <Layers className="w-4 h-4 text-indigo-600" />
+                            2. Sizes Option (Upload Image + Price)
+                          </h5>
+                          <button
+                            type="button"
+                            onClick={() => handleAddOfficeStudioVariant('size')}
+                            className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-2xs transition-colors cursor-pointer"
+                          >
+                            + Add Size Option
+                          </button>
+                        </div>
+
+                        {/* Quick Add Sizes */}
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[11px] font-bold text-slate-500 mr-1">Quick Add:</span>
+                          {['1800 x 900 x 750 mm', '2100 x 1000 x 750 mm', '2400 x 1200 x 750 mm', '3000 x 1200 x 750 mm'].map(s => (
+                            <button
+                              key={s}
+                              type="button"
+                              onClick={() => handleAddOfficeStudioVariant('size', s, '0')}
+                              className="px-2 py-0.5 bg-white border border-slate-200 rounded text-[11px] font-semibold text-slate-700 hover:bg-indigo-50 flex items-center gap-1 cursor-pointer"
+                            >
+                              + {s.split(' ')[0]} mm
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* List of Size Variants */}
+                        {variants.filter(v => v.variantType === 'size' || (v.size && !v.colorCode && !v.sideStorage && !v.electricOption)).map((v) => (
+                          <div key={v.id} className="p-3 bg-white rounded-xl border border-slate-200 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                            <input 
+                              type="text"
+                              value={v.size || v.name || ''}
+                              onChange={(e) => handleUpdateVariant(v.id, { size: e.target.value, name: e.target.value })}
+                              placeholder="Size / Dimensions (e.g. 1800 x 900 x 750 mm)"
+                              className="flex-1 px-3 py-1.5 border border-slate-300 rounded-lg text-xs font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                            />
+                            {/* Price */}
+                            <div className="sm:w-36 relative">
+                              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">₹</span>
+                              <input 
+                                type="number" 
+                                value={v.price || ''} 
+                                onChange={(e) => handleUpdateVariant(v.id, { price: e.target.value })} 
+                                placeholder="Price (₹)" 
+                                className="w-full pl-6 pr-2 py-1.5 border border-slate-300 rounded-lg text-xs font-bold text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                              />
+                            </div>
+                            {/* Image Upload */}
+                            <div className="sm:w-52">
+                              <input 
+                                type="file" 
+                                id={`office-sz-${v.id}`} 
+                                className="hidden" 
+                                accept="image/*"
+                                onChange={(e) => e.target.files?.[0] && handleVariantImageChange(v.id, e.target.files[0])}
+                              />
+                              {v.imageData ? (
+                                <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 p-1 rounded-lg">
+                                  <img src={v.imageData} alt="Size" className="w-7 h-7 object-cover rounded bg-white shrink-0 border border-slate-200" />
+                                  <span className="text-[10px] font-bold text-emerald-800 flex-1 truncate">Image Uploaded</span>
+                                  <button type="button" onClick={() => handleRemoveVariantImage(v.id)} className="text-[10px] text-rose-600 font-bold hover:underline cursor-pointer">Remove</button>
+                                </div>
+                              ) : (
+                                <button 
+                                  type="button" 
+                                  onClick={() => document.getElementById(`office-sz-${v.id}`)?.click()} 
+                                  className="w-full py-1.5 border border-dashed border-slate-300 hover:border-indigo-500 rounded-lg text-xs font-semibold text-slate-600 hover:text-indigo-600 flex items-center justify-center gap-1.5 bg-slate-50 cursor-pointer"
+                                >
+                                  <Upload className="w-3 h-3 text-slate-400" /> Upload Size Image
+                                </button>
+                              )}
+                            </div>
+                            <button type="button" onClick={() => handleDeleteVariant(v.id)} className="p-1.5 text-slate-400 hover:text-rose-600 cursor-pointer" title="Delete">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* 3. SIDE STORAGE OPTION */}
+                      <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl space-y-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <h5 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                            <Compass className="w-4 h-4 text-emerald-600" />
+                            3. Side Storage Option (Upload Image + Price)
+                          </h5>
+                          <button
+                            type="button"
+                            onClick={() => handleAddOfficeStudioVariant('side_storage')}
+                            className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-2xs transition-colors cursor-pointer"
+                          >
+                            + Add Side Storage Option
+                          </button>
+                        </div>
+
+                        {/* Quick Add Side Storage */}
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[11px] font-bold text-slate-500 mr-1">Quick Add:</span>
+                          {['Left Side Storage (LHS)', 'Right Side Storage (RHS)', 'Mobile Pedestal 3-Drawer', 'None'].map(st => (
+                            <button
+                              key={st}
+                              type="button"
+                              onClick={() => handleAddOfficeStudioVariant('side_storage', st, st === 'None' ? '0' : '4500')}
+                              className="px-2 py-0.5 bg-white border border-slate-200 rounded text-[11px] font-semibold text-slate-700 hover:bg-emerald-50 flex items-center gap-1 cursor-pointer"
+                            >
+                              + {st}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* List of Side Storage Variants */}
+                        {variants.filter(v => v.variantType === 'side_storage' || v.sideStorage).map((v) => (
+                          <div key={v.id} className="p-3 bg-white rounded-xl border border-slate-200 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                            <input 
+                              type="text"
+                              value={v.sideStorage || v.name || ''}
+                              onChange={(e) => handleUpdateVariant(v.id, { sideStorage: e.target.value, name: e.target.value })}
+                              placeholder="Side Storage Option (e.g. Left Side Storage)"
+                              className="flex-1 px-3 py-1.5 border border-slate-300 rounded-lg text-xs font-bold text-slate-800 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                            />
+                            {/* Price */}
+                            <div className="sm:w-36 relative">
+                              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">₹</span>
+                              <input 
+                                type="number" 
+                                value={v.price || ''} 
+                                onChange={(e) => handleUpdateVariant(v.id, { price: e.target.value })} 
+                                placeholder="Price (₹)" 
+                                className="w-full pl-6 pr-2 py-1.5 border border-slate-300 rounded-lg text-xs font-bold text-slate-900 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                              />
+                            </div>
+                            {/* Image Upload */}
+                            <div className="sm:w-52">
+                              <input 
+                                type="file" 
+                                id={`office-st-${v.id}`} 
+                                className="hidden" 
+                                accept="image/*"
+                                onChange={(e) => e.target.files?.[0] && handleVariantImageChange(v.id, e.target.files[0])}
+                              />
+                              {v.imageData ? (
+                                <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 p-1 rounded-lg">
+                                  <img src={v.imageData} alt="Storage" className="w-7 h-7 object-cover rounded bg-white shrink-0 border border-slate-200" />
+                                  <span className="text-[10px] font-bold text-emerald-800 flex-1 truncate">Image Uploaded</span>
+                                  <button type="button" onClick={() => handleRemoveVariantImage(v.id)} className="text-[10px] text-rose-600 font-bold hover:underline cursor-pointer">Remove</button>
+                                </div>
+                              ) : (
+                                <button 
+                                  type="button" 
+                                  onClick={() => document.getElementById(`office-st-${v.id}`)?.click()} 
+                                  className="w-full py-1.5 border border-dashed border-slate-300 hover:border-emerald-500 rounded-lg text-xs font-semibold text-slate-600 hover:text-emerald-600 flex items-center justify-center gap-1.5 bg-slate-50 cursor-pointer"
+                                >
+                                  <Upload className="w-3 h-3 text-slate-400" /> Upload Storage Image
+                                </button>
+                              )}
+                            </div>
+                            <button type="button" onClick={() => handleDeleteVariant(v.id)} className="p-1.5 text-slate-400 hover:text-rose-600 cursor-pointer" title="Delete">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* 4. ELECTRIC OPTION */}
+                      <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl space-y-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <h5 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                            <Sparkles className="w-4 h-4 text-purple-600" />
+                            4. Electric Option (Upload Image + Price)
+                          </h5>
+                          <button
+                            type="button"
+                            onClick={() => handleAddOfficeStudioVariant('electric')}
+                            className="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold shadow-2xs transition-colors cursor-pointer"
+                          >
+                            + Add Electric Option
+                          </button>
+                        </div>
+
+                        {/* Quick Add Electric */}
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[11px] font-bold text-slate-500 mr-1">Quick Add:</span>
+                          {['Pop-up Electric Socket Box', 'Wireless Charger + Power', 'Motorized Cable Tray', 'None'].map(el => (
+                            <button
+                              key={el}
+                              type="button"
+                              onClick={() => handleAddOfficeStudioVariant('electric', el, el === 'None' ? '0' : '2200')}
+                              className="px-2 py-0.5 bg-white border border-slate-200 rounded text-[11px] font-semibold text-slate-700 hover:bg-purple-50 flex items-center gap-1 cursor-pointer"
+                            >
+                              + {el}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* List of Electric Option Variants */}
+                        {variants.filter(v => v.variantType === 'electric' || v.electricOption).map((v) => (
+                          <div key={v.id} className="p-3 bg-white rounded-xl border border-slate-200 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                            <input 
+                              type="text"
+                              value={v.electricOption || v.name || ''}
+                              onChange={(e) => handleUpdateVariant(v.id, { electricOption: e.target.value, name: e.target.value })}
+                              placeholder="Electric Option (e.g. Pop-up Socket Box)"
+                              className="flex-1 px-3 py-1.5 border border-slate-300 rounded-lg text-xs font-bold text-slate-800 focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                            />
+                            {/* Price */}
+                            <div className="sm:w-36 relative">
+                              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">₹</span>
+                              <input 
+                                type="number" 
+                                value={v.price || ''} 
+                                onChange={(e) => handleUpdateVariant(v.id, { price: e.target.value })} 
+                                placeholder="Price (₹)" 
+                                className="w-full pl-6 pr-2 py-1.5 border border-slate-300 rounded-lg text-xs font-bold text-slate-900 focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                              />
+                            </div>
+                            {/* Image Upload */}
+                            <div className="sm:w-52">
+                              <input 
+                                type="file" 
+                                id={`office-el-${v.id}`} 
+                                className="hidden" 
+                                accept="image/*"
+                                onChange={(e) => e.target.files?.[0] && handleVariantImageChange(v.id, e.target.files[0])}
+                              />
+                              {v.imageData ? (
+                                <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 p-1 rounded-lg">
+                                  <img src={v.imageData} alt="Electric" className="w-7 h-7 object-cover rounded bg-white shrink-0 border border-slate-200" />
+                                  <span className="text-[10px] font-bold text-emerald-800 flex-1 truncate">Image Uploaded</span>
+                                  <button type="button" onClick={() => handleRemoveVariantImage(v.id)} className="text-[10px] text-rose-600 font-bold hover:underline cursor-pointer">Remove</button>
+                                </div>
+                              ) : (
+                                <button 
+                                  type="button" 
+                                  onClick={() => document.getElementById(`office-el-${v.id}`)?.click()} 
+                                  className="w-full py-1.5 border border-dashed border-slate-300 hover:border-purple-500 rounded-lg text-xs font-semibold text-slate-600 hover:text-purple-600 flex items-center justify-center gap-1.5 bg-slate-50 cursor-pointer"
+                                >
+                                  <Upload className="w-3 h-3 text-slate-400" /> Upload Electric Image
+                                </button>
+                              )}
+                            </div>
+                            <button type="button" onClick={() => handleDeleteVariant(v.id)} className="p-1.5 text-slate-400 hover:text-rose-600 cursor-pointer" title="Delete">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+
+                        {/* 5. CUSTOM VARIANTS BUILDER */}
+                        {renderCustomVariantBuilder(tablePresets)}
+                      </div>
+                    ) : isSittingSeries ? (
                     /* SITTING SERIES: COLOR VARIANTS & DISTINCT PRICES */
                     <div>
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
@@ -1124,6 +1880,9 @@ export function NewProductModal({
                           ))}
                         </div>
                       )}
+                      
+                      {/* Custom Variant Builder for Seating/Sitting Series */}
+                      {renderCustomVariantBuilder(seatingPresets)}
                     </div>
                   ) : (
                     /* WORKSTATION / GENERAL: SIZES & PRODUCTS SECTION */
@@ -1311,6 +2070,9 @@ export function NewProductModal({
                           ))}
                         </div>
                       )}
+                      
+                      {/* Custom Variant & Sub Options Builder */}
+                      {renderCustomVariantBuilder(generalPresets)}
                     </div>
                   )}
                 </div>

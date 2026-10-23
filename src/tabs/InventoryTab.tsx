@@ -234,64 +234,55 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
     setMaterialToDelete(item);
   };
 
-  const confirmDeleteMaterial = async () => {
+  const confirmDeleteMaterial = () => {
     if (!materialToDelete) return;
     const item = materialToDelete;
-    setIsDeleting(true);
+    
+    // Instantly update UI and close modal in 0ms
+    setMaterials(prev => prev.filter(m => m.id !== item.id && (!item.docId || m.docId !== item.docId)));
+    setMaterialToDelete(null);
+    showNotification(`Deleted "${item.name}" from inventory.`, 'info');
 
-    try {
-      // Optimistically update UI immediately
-      setMaterials(prev => prev.filter(m => m.id !== item.id && (!item.docId || m.docId !== item.docId)));
-      await deleteRawMaterialItem(item.id, item.docId);
-      showNotification(`Deleted "${item.name}" from inventory.`, 'info');
-      setMaterialToDelete(null);
-    } catch (err) {
-      console.error('Delete failed', err);
-      showNotification(`Failed to delete "${item.name}".`, 'error');
-    } finally {
-      setIsDeleting(false);
-    }
+    // Trigger background deletion
+    deleteRawMaterialItem(item.id, item.docId).catch(err => {
+      console.warn('Background delete material error:', err);
+    });
   };
 
   const handleDeleteHistory = (entry: InventoryHistoryEntry) => {
     setHistoryToDelete(entry);
   };
 
-  const confirmDeleteHistory = async () => {
+  const confirmDeleteHistory = () => {
     if (!historyToDelete) return;
     const entry = historyToDelete;
-    setIsDeleting(true);
 
-    try {
-      setHistoryList(prev => prev.filter(h => h.id !== entry.id && (!entry.docId || h.docId !== entry.docId)));
-      await deleteInventoryHistoryEntry(entry.id, entry.docId);
-      showNotification('Transaction record deleted successfully.', 'info');
-      setHistoryToDelete(null);
-    } catch (err: any) {
-      console.error('Failed to delete history record', err);
-      showNotification('Failed to delete transaction record.', 'error');
-    } finally {
-      setIsDeleting(false);
-    }
+    // Instantly update UI and close modal in 0ms
+    setHistoryList(prev => prev.filter(h => h.id !== entry.id && (!entry.docId || h.docId !== entry.docId)));
+    setHistoryToDelete(null);
+    showNotification('Transaction record deleted successfully.', 'info');
+
+    // Trigger background deletion
+    deleteInventoryHistoryEntry(entry.id, entry.docId).catch(err => {
+      console.warn('Background history delete error:', err);
+    });
   };
 
   const handleClearAllHistory = () => {
     setIsClearHistoryModalOpen(true);
   };
 
-  const confirmClearAllHistory = async () => {
-    setIsDeleting(true);
-    try {
-      setHistoryList([]);
-      await clearAllInventoryHistory();
-      showNotification('All transaction history records have been cleared.', 'info');
-      setIsClearHistoryModalOpen(false);
-    } catch (err: any) {
-      console.error('Failed to clear all history', err);
-      showNotification('Failed to clear transaction history.', 'error');
-    } finally {
-      setIsDeleting(false);
-    }
+  const confirmClearAllHistory = () => {
+    // Instantly update UI, close modal, and show toast in 0ms!
+    setHistoryList([]);
+    setIsClearHistoryModalOpen(false);
+    setIsDeleting(false);
+    showNotification('All transaction history records have been cleared.', 'info');
+
+    // Trigger background deletion in Firestore
+    clearAllInventoryHistory().catch(err => {
+      console.warn('Background clear all history error:', err);
+    });
   };
 
   return (
@@ -1069,19 +1060,29 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
       {previewImage && (
         <div 
           onClick={() => setPreviewImage(null)}
-          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 cursor-pointer"
+          className="fixed inset-0 z-50 bg-black/85 backdrop-blur-xs flex items-center justify-center p-4 cursor-pointer"
         >
-          <div className="max-w-md w-full bg-white rounded-2xl overflow-hidden shadow-2xl p-2" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between p-2">
-              <h4 className="font-bold text-sm text-slate-800">{previewImage.name}</h4>
+          <div className="max-w-xl w-full bg-white rounded-2xl overflow-hidden shadow-2xl p-4 flex flex-col gap-3" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <h4 className="font-bold text-base text-slate-800 truncate">{previewImage.name}</h4>
               <button 
                 onClick={() => setPreviewImage(null)}
-                className="p-1 text-slate-400 hover:text-slate-800 rounded-lg cursor-pointer"
+                className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold text-xs shadow-sm flex items-center gap-1.5 cursor-pointer"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4" />
+                <span>Close</span>
               </button>
             </div>
-            <img src={previewImage.url} alt="" className="w-full h-80 object-cover rounded-xl" />
+            <img src={previewImage.url} alt="" className="w-full max-h-[70vh] object-contain rounded-xl bg-slate-50" />
+            <div className="pt-2 flex justify-end">
+              <button 
+                onClick={() => setPreviewImage(null)}
+                className="w-full py-2.5 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-bold rounded-xl text-sm transition-colors flex items-center justify-center gap-2 shadow-md cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+                <span>Close Enlarge Image</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
