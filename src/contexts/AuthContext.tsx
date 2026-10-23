@@ -46,14 +46,38 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           );
 
           let p = await Promise.race([fetchPromise, timeoutPromise]);
-          if (!p) {
-            const isSuperAdmin = currentUser.email === 'marketing.srkmodular@gmail.com' || currentUser.email === 'rathoresangeeta217@gmail.com';
-            const isAdmin = isSuperAdmin || currentUser.email === 'nidhi@srkmodular.com';
-            
+          
+          const userEmail = (currentUser.email || '').toLowerCase();
+          const userName = (currentUser.displayName || '').toLowerCase();
+          const isBhawna = userEmail.includes('bhawna') || userName.includes('bhawna');
+          const isAnshuman = userEmail.includes('anshuman') || userName.includes('anshuman');
+          const isNidhi = userEmail.includes('nidhi') || userName.includes('nidhi');
+
+          const isSuperAdmin = userEmail === 'marketing.srkmodular@gmail.com' || 
+                               userEmail === 'rathoresangeeta217@gmail.com' || 
+                               isBhawna ||
+                               isAnshuman;
+          const isAdmin = isSuperAdmin || userEmail === 'nidhi@srkmodular.com' || isNidhi;
+
+          if (p) {
+            if (isSuperAdmin && p.role !== 'super_admin') {
+              p = { ...p, role: 'super_admin' };
+            } else if (isAdmin && p.role !== 'admin' && p.role !== 'super_admin') {
+              p = { ...p, role: 'admin' };
+            }
+          } else {
+            const defaultName = isBhawna 
+              ? 'Bhawna Khandelwal' 
+              : isAnshuman 
+              ? 'Anshuman Singh' 
+              : isNidhi 
+              ? 'Nidhi Sharma' 
+              : 'SRK Administrator';
+
             const pData: UserProfile = {
               uid: currentUser.uid,
               email: currentUser.email || '',
-              displayName: currentUser.displayName || (currentUser.email === 'nidhi@srkmodular.com' ? 'Nidhi Sharma' : 'SRK Administrator'),
+              displayName: currentUser.displayName || defaultName,
               role: isSuperAdmin ? 'super_admin' : isAdmin ? 'admin' : 'employee',
               isActive: true,
             };
@@ -67,12 +91,26 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           setProfile(p);
         } catch (err: any) {
           console.warn("Error fetching/creating profile", err);
-          const isSuperAdmin = currentUser.email === 'marketing.srkmodular@gmail.com' || currentUser.email === 'rathoresangeeta217@gmail.com';
-          const isAdmin = isSuperAdmin || currentUser.email === 'nidhi@srkmodular.com';
+          const userEmail = (currentUser.email || '').toLowerCase();
+          const userName = (currentUser.displayName || '').toLowerCase();
+          const isBhawna = userEmail.includes('bhawna') || userName.includes('bhawna');
+          const isAnshuman = userEmail.includes('anshuman') || userName.includes('anshuman');
+          const isNidhi = userEmail.includes('nidhi') || userName.includes('nidhi');
+          const isSuperAdmin = userEmail === 'marketing.srkmodular@gmail.com' || userEmail === 'rathoresangeeta217@gmail.com' || isBhawna || isAnshuman;
+          const isAdmin = isSuperAdmin || userEmail === 'nidhi@srkmodular.com' || isNidhi;
+
+          const defaultName = isBhawna 
+            ? 'Bhawna Khandelwal' 
+            : isAnshuman 
+            ? 'Anshuman Singh' 
+            : isNidhi 
+            ? 'Nidhi Sharma' 
+            : 'SRK Administrator';
+
           setProfile({
             uid: currentUser.uid,
             email: currentUser.email || '',
-            displayName: currentUser.displayName || (currentUser.email === 'nidhi@srkmodular.com' ? 'Nidhi Sharma' : 'SRK Administrator'),
+            displayName: currentUser.displayName || defaultName,
             role: isSuperAdmin ? 'super_admin' : isAdmin ? 'admin' : 'employee',
             isActive: true,
           });
