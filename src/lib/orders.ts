@@ -144,87 +144,97 @@ export const deleteOrder = async (docId: string) => {
 };
 
 export const subscribeToOrders = (callback: (orders: Order[]) => void) => {
-  let unsubscribeSnapshot: () => void;
-  
-  const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
-    if (user) {
-      const { getUserProfile } = await import('./users');
-      const profile = await getUserProfile(user.uid);
-      
-      const q = query(getOrdersCollection(), orderBy('createdAt', 'desc'));
-      unsubscribeSnapshot = onSnapshot(q, (snapshot) => {
-        let orders = snapshot.docs.map(doc => ({
-          ...doc.data(),
-          // Use firestore id as the backup if id is missing
-          id: doc.data().id || doc.id,
-          docId: doc.id
-        })) as Order[];
-        
-        // Filter orders for sales executives and employees
-        if (profile && profile.role === 'sales_executive') {
-          const profileName = (profile.displayName || '').toLowerCase().trim();
-          
-          orders = orders.filter(order => {
-            const empName = (order.details?.employeeName || '').toLowerCase().trim();
-            if (!empName) return false;
-            
-            const empFirstName = empName.split(' ')[0];
-            const profileFirstName = profileName.split(' ')[0];
-            
-            return empName === profileName || 
-                   profileName.includes(empName) || 
-                   empName.includes(profileName) ||
-                   (empFirstName && profileFirstName && empFirstName === profileFirstName);
-          });
-        } else if (profile && profile.role === 'employee') {
-          // Employees in the installation tab should see all relevant installation orders
-          // or at least not be restricted ONLY to sales executive orders
-          const profileName = (profile.displayName || '').toLowerCase().trim();
-          
-          orders = orders.filter(order => {
-            const empName = (order.details?.employeeName || '').toLowerCase().trim();
-            const installerName = (order.details?.installerName || '').toLowerCase().trim();
-            
-            // If they are specifically named, show it
-            const empFirstName = empName.split(' ')[0];
-            const instFirstName = installerName.split(' ')[0];
-            const profileFirstName = profileName.split(' ')[0];
-            
-            const isAssigned = empName === profileName || 
-                   profileName.includes(empName) || 
-                   empName.includes(profileName) ||
-                   (empFirstName && profileFirstName && empFirstName === profileFirstName) ||
-                   installerName === profileName ||
-                   profileName.includes(installerName) ||
-                   installerName.includes(profileName) ||
-                   (instFirstName && profileFirstName && instFirstName === profileFirstName);
-                   
-            // Alternatively, employees (like Anshuman) managing installations should see all installation orders
-            // We'll let them see ALL orders, and the InstallationTab will filter to only show installation ones.
-            // If we restrict to isAssigned, they might see 0 if not explicitly assigned.
-            // Let's allow them to see all orders if they are an employee. The UI restricts them to the Installation tab anyway.
-            return true;
-          });
+  const q = query(getOrdersCollection());
+  let lastDocs: any[] | null = null;
+  let currentProfile: any = null;
+
+  const processAndDeliver = () => {
+    if (!lastDocs) return;
+
+    let orders = lastDocs.map(doc => ({
+      ...doc.data(),
+      id: doc.data().id || doc.id,
+      docId: doc.id
+    })) as Order[];
+
+    // Sort in memory by createdAt/date descending
+    orders.sort((a, b) => {
+      const getTime = (o: Order) => {
+        if (o.createdAt?.seconds) return o.createdAt.seconds * 1000;
+        if (o.date) {
+          const t = new Date(o.date).getTime();
+          if (!isNaN(t)) return t;
         }
+        return 0;
+      };
+      return getTime(b) - getTime(a);
+    });
+
+    const userEmail = (auth.currentUser?.email || '').toLowerCase();
+    const userName = (auth.currentUser?.displayName || '').toLowerCase();
+
+    const isBhawna = userEmail.includes('bhawna') || userName.includes('bhawna');
+    const isAnshuman = userEmail.includes('anshuman') || userName.includes('anshuman');
+    const isNidhi = userEmail.includes('nidhi') || userName.includes('nidhi');
+
+    const isSuperOrAdmin = !auth.currentUser ||
+                           userEmail === 'marketing.srkmodular@gmail.com' ||
+                           userEmail === 'rathoresangeeta217@gmail.com' ||
+                           isBhawna ||
+                           isAnshuman ||
+                           isNidhi ||
+                           !currentProfile ||
+                           currentProfile.role === 'super_admin' ||
+                           currentProfile.role === 'admin' ||
+                           currentProfile.role === 'employee' ||
+                           currentProfile.role !== 'sales_executive';
+
+    // Filter orders ONLY for restricted sales executives
+    if (!isSuperOrAdmin && currentProfile && currentProfile.role === 'sales_executive') {
+      const profileName = (currentProfile.displayName || '').toLowerCase().trim();
+      
+      orders = orders.filter(order => {
+        const empName = (order.details?.employeeName || '').toLowerCase().trim();
+        if (!empName) return true; // Show unassigned orders to sales executives
         
-        callback(orders);
-      }, (error) => {
-        console.warn("Error fetching orders:", error);
-        callback([]); // Unblock the UI if there is an error like Quota Exceeded
+        const empFirstName = empName.split(' ')[0];
+        const profileFirstName = profileName.split(' ')[0];
+        
+        return empName === profileName || 
+               profileName.includes(empName) || 
+               empName.includes(profileName) ||
+               (empFirstName && profileFirstName && empFirstName === profileFirstName);
       });
-    } else {
-      if (unsubscribeSnapshot) {
-        unsubscribeSnapshot();
-      }
-      callback([]);
     }
+    
+    callback(orders);
+  };
+
+  const unsubAuth = onAuthStateChanged(auth, async (user) => {
+    if (user) {
+      try {
+        const { getUserProfile } = await import('./users');
+        currentProfile = await getUserProfile(user.uid);
+      } catch (err) {
+        console.warn('Profile fetch error in subscribeToOrders:', err);
+      }
+    } else {
+      currentProfile = null;
+    }
+    processAndDeliver();
+  });
+
+  const unsubSnapshot = onSnapshot(q, (snapshot) => {
+    lastDocs = snapshot.docs;
+    processAndDeliver();
+  }, (error) => {
+    console.warn("Error fetching orders snapshot:", error);
+    callback([]);
   });
 
   return () => {
-    unsubscribeAuth();
-    if (unsubscribeSnapshot) {
-      unsubscribeSnapshot();
-    }
+    unsubAuth();
+    unsubSnapshot();
   };
 };
 

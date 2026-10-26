@@ -19,7 +19,25 @@ export const getUserProfile = async (uid: string): Promise<UserProfile | null> =
   const docRef = doc(db, 'users', uid);
   const snap = await getDoc(docRef);
   if (snap.exists()) {
-    return snap.data() as UserProfile;
+    const data = snap.data() as UserProfile;
+    const email = (data.email || '').toLowerCase();
+    const name = (data.displayName || '').toLowerCase();
+
+    const isBhawna = email.includes('bhawna') || name.includes('bhawna');
+    const isAnshuman = email.includes('anshuman') || name.includes('anshuman');
+    const isNidhi = email.includes('nidhi') || name.includes('nidhi');
+    const isSuperAdmin = email === 'marketing.srkmodular@gmail.com' || email === 'rathoresangeeta217@gmail.com' || isBhawna || isAnshuman;
+    const isAdmin = isSuperAdmin || email === 'nidhi@srkmodular.com' || isNidhi;
+
+    if (isSuperAdmin && data.role !== 'super_admin') {
+      data.role = 'super_admin';
+      updateUserProfile(uid, { role: 'super_admin' }).catch(() => {});
+    } else if (isAdmin && data.role !== 'admin' && data.role !== 'super_admin') {
+      data.role = 'admin';
+      updateUserProfile(uid, { role: 'admin' }).catch(() => {});
+    }
+
+    return data;
   }
   return null;
 };

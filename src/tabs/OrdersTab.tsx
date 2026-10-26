@@ -27,6 +27,12 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
   const [uploadedFileData, setUploadedFileData] = useState<string | undefined>();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 15;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [dateFilter, statusFilter, salespersonFilter, startDate, endDate, searchQuery]);
 
   useEffect(() => {
     const unsubscribe = subscribeToOrders((fetchedOrders) => {
@@ -288,6 +294,13 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
     
     return getTime(b) - getTime(a); // Descending order (newest first)
   });
+
+  const totalEntries = filteredOrders.length;
+  const totalPages = Math.max(1, Math.ceil(totalEntries / pageSize));
+  const validCurrentPage = Math.min(currentPage, totalPages);
+  const startIndex = totalEntries === 0 ? 0 : (validCurrentPage - 1) * pageSize + 1;
+  const endIndex = Math.min(validCurrentPage * pageSize, totalEntries);
+  const paginatedOrders = filteredOrders.slice((validCurrentPage - 1) * pageSize, validCurrentPage * pageSize);
 
       const getOrdersStats = () => {
     const now = new Date();
@@ -680,7 +693,7 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
                     </td>
                   </tr>
                 ) : (
-                  filteredOrders.map((order, i) => (
+                  paginatedOrders.map((order, i) => (
                     <motion.tr 
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
@@ -766,16 +779,54 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
               </tbody>
             </table>
           </div>
-          <div className="px-6 py-4 bg-white flex items-center justify-between text-sm text-slate-500 font-medium">
-            <span>Showing 1 to 6 of 1,248 entries</span>
-            <div className="flex gap-1">
-              <button className="px-3 py-1 border border-slate-200 rounded hover:bg-slate-50 disabled:opacity-50 transition-colors" disabled>Prev</button>
-              <button className="px-3 py-1 border border-indigo-600 rounded bg-indigo-50 text-indigo-700 font-semibold shadow-sm">1</button>
-              <button className="px-3 py-1 border border-slate-200 rounded hover:bg-slate-50 transition-colors">2</button>
-              <button className="px-3 py-1 border border-slate-200 rounded hover:bg-slate-50 transition-colors">3</button>
-              <span className="px-2 py-1 text-slate-400">...</span>
-              <button className="px-3 py-1 border border-slate-200 rounded hover:bg-slate-50 transition-colors">Next</button>
-            </div>
+          <div className="px-6 py-4 bg-white flex items-center justify-between text-sm text-slate-500 font-medium border-t border-slate-100">
+            <span>
+              Showing {totalEntries === 0 ? 0 : startIndex} to {endIndex} of {totalEntries.toLocaleString()} entries
+            </span>
+            {totalPages > 1 && (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={validCurrentPage === 1}
+                  className="px-3 py-1 border border-slate-200 rounded hover:bg-slate-50 disabled:opacity-50 transition-colors text-xs font-semibold cursor-pointer"
+                >
+                  Prev
+                </button>
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter(p => p === 1 || p === totalPages || Math.abs(p - validCurrentPage) <= 2)
+                  .reduce((acc: (number | string)[], pageNum, i, arr) => {
+                    if (i > 0 && pageNum - (arr[i - 1] as number) > 1) {
+                      acc.push('...');
+                    }
+                    acc.push(pageNum);
+                    return acc;
+                  }, [])
+                  .map((p, idx) =>
+                    p === '...' ? (
+                      <span key={`dots-${idx}`} className="px-2 py-1 text-slate-400 text-xs">...</span>
+                    ) : (
+                      <button
+                        key={p}
+                        onClick={() => setCurrentPage(Number(p))}
+                        className={`px-3 py-1 border rounded text-xs font-semibold transition-colors cursor-pointer ${
+                          validCurrentPage === p
+                            ? 'border-indigo-600 bg-indigo-50 text-indigo-700 shadow-sm'
+                            : 'border-slate-200 hover:bg-slate-50 text-slate-600'
+                        }`}
+                      >
+                        {p}
+                      </button>
+                    )
+                  )}
+                <button
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={validCurrentPage === totalPages}
+                  className="px-3 py-1 border border-slate-200 rounded hover:bg-slate-50 disabled:opacity-50 transition-colors text-xs font-semibold cursor-pointer"
+                >
+                  Next
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </motion.div>

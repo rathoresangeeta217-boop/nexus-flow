@@ -43,6 +43,7 @@ export class ErrorBoundary extends Component<Props, State> {
             <button
               onClick={() => {
                 try {
+                  localStorage.clear();
                   sessionStorage.clear();
                 } catch (e) {}
                 window.location.reload();
@@ -54,6 +55,7 @@ export class ErrorBoundary extends Component<Props, State> {
             <button
               onClick={() => {
                 try {
+                  localStorage.clear();
                   sessionStorage.clear();
                 } catch (e) {}
                 window.location.href = '/';
