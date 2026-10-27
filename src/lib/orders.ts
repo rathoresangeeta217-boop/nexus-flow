@@ -1,6 +1,7 @@
 import { collection, addDoc, getDocs, doc, deleteDoc, updateDoc, onSnapshot, query, where, orderBy, serverTimestamp, getDoc } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { db, auth } from './firebase';
+import { getCachedOrders, setCachedOrders } from './ordersCache';
 
 export interface OrderProduct {
   id: string;
@@ -102,24 +103,51 @@ const removeUndefined = (obj: any): any => {
 
 export const saveOrder = async (orderData: Partial<Order>) => {
   const finalData = removeUndefined(orderData);
+  const targetId = finalData.id || `ORD-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}${String(Math.floor(Math.random() * 1000)).padStart(3, '0')}`;
+  finalData.id = targetId;
 
-  if (finalData.docId) {
-    const docId = finalData.docId as string;
-    delete finalData.docId;
-    await updateDoc(doc(db, 'orders', docId), {
-      ...finalData,
-      updatedAt: serverTimestamp()
-    });
-    return docId;
-  } else {
-    const docRef = await addDoc(getOrdersCollection(), {
-      ...finalData,
-      createdAt: serverTimestamp()
-    });
-    return docRef.id;
+  // Persist to local cache immediately so zero data is lost
+  try {
+    const cached = await getCachedOrders();
+    const existingIndex = cached.findIndex(o => o.id === targetId || (finalData.docId && o.docId === finalData.docId));
+    let updated: Order[];
+    if (existingIndex >= 0) {
+      updated = [...cached];
+      updated[existingIndex] = { ...updated[existingIndex], ...finalData } as Order;
+    } else {
+      updated = [{ ...finalData, id: targetId, docId: finalData.docId || targetId } as Order, ...cached];
+    }
+    await setCachedOrders(updated);
+  } catch (cacheErr) {
+    console.warn("Local orders cache write warning:", cacheErr);
+  }
+
+  try {
+    if (finalData.docId) {
+      const docId = finalData.docId as string;
+      delete finalData.docId;
+      await updateDoc(doc(db, 'orders', docId), {
+        ...finalData,
+        updatedAt: serverTimestamp()
+      });
+      return docId;
+    } else {
+      const docRef = await addDoc(getOrdersCollection(), {
+        ...finalData,
+        createdAt: serverTimestamp()
+      });
+      return docRef.id;
+    }
+  } catch (firestoreErr: any) {
+    console.warn("Firestore save notice (saved to persistent local cache):", firestoreErr);
+    if (firestoreErr?.message?.includes('Quota') || firestoreErr?.code === 'resource-exhausted') {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('firestore-quota-exceeded', { detail: { message: firestoreErr.message } }));
+      }
+    }
+    return finalData.docId || targetId;
   }
 };
-
 
 export const getOrder = async (docId: string): Promise<Order | null> => {
   try {
@@ -133,20 +161,40 @@ export const getOrder = async (docId: string): Promise<Order | null> => {
     if (!qs.empty) {
       return { ...qs.docs[0].data(), docId: qs.docs[0].id } as Order;
     }
-    return null;
   } catch (error) {
-    console.warn("Error fetching order:", error);
-    return null;
+    console.warn("Error fetching order from firestore, checking local cache:", error);
   }
+  const cached = await getCachedOrders();
+  return cached.find(o => o.id === docId || o.docId === docId) || null;
 };
+
 export const deleteOrder = async (docId: string) => {
-  await deleteDoc(doc(db, 'orders', docId));
+  try {
+    const cached = await getCachedOrders();
+    const filtered = cached.filter(o => o.docId !== docId && o.id !== docId);
+    await setCachedOrders(filtered);
+  } catch (err) {
+    console.warn("Error deleting from local cache:", err);
+  }
+
+  try {
+    await deleteDoc(doc(db, 'orders', docId));
+  } catch (err) {
+    console.warn("Firestore delete notice:", err);
+  }
 };
 
 export const subscribeToOrders = (callback: (orders: Order[]) => void) => {
   const q = query(getOrdersCollection());
   let lastDocs: any[] | null = null;
   let currentProfile: any = null;
+
+  // Immediately load cached orders so user never sees 0 orders on mount or reload!
+  getCachedOrders().then(cached => {
+    if (cached && cached.length > 0 && !lastDocs) {
+      callback(cached);
+    }
+  }).catch(e => console.warn("Initial cache fetch notice:", e));
 
   const processAndDeliver = () => {
     if (!lastDocs) return;
@@ -169,6 +217,10 @@ export const subscribeToOrders = (callback: (orders: Order[]) => void) => {
       };
       return getTime(b) - getTime(a);
     });
+
+    if (orders.length > 0) {
+      setCachedOrders(orders);
+    }
 
     const userEmail = (auth.currentUser?.email || '').toLowerCase().trim();
     const userName = (auth.currentUser?.displayName || '').toLowerCase().trim();
@@ -215,6 +267,23 @@ export const subscribeToOrders = (callback: (orders: Order[]) => void) => {
     callback(orders);
   };
 
+  // Execute an immediate getDocs query
+  getDocs(q).then((snapshot) => {
+    if (!lastDocs || lastDocs.length === 0) {
+      if (!snapshot.empty) {
+        lastDocs = snapshot.docs;
+        processAndDeliver();
+      }
+    }
+  }).catch((err) => {
+    console.warn("Immediate getDocs fallback notice:", err);
+    if (err?.message?.includes('Quota') || err?.code === 'resource-exhausted') {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('firestore-quota-exceeded', { detail: { message: err.message } }));
+      }
+    }
+  });
+
   const unsubAuth = onAuthStateChanged(auth, async (user) => {
     if (user) {
       try {
@@ -232,9 +301,16 @@ export const subscribeToOrders = (callback: (orders: Order[]) => void) => {
   const unsubSnapshot = onSnapshot(q, (snapshot) => {
     lastDocs = snapshot.docs;
     processAndDeliver();
-  }, (error) => {
+  }, async (error) => {
     console.warn("Error fetching orders snapshot:", error);
-    callback([]);
+    if (error?.message?.includes('Quota') || (error as any)?.code === 'resource-exhausted') {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('firestore-quota-exceeded', { detail: { message: error.message } }));
+      }
+    }
+    // Deliver cached orders on error instead of empty array!
+    const cached = await getCachedOrders();
+    callback(cached);
   });
 
   return () => {

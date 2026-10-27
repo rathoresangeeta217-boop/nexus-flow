@@ -145,14 +145,18 @@ export function getVendorPoPaymentSummary(po: any, vendorPayments: VendorPayment
   };
 }
 
+import { BASELINE_ORDERS } from '../lib/ordersCache';
+import { BASELINE_PAYMENTS } from '../lib/paymentsCache';
+
 export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
   const [activeTab, setActiveTab] = useState<'customer' | 'vendor'>('customer');
   const [paymentFilter, setPaymentFilter] = useState<PaymentFilterType>('all');
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [orders, setOrders] = useState<Order[]>(BASELINE_ORDERS);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   
-  const [customerPayments, setCustomerPayments] = useState<PaymentRecord[]>([]);
+  const [customerPayments, setCustomerPayments] = useState<PaymentRecord[]>(BASELINE_PAYMENTS);
   const [vendorPayments, setVendorPayments] = useState<VendorPaymentRecord[]>([]);
+  const [quotaExceeded, setQuotaExceeded] = useState(false);
   
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -167,6 +171,12 @@ export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
   const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
+    const onQuota = () => setQuotaExceeded(true);
+    window.addEventListener('firestore-quota-exceeded', onQuota);
+    return () => window.removeEventListener('firestore-quota-exceeded', onQuota);
+  }, []);
+
+  useEffect(() => {
     let isMounted = true;
 
     const loadInitialFallback = async () => {
@@ -177,7 +187,7 @@ export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
         ]);
         if (isMounted) {
           if (allP && allP.length > 0) {
-            setCustomerPayments(prev => prev.length === 0 ? allP : prev);
+            setCustomerPayments(allP);
           }
           if (allO && !allO.empty) {
             const rawOrders = allO.docs.map(doc => ({ 
@@ -185,26 +195,37 @@ export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
               id: doc.data().id || doc.id, 
               docId: doc.id 
             } as Order));
-            setOrders(prev => prev.length === 0 ? rawOrders : prev);
+            setOrders(rawOrders);
           }
         }
-      } catch (e) {
+      } catch (e: any) {
         console.warn('Initial payments fallback fetch warning:', e);
+        if (e?.message?.includes('Quota') || e?.code === 'resource-exhausted') {
+          setQuotaExceeded(true);
+        }
       }
     };
     loadInitialFallback();
 
     const unsubOrders = subscribeToOrders((fetchedOrders) => {
-      setOrders(fetchedOrders);
+      if (fetchedOrders && fetchedOrders.length > 0) {
+        setOrders(fetchedOrders);
+      }
     });
     const unsubPurchases = subscribeToPurchases((fetchedPurchases) => {
-      setPurchases(fetchedPurchases);
+      if (fetchedPurchases && fetchedPurchases.length > 0) {
+        setPurchases(fetchedPurchases);
+      }
     });
     const unsubCustPayments = subscribeToPayments((fetched) => {
-      setCustomerPayments(fetched);
+      if (fetched && fetched.length > 0) {
+        setCustomerPayments(fetched);
+      }
     });
     const unsubVendPayments = subscribeToVendorPayments((fetched) => {
-      setVendorPayments(fetched);
+      if (fetched && fetched.length > 0) {
+        setVendorPayments(fetched);
+      }
     });
     return () => {
       isMounted = false;
@@ -634,6 +655,26 @@ export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
           {isDownloading ? 'Downloading...' : 'Detailed Report'}
         </button>
       </div>
+
+      {/* Firestore Quota Notice Banner */}
+      {quotaExceeded && (
+        <div className="p-4 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-3">
+            <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
+            <div className="text-xs">
+              <span className="font-bold">Firestore Daily Free Quota Limit Reached.</span> Customer payments and receivables are operating safely from persistent local storage. Cloud sync resumes when quota resets tomorrow.
+            </div>
+          </div>
+          <a
+            href="https://console.firebase.google.com/project/gen-lang-client-0388415499/firestore/databases/ai-studio-nexusflowenterpr-71986131-a5cc-4eb8-8637-e19c6c912d2c/data?openUpgradeDialog=true"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs font-bold text-amber-900 underline hover:text-amber-950 shrink-0"
+          >
+            Upgrade in Firebase Console
+          </a>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex flex-wrap items-center justify-between gap-4">

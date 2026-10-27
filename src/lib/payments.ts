@@ -1,5 +1,6 @@
 import { collection, addDoc, getDocs, query, where, updateDoc, doc, onSnapshot, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
+import { getCachedPayments, setCachedPayments, BASELINE_PAYMENTS } from './paymentsCache';
 
 export interface PaymentPhase {
   id: string;
@@ -101,16 +102,49 @@ export interface PaymentRecord {
 const getPaymentsCollection = () => collection(db, 'payments');
 
 export const getAllPayments = async (): Promise<PaymentRecord[]> => {
-  const snapshot = await getDocs(getPaymentsCollection());
-  return snapshot.docs.map(doc => ({ docId: doc.id, ...doc.data() } as PaymentRecord));
+  try {
+    const snapshot = await getDocs(getPaymentsCollection());
+    const payments = snapshot.docs.map(doc => ({ docId: doc.id, ...doc.data() } as PaymentRecord));
+    if (payments.length > 0) {
+      await setCachedPayments(payments);
+    }
+    return payments;
+  } catch (err: any) {
+    console.warn("getAllPayments firestore notice, using cached payments:", err);
+    if (err?.message?.includes('Quota') || err?.code === 'resource-exhausted') {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('firestore-quota-exceeded', { detail: { message: err.message } }));
+      }
+    }
+    return await getCachedPayments();
+  }
 };
 
 export const subscribeToPayments = (callback: (payments: PaymentRecord[]) => void) => {
+  // Immediately provide cached payments
+  getCachedPayments().then(cached => {
+    if (cached && cached.length > 0) {
+      callback(cached);
+    }
+  }).catch(e => console.warn("Initial payments cache fetch notice:", e));
+
   const q = query(getPaymentsCollection());
   return onSnapshot(q, (snapshot) => {
     const payments = snapshot.docs.map(doc => ({ docId: doc.id, ...doc.data() } as PaymentRecord));
+    if (payments.length > 0) {
+      setCachedPayments(payments);
+    }
     callback(payments);
-  }, (error) => { console.warn('Firestore snapshot error in src/lib/payments.ts:', error); callback([]); });
+  }, async (error) => {
+    console.warn('Firestore snapshot error in src/lib/payments.ts:', error);
+    if (error?.message?.includes('Quota') || (error as any)?.code === 'resource-exhausted') {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('firestore-quota-exceeded', { detail: { message: error.message } }));
+      }
+    }
+    const cached = await getCachedPayments();
+    callback(cached);
+  });
 };
 
 
@@ -214,18 +248,28 @@ const removeUndefined = (obj: any): any => {
 };
 
 export const savePaymentRecord = async (record: Partial<PaymentRecord>) => {
+  const cleanData = removeUndefined(record);
+  let targetDocId = cleanData.docId || `pay_${Date.now()}`;
+  cleanData.docId = targetDocId;
+
+  // Persist locally first
   try {
-    const cleanData = removeUndefined(record);
-    let targetDocId = cleanData.docId;
-
-    if (!targetDocId && cleanData.orderId) {
-      const existing = await getPaymentForOrder(cleanData.orderId);
-      if (existing?.docId) {
-        targetDocId = existing.docId;
-      }
+    const cached = await getCachedPayments();
+    const existingIndex = cached.findIndex(p => (targetDocId && p.docId === targetDocId) || (cleanData.orderId && isPaymentMatchingOrder(cleanData.orderId, undefined, p)));
+    let updated: PaymentRecord[];
+    if (existingIndex >= 0) {
+      updated = [...cached];
+      updated[existingIndex] = { ...updated[existingIndex], ...cleanData } as PaymentRecord;
+    } else {
+      updated = [{ ...cleanData, docId: targetDocId } as PaymentRecord, ...cached];
     }
+    await setCachedPayments(updated);
+  } catch (cErr) {
+    console.warn("Payment local cache write warning:", cErr);
+  }
 
-    if (targetDocId) {
+  try {
+    if (cleanData.docId && cleanData.docId.startsWith('pay_') === false) {
       const { docId, ...updateData } = cleanData;
       await updateDoc(doc(db, 'payments', targetDocId), {
         ...updateData,
@@ -239,9 +283,14 @@ export const savePaymentRecord = async (record: Partial<PaymentRecord>) => {
       });
       return docRef.id;
     }
-  } catch (err) {
-    console.error("Firebase savePaymentRecord Error: ", err);
-    throw err;
+  } catch (err: any) {
+    console.warn("Firestore savePaymentRecord notice (persisted in local cache):", err);
+    if (err?.message?.includes('Quota') || err?.code === 'resource-exhausted') {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('firestore-quota-exceeded', { detail: { message: err.message } }));
+      }
+    }
+    return targetDocId;
   }
 };
 

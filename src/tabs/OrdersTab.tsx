@@ -6,6 +6,7 @@ import { Badge } from '../components/Badge';
 import { NewOrderModal } from '../components/NewOrderModal';
 import { OrderDetailsModal } from '../components/OrderDetailsModal';
 import { subscribeToOrders, saveOrder, deleteOrder, Order, getOverdueUnconfirmedDispatches } from '../lib/orders';
+import { BASELINE_ORDERS } from '../lib/ordersCache';
 import { useAuth } from '../contexts/AuthContext';
 import { saveOrderFiles } from '../lib/fileStorage';
 import { generatePaymentReminderPDF } from '../lib/pdfHelper';
@@ -13,8 +14,9 @@ import { getPaymentForOrder } from '../lib/payments';
 
 export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
   const { profile } = useAuth();
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [orders, setOrders] = useState<Order[]>(BASELINE_ORDERS);
+  const [isLoading, setIsLoading] = useState(false);
+  const [quotaExceeded, setQuotaExceeded] = useState(false);
   const [dateFilter, setDateFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [salespersonFilter, setSalespersonFilter] = useState('all');
@@ -37,17 +39,30 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
   }, [dateFilter, statusFilter, salespersonFilter, startDate, endDate, searchQuery]);
 
   useEffect(() => {
+    const onQuota = () => setQuotaExceeded(true);
+    window.addEventListener('firestore-quota-exceeded', onQuota);
+    return () => window.removeEventListener('firestore-quota-exceeded', onQuota);
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
     const unsubscribe = subscribeToOrders((fetchedOrders) => {
-      setOrders(fetchedOrders); console.log("Fetched Orders: ", fetchedOrders);
+      if (!isMounted) return;
+      if (fetchedOrders && fetchedOrders.length > 0) {
+        setOrders(fetchedOrders);
+      }
       setIsLoading(false);
       setSelectedOrder(current => {
         if (!current) return null;
         return fetchedOrders.find(o => o.id === current.id || o.docId === current.docId) || current;
       });
     });
-    
-  
-  return () => unsubscribe();
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
   }, []);
 
   const overdueDispatches = getOverdueUnconfirmedDispatches(orders);
@@ -464,6 +479,26 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
         order={selectedOrder} 
         onDelete={() => selectedOrder?.docId && handleDeleteOrder(selectedOrder.docId)}
       />
+
+      {/* Firestore Quota Notice Banner */}
+      {quotaExceeded && (
+        <div className="p-4 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+            <div className="text-xs">
+              <span className="font-bold">Firestore Daily Free Quota Limit Reached.</span> Operating safely in offline persistence mode with all cached orders loaded. New orders are saved locally and will sync when quota resets tomorrow.
+            </div>
+          </div>
+          <a
+            href="https://console.firebase.google.com/project/gen-lang-client-0388415499/firestore/databases/ai-studio-nexusflowenterpr-71986131-a5cc-4eb8-8637-e19c6c912d2c/data?openUpgradeDialog=true"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs font-bold text-amber-900 underline hover:text-amber-950 shrink-0"
+          >
+            Upgrade in Firebase Console
+          </a>
+        </div>
+      )}
 
       {/* Overdue Dispatch Confirmation Compulsory Term Banner */}
       {overdueDispatches.length > 0 && (

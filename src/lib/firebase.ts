@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { initializeFirestore, memoryLocalCache } from 'firebase/firestore';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
 import config from '../../firebase-applet-config.json';
@@ -15,26 +15,17 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
-// Clean up stale firestore localStorage keys to resolve QuotaExceededError in browser
+let db: any;
 try {
-  if (typeof window !== 'undefined') {
-    const ls = window.localStorage;
-    if (ls) {
-      for (let i = ls.length - 1; i >= 0; i--) {
-        const key = ls.key(i);
-        if (key && (key.includes('firestore') || key.includes('firebase'))) {
-          ls.removeItem(key);
-        }
-      }
-    }
-  }
+  db = initializeFirestore(app, {
+    localCache: persistentLocalCache({
+      tabManager: persistentMultipleTabManager()
+    })
+  }, config.firestoreDatabaseId);
 } catch (e) {
-  console.warn("Could not prune localStorage", e);
+  console.warn("Falling back to standard firestore initialization:", e);
+  db = initializeFirestore(app, {}, config.firestoreDatabaseId);
 }
-
-const db = initializeFirestore(app, {
-  localCache: memoryLocalCache()
-}, config.firestoreDatabaseId);
 
 const auth = getAuth(app);
 const storage = getStorage(app);
