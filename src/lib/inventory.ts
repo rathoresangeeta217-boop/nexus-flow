@@ -39,6 +39,14 @@ export interface RawMaterialItem {
   boardThickness?: string; // e.g. '18 mm'
   boardSize?: string; // e.g. '8 x 4'
   colorCode?: string; // e.g. 'SF 101'
+  // Custom fields for Chair / Chairs & Seating category
+  chairType?: string; // 'Executive Chair' | 'Ergonomic Mesh Chair' | 'Visitor Chair' | 'Task Chair' | 'Conference Chair'
+  chairArmrest?: string; // '3D / 4D Adjustable' | '2D Adjustable' | 'Fixed T-Armrest' | 'No Armrest'
+  chairMechanism?: string; // 'Synchro-Tilt Heavy Duty' | 'Push-Back Mechanism' | 'Single Lock'
+  chairBase?: string; // 'Heavy Duty Chrome Base' | 'High-Grade Nylon Base' | 'Aluminum Die-Cast Base'
+  chairUpholstery?: string; // 'Breathable Mesh' | 'Premium Leatherette' | 'Fabric'
+  chairColor?: string; // 'Black' | 'Grey' | 'Tan' | 'Blue'
+  chairBrand?: string; // 'Featherlite' | 'Steelcase' | 'Custom / OEM'
   challanOrPoNo?: string;
   receivedFrom?: string;
   invoiceDate?: string; // Actual date of bill / invoice
@@ -606,6 +614,13 @@ export async function saveRawMaterialItem(material: Partial<RawMaterialItem>): P
       boardThickness: material.boardThickness !== undefined ? material.boardThickness : existingItem.boardThickness,
       boardSize: material.boardSize !== undefined ? material.boardSize : existingItem.boardSize,
       colorCode: material.colorCode !== undefined ? material.colorCode : existingItem.colorCode,
+      chairType: material.chairType !== undefined ? material.chairType : existingItem.chairType,
+      chairArmrest: material.chairArmrest !== undefined ? material.chairArmrest : existingItem.chairArmrest,
+      chairMechanism: material.chairMechanism !== undefined ? material.chairMechanism : existingItem.chairMechanism,
+      chairBase: material.chairBase !== undefined ? material.chairBase : existingItem.chairBase,
+      chairUpholstery: material.chairUpholstery !== undefined ? material.chairUpholstery : existingItem.chairUpholstery,
+      chairColor: material.chairColor !== undefined ? material.chairColor : existingItem.chairColor,
+      chairBrand: material.chairBrand !== undefined ? material.chairBrand : existingItem.chairBrand,
       updatedAt: new Date().toISOString()
     };
 
@@ -648,6 +663,13 @@ export async function saveRawMaterialItem(material: Partial<RawMaterialItem>): P
       boardThickness: material.boardThickness || '',
       boardSize: material.boardSize || '',
       colorCode: material.colorCode || '',
+      chairType: material.chairType || '',
+      chairArmrest: material.chairArmrest || '',
+      chairMechanism: material.chairMechanism || '',
+      chairBase: material.chairBase || '',
+      chairUpholstery: material.chairUpholstery || '',
+      chairColor: material.chairColor || '',
+      chairBrand: material.chairBrand || '',
       invoiceDate: material.invoiceDate || (material as any).billDate || '',
       createdAt: material.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()

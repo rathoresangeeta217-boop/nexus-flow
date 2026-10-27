@@ -5,6 +5,7 @@ import { Badge } from './Badge';
 import { getOrderFiles } from '../lib/fileStorage';
 import { getPaymentForOrder, PaymentRecord, calculatePhaseGstAdjustment } from '../lib/payments';
 import { saveOrder } from '../lib/orders';
+import { generatePaymentReminderPDF } from '../lib/pdfHelper';
 import { Clock, TrendingUp, Edit2, Check, AlertTriangle } from 'lucide-react';
 
 interface OrderDetailsModalProps {
@@ -99,7 +100,7 @@ You have a new dispatch scheduled.\n\nOrder ID: ${order.id}\n${items}\n${vehicle
       setFiles({});
       Promise.all([
         getOrderFiles(order.id || order.docId),
-        getPaymentForOrder(order.id || order.docId)
+        getPaymentForOrder(order.id, order.docId, order.customer)
       ])
         .then(([fileData, paymentData]) => {
           setFiles(fileData || {});
@@ -186,12 +187,28 @@ You have a new dispatch scheduled.\n\nOrder ID: ${order.id}\n${items}\n${vehicle
                   </div>
                 </div>
               </div>
-              <button 
-                onClick={onClose}
-                className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={async () => {
+                    try {
+                      await generatePaymentReminderPDF(order, paymentRecord);
+                    } catch (err) {
+                      console.error('Error generating payment reminder notice:', err);
+                    }
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                  title="Download Payment Reminder Notice"
+                >
+                  <Download className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Payment Reminder</span>
+                </button>
+                <button 
+                  onClick={onClose}
+                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             <div className="p-6 overflow-y-auto custom-scrollbar space-y-8">
@@ -361,10 +378,25 @@ You have a new dispatch scheduled.\n\nOrder ID: ${order.id}\n${items}\n${vehicle
 
               {/* Financial Overview */}
               <div className="bg-slate-50 rounded-xl p-5 border border-slate-100">
-                <h4 className="text-sm font-bold text-slate-800 mb-4 border-b border-slate-200 pb-2 flex items-center gap-2">
-                  <TrendingUp className="w-4 h-4 text-emerald-600" />
-                  Financial Overview & Payment Details
-                </h4>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-2 mb-4">
+                  <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                    <TrendingUp className="w-4 h-4 text-emerald-600" />
+                    Financial Overview & Payment Details
+                  </h4>
+                  <button 
+                    onClick={async () => {
+                      try {
+                        await generatePaymentReminderPDF(order, paymentRecord);
+                      } catch (err) {
+                        console.error('Error generating payment reminder notice:', err);
+                      }
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold transition-colors shadow-2xs cursor-pointer w-fit"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Download Payment Reminder Notice
+                  </button>
+                </div>
                 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                   <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm">

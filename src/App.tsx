@@ -26,7 +26,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<TabName>(() => {
     const path = window.location.pathname;
     if (path.startsWith('/admin')) return 'Products';
-    return 'Orders';
+    return 'Storefront';
   });
   const [quoteId, setQuoteId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');

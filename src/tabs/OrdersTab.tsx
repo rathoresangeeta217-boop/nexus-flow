@@ -8,6 +8,8 @@ import { OrderDetailsModal } from '../components/OrderDetailsModal';
 import { subscribeToOrders, saveOrder, deleteOrder, Order, getOverdueUnconfirmedDispatches } from '../lib/orders';
 import { useAuth } from '../contexts/AuthContext';
 import { saveOrderFiles } from '../lib/fileStorage';
+import { generatePaymentReminderPDF } from '../lib/pdfHelper';
+import { getPaymentForOrder } from '../lib/payments';
 
 export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
   const { profile } = useAuth();
@@ -761,6 +763,17 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
                           className="w-full px-3 py-1.5 hover:bg-indigo-50/70 flex items-center gap-2 text-indigo-700 font-bold cursor-pointer transition-colors"
                         >
                           <FileText className="w-3.5 h-3.5 text-indigo-600" /> View Order Details
+                        </button>
+
+                        <button 
+                          onClick={async () => { 
+                            setActiveMenuOrderId(null); 
+                            const pData = await getPaymentForOrder(order.id, order.docId);
+                            generatePaymentReminderPDF(order, pData);
+                          }}
+                          className="w-full px-3 py-1.5 hover:bg-amber-50 flex items-center gap-2 text-amber-800 font-bold cursor-pointer transition-colors"
+                        >
+                          <Download className="w-3.5 h-3.5 text-amber-600" /> Payment Reminder Notice
                         </button>
 
                         <div className="border-t border-slate-100 pt-1">

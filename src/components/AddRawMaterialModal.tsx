@@ -12,6 +12,7 @@ interface AddRawMaterialModalProps {
 }
 
 const CATEGORIES = [
+  'Chairs & Seating',
   'Hardware & Fasteners',
   'Plywood & Boards',
   'Edge Banding',
@@ -21,6 +22,63 @@ const CATEGORIES = [
   'Adhesives & Chemicals',
   'Glass & Acrylic',
   'General Consumables'
+];
+
+const CHAIR_TYPES = [
+  'Executive Chair',
+  'Ergonomic Mesh Chair',
+  'Visitor / Guest Chair',
+  'Task / Workstation Chair',
+  'Boss / High Back Chair',
+  'Conference Room Chair',
+  'Cafe / Canteen Chair'
+];
+
+const CHAIR_ARMRESTS = [
+  '3D / 4D Adjustable',
+  '2D Adjustable',
+  'Fixed T-Armrest',
+  'Polypropylene Fixed',
+  'No Armrest'
+];
+
+const CHAIR_MECHANISMS = [
+  'Synchro-Tilt Heavy Duty',
+  'Push-Back Mechanism',
+  'Single Position Lock',
+  'Multi-Lock Heavy Duty'
+];
+
+const CHAIR_BASES = [
+  'Heavy Duty Chrome Base',
+  'High-Grade Nylon Base',
+  'Aluminum Die-Cast Base',
+  'Wooden Base'
+];
+
+const CHAIR_UPHOLSTERIES = [
+  'Breathable Mesh',
+  'Premium Leatherette',
+  'High-Density Fabric',
+  'Genuine Leather'
+];
+
+const CHAIR_COLORS = [
+  'Black',
+  'Grey',
+  'Tan / Brown',
+  'Blue',
+  'Maroon',
+  'Custom'
+];
+
+const CHAIR_BRANDS = [
+  'Featherlite',
+  'Steelcase',
+  'Herman Miller',
+  'Merryfair',
+  'Green Soul',
+  'Custom / OEM'
 ];
 
 const UNITS = [
@@ -132,7 +190,32 @@ export const AddRawMaterialModal: React.FC<AddRawMaterialModalProps> = ({
     initialItem?.colorCode || ''
   );
 
+  // Custom chair fields state
+  const [chairType, setChairType] = useState<string>(
+    initialItem?.chairType || 'Executive Chair'
+  );
+  const [chairArmrest, setChairArmrest] = useState<string>(
+    initialItem?.chairArmrest || '3D / 4D Adjustable'
+  );
+  const [chairMechanism, setChairMechanism] = useState<string>(
+    initialItem?.chairMechanism || 'Synchro-Tilt Heavy Duty'
+  );
+  const [chairBase, setChairBase] = useState<string>(
+    initialItem?.chairBase || 'Heavy Duty Chrome Base'
+  );
+  const [chairUpholstery, setChairUpholstery] = useState<string>(
+    initialItem?.chairUpholstery || 'Breathable Mesh'
+  );
+  const [chairColor, setChairColor] = useState<string>(
+    initialItem?.chairColor || 'Black'
+  );
+  const [chairBrand, setChairBrand] = useState<string>(
+    initialItem?.chairBrand || 'Featherlite'
+  );
+  const [customChairBrand, setCustomChairBrand] = useState<string>('');
+
   const isBoardCategory = category === 'Plywood & Boards' || category.toLowerCase().includes('board') || category.toLowerCase().includes('plywood');
+  const isChairCategory = category === 'Chairs & Seating' || category.toLowerCase().includes('chair') || category.toLowerCase().includes('seating');
 
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -168,10 +251,10 @@ export const AddRawMaterialModal: React.FC<AddRawMaterialModalProps> = ({
     if (isOpen) {
       setName(initialItem?.name || '');
       setSku(initialItem?.sku || '');
-      setCategory(initialItem?.category || 'Plywood & Boards');
+      setCategory(initialItem?.category || 'Chairs & Seating');
       setSpecs(initialItem?.specs || '');
       setAvailableQuantity(initialItem ? String(initialItem.availableQuantity) : '100');
-      setUnit(initialItem?.unit || 'Sheet');
+      setUnit(initialItem?.unit || (initialItem?.category?.toLowerCase().includes('board') ? 'Sheet' : 'Nos'));
       setMinThreshold(initialItem?.minThreshold !== undefined ? String(initialItem.minThreshold) : '20');
       setImageUrl(initialItem?.imageUrl || '');
       setImageName(initialItem?.imageName || '');
@@ -199,6 +282,14 @@ export const AddRawMaterialModal: React.FC<AddRawMaterialModalProps> = ({
       setBoardThickness(initialItem?.boardThickness || '18 mm');
       setBoardSize(initialItem?.boardSize || '8 x 4');
       setColorCode(initialItem?.colorCode || '');
+      setChairType(initialItem?.chairType || 'Executive Chair');
+      setChairArmrest(initialItem?.chairArmrest || '3D / 4D Adjustable');
+      setChairMechanism(initialItem?.chairMechanism || 'Synchro-Tilt Heavy Duty');
+      setChairBase(initialItem?.chairBase || 'Heavy Duty Chrome Base');
+      setChairUpholstery(initialItem?.chairUpholstery || 'Breathable Mesh');
+      setChairColor(initialItem?.chairColor || 'Black');
+      setChairBrand(initialItem?.chairBrand || 'Featherlite');
+      setCustomChairBrand('');
       setError(null);
     } else {
       stopCamera();
@@ -336,6 +427,7 @@ export const AddRawMaterialModal: React.FC<AddRawMaterialModalProps> = ({
       const generatedSku = sku.trim() || `RM-${name.trim().substring(0, 4).toUpperCase().replace(/[^A-Z]/g, '')}-${Math.floor(100 + Math.random() * 900)}`;
 
       const effectiveComp = boardCompany === 'Custom' ? customCompany : boardCompany;
+      const effectiveChairBrand = chairBrand === 'Custom' ? customChairBrand : chairBrand;
 
       const materialData: Partial<RawMaterialItem> = {
         ...(initialItem?.id ? { id: initialItem.id, docId: initialItem.docId } : {}),
@@ -357,6 +449,13 @@ export const AddRawMaterialModal: React.FC<AddRawMaterialModalProps> = ({
         boardThickness: isBoardCategory ? boardThickness : undefined,
         boardSize: isBoardCategory ? boardSize : undefined,
         colorCode: isBoardCategory ? colorCode : undefined,
+        chairType: isChairCategory ? chairType : undefined,
+        chairArmrest: isChairCategory ? chairArmrest : undefined,
+        chairMechanism: isChairCategory ? chairMechanism : undefined,
+        chairBase: isChairCategory ? chairBase : undefined,
+        chairUpholstery: isChairCategory ? chairUpholstery : undefined,
+        chairColor: isChairCategory ? chairColor : undefined,
+        chairBrand: isChairCategory ? effectiveChairBrand : undefined,
         challanOrPoNo: challanOrPoNo.trim(),
         receivedFrom: receivedFrom.trim()
       };
@@ -380,6 +479,16 @@ export const AddRawMaterialModal: React.FC<AddRawMaterialModalProps> = ({
     const effectiveComp = boardCompany === 'Custom' ? customCompany : boardCompany;
     const computedName = `${boardThickness} ${effectiveComp ? effectiveComp + ' ' : ''}${boardClassification !== 'Plywood' && boardClassification !== 'PLPB' ? boardClassification + ' ' : ''}${boardType} (${boardSize})${colorCode ? ` - ${colorCode}` : ''}`.trim();
     const computedSpecs = `Class: ${boardClassification} | Type: ${boardType} | Company: ${effectiveComp || 'Standard'} | Thickness: ${boardThickness} | Size: ${boardSize} ft${colorCode ? ` | Color: ${colorCode}` : ''}`;
+    
+    setName(computedName);
+    setSpecs(computedSpecs);
+  };
+
+  // Helper function to auto-compose product name and specifications from chair inputs
+  const applyChairAutoFill = () => {
+    const effectiveBrand = chairBrand === 'Custom' ? customChairBrand : chairBrand;
+    const computedName = `${chairType} - ${chairColor} (${chairUpholstery}, ${chairMechanism})${effectiveBrand ? ` [${effectiveBrand}]` : ''}`.trim();
+    const computedSpecs = `Type: ${chairType} | Armrest: ${chairArmrest} | Mechanism: ${chairMechanism} | Base: ${chairBase} | Upholstery: ${chairUpholstery} | Color: ${chairColor}${effectiveBrand ? ` | Brand: ${effectiveBrand}` : ''}`;
     
     setName(computedName);
     setSpecs(computedSpecs);
@@ -452,6 +561,8 @@ export const AddRawMaterialModal: React.FC<AddRawMaterialModalProps> = ({
                   setCategory(newCat);
                   if (newCat === 'Plywood & Boards' || newCat.toLowerCase().includes('board') || newCat.toLowerCase().includes('plywood')) {
                     setUnit('Sheet');
+                  } else if (newCat === 'Chairs & Seating' || newCat.toLowerCase().includes('chair')) {
+                    setUnit('Nos');
                   }
                 }}
                 className="w-full px-3.5 py-2.5 rounded-xl border border-indigo-200 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 text-sm font-bold text-slate-900 bg-white"
@@ -477,6 +588,179 @@ export const AddRawMaterialModal: React.FC<AddRawMaterialModalProps> = ({
               </select>
             </div>
           </div>
+
+          {/* CUSTOM FIELDS FOR CHAIRS & SEATING CATEGORY */}
+          {isChairCategory && (
+            <div className="p-4 bg-sky-50/70 border-2 border-sky-300/80 rounded-2xl space-y-4 shadow-xs">
+              <div className="flex items-center justify-between pb-2 border-b border-sky-200">
+                <div className="flex items-center gap-2">
+                  <span className="p-1.5 rounded-lg bg-sky-600 text-white font-black text-xs">
+                    CHAIR
+                  </span>
+                  <div>
+                    <h4 className="text-xs font-bold text-sky-950 uppercase tracking-wider">
+                      Chair &amp; Seating Custom Attributes
+                    </h4>
+                    <p className="text-[11px] text-sky-800">
+                      Configure chair type, armrests, mechanism, base, material, color, and brand
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={applyChairAutoFill}
+                  className="px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  title="Auto-generate product name and specifications from these chair selections"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Auto-Fill Name &amp; Specs</span>
+                </button>
+              </div>
+
+              {/* 1. Chair Type & Brand */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-sky-900 uppercase tracking-wider mb-1">
+                    Chair Type / Classification
+                  </label>
+                  <select
+                    value={chairType}
+                    onChange={(e) => setChairType(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-sky-300 text-xs font-bold text-slate-900 bg-white"
+                  >
+                    {CHAIR_TYPES.map(t => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-sky-900 uppercase tracking-wider mb-1">
+                    Upholstery Material
+                  </label>
+                  <select
+                    value={chairUpholstery}
+                    onChange={(e) => setChairUpholstery(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-sky-300 text-xs font-bold text-slate-900 bg-white"
+                  >
+                    {CHAIR_UPHOLSTERIES.map(u => (
+                      <option key={u} value={u}>{u}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* 2. Armrest & Mechanism */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-sky-900 uppercase tracking-wider mb-1">
+                    Armrest Type
+                  </label>
+                  <select
+                    value={chairArmrest}
+                    onChange={(e) => setChairArmrest(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-sky-300 text-xs font-bold text-slate-900 bg-white"
+                  >
+                    {CHAIR_ARMRESTS.map(a => (
+                      <option key={a} value={a}>{a}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-sky-900 uppercase tracking-wider mb-1">
+                    Tilt &amp; Adjustment Mechanism
+                  </label>
+                  <select
+                    value={chairMechanism}
+                    onChange={(e) => setChairMechanism(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-sky-300 text-xs font-bold text-slate-900 bg-white"
+                  >
+                    {CHAIR_MECHANISMS.map(m => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* 3. Base & Brand */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-sky-900 uppercase tracking-wider mb-1">
+                    Chair Base
+                  </label>
+                  <select
+                    value={chairBase}
+                    onChange={(e) => setChairBase(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-sky-300 text-xs font-bold text-slate-900 bg-white"
+                  >
+                    {CHAIR_BASES.map(b => (
+                      <option key={b} value={b}>{b}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-sky-900 uppercase tracking-wider mb-1">
+                    Brand / Manufacturer
+                  </label>
+                  <div className="flex gap-1.5">
+                    <select
+                      value={chairBrand}
+                      onChange={(e) => setChairBrand(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-sky-300 text-xs font-bold text-slate-900 bg-white"
+                    >
+                      {CHAIR_BRANDS.map(br => (
+                        <option key={br} value={br}>{br}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {chairBrand === 'Custom / OEM' && (
+                    <input
+                      type="text"
+                      value={customChairBrand}
+                      onChange={(e) => setCustomChairBrand(e.target.value)}
+                      placeholder="Type custom brand / OEM name..."
+                      className="w-full px-3 py-1.5 rounded-xl border border-sky-300 text-xs font-medium text-slate-900 bg-white mt-1.5"
+                    />
+                  )}
+                </div>
+              </div>
+
+              {/* 4. Color Selection */}
+              <div>
+                <label className="block text-xs font-bold text-sky-900 uppercase tracking-wider mb-1">
+                  Chair Color / Shade
+                </label>
+                <div className="flex flex-wrap gap-1.5 mb-1">
+                  {CHAIR_COLORS.map(clr => (
+                    <button
+                      key={clr}
+                      type="button"
+                      onClick={() => setChairColor(clr)}
+                      className={`text-xs px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                        chairColor === clr
+                          ? 'bg-sky-700 text-white shadow-xs'
+                          : 'bg-white text-slate-700 hover:bg-sky-100 border border-sky-200'
+                      }`}
+                    >
+                      {clr}
+                    </button>
+                  ))}
+                </div>
+                {chairColor === 'Custom' && (
+                  <input
+                    type="text"
+                    value={chairColor}
+                    onChange={(e) => setChairColor(e.target.value)}
+                    placeholder="Enter custom color (e.g. Dual Tone Red/Black, Olive Green...)"
+                    className="w-full px-3 py-1.5 rounded-xl border border-sky-300 text-xs font-medium text-slate-900 bg-white mt-1.5"
+                  />
+                )}
+              </div>
+            </div>
+          )}
 
           {/* CUSTOM FIELDS FOR PLYWOOD & BOARD CATEGORY */}
           {isBoardCategory && (

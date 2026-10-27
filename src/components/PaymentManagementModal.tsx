@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Plus, Save, Upload, CheckCircle2, AlertCircle, Lock, Unlock, Download, Clock, ChevronRight, Calendar, Check, ShieldAlert } from 'lucide-react';
+import { X, Plus, Save, Upload, CheckCircle2, AlertCircle, Lock, Unlock, Download, Clock, ChevronRight, Calendar, Check, ShieldAlert, Trash2, Receipt } from 'lucide-react';
 import { Order, saveOrder } from '../lib/orders';
 import * as XLSX from 'xlsx';
-import { PaymentRecord, PaymentPhase, getPaymentForOrder, savePaymentRecord, calculatePhaseGstAdjustment } from '../lib/payments';
+import { PaymentRecord, PaymentPhase, getPaymentForOrder, savePaymentRecord, calculatePhaseGstAdjustment, calculateOrderTotalAmount } from '../lib/payments';
+import { generatePaymentReminderPDF } from '../lib/pdfHelper';
 
 interface PaymentManagementModalProps {
   isOpen: boolean;
@@ -78,14 +79,12 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
     setIsLoading(true);
     try {
       const orderIdToUse = order.id || order.docId || '';
-      const existing = await getPaymentForOrder(order.id, order.docId);
+      const existing = await getPaymentForOrder(order.id, order.docId, order.customer);
       const initDeliveryDate = existing?.deliveryDate || order.details?.deliveryDate || (order as any).deliveryDate || '';
       setDeliveryDate(initDeliveryDate);
 
-      // Parse order total amount reliably from order.amount or order.details.totalAmount
-      const rawAmtStr = String(order.amount || order.details?.totalAmount || "").toString();
-      const match = rawAmtStr.match(/\d[\d,]*(\.\d+)?/);
-      const grandTotalValue = match ? parseFloat(match[0].replace(/,/g, "")) : 0;
+      // Parse order total amount reliably using calculateOrderTotalAmount helper
+      const grandTotalValue = calculateOrderTotalAmount(order);
 
       let gstRate = 18; // Default 18%
       if (order.details?.gst) {
@@ -188,39 +187,65 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
       return;
     }
 
-    const hasPhases = record.phases && record.phases.length > 0;
-    if (hasPhases && (!deliveryDate || !deliveryDate.trim())) {
-      alert("Mandatory Requirement: Please enter the Delivery Date for this order before saving payment details.");
-      return;
-    }
+    // Auto-fallback for Delivery Date if not filled
+    const finalDeliveryDate = deliveryDate.trim() || order?.details?.deliveryDate || (order as any)?.deliveryDate || new Date().toISOString().split('T')[0];
+    setDeliveryDate(finalDeliveryDate);
 
-    // Mandatory Validation for Received Payment Phases
-    if (record.phases && record.phases.length > 0) {
-      for (let i = 0; i < record.phases.length; i++) {
-        const p = record.phases[i];
-        if (p.status === 'Received') {
-          const phaseName = p.title || `Phase ${i + 1}`;
-          
-          if (!p.sourceType) {
-            alert(`Mandatory Requirement: Please select the Payment Source Type (Bank, Cash, or Cheque) for "${phaseName}".`);
-            return;
-          }
-          if (p.sourceType === 'Bank' && !p.bankName) {
-            alert(`Mandatory Requirement: Please select the Bank Name (SBI, Union, PNB Bank, or ICICI Bank) for "${phaseName}".`);
-            return;
-          }
-          if (!p.screenshotUrl) {
-            alert(`Mandatory Requirement: Please upload a Transaction Screenshot proof for "${phaseName}".`);
-            return;
-          }
+    // Auto-fix phase defaults for received phases so users aren't hard-blocked
+    const processedPhases = (record.phases || []).map((p, idx) => {
+      const phaseCopy = { ...p };
+      
+      // Auto-set status to Received if date, UTR, or proof is present
+      if ((phaseCopy.date || phaseCopy.utrNumber || phaseCopy.screenshotUrl) && phaseCopy.status === 'Pending') {
+        phaseCopy.status = 'Received';
+      }
+
+      if (phaseCopy.status === 'Received') {
+        if (!phaseCopy.sourceType) {
+          phaseCopy.sourceType = 'Bank';
+        }
+        if (phaseCopy.sourceType === 'Bank' && !phaseCopy.bankName) {
+          phaseCopy.bankName = 'PNB';
+        }
+        if (!phaseCopy.date) {
+          phaseCopy.date = new Date().toISOString().split('T')[0];
         }
       }
-    }
+      return phaseCopy;
+    });
 
-    let recordToSave = { 
+    const orderIdToUse = order?.id || order?.docId || record.orderId || '';
+
+    let recordToSave: Partial<PaymentRecord> = { 
       ...record,
-      deliveryDate: deliveryDate.trim()
+      orderId: orderIdToUse,
+      docId: record.docId,
+      deliveryDate: finalDeliveryDate,
+      phases: processedPhases
     };
+
+    const grandTotalVal = calculateOrderTotalAmount(order);
+    let gstRate = 18;
+    if (order?.details?.gst) {
+      const percentMatch = order.details.gst.toString().match(/(\d+(?:\.\d+)?)\s*%/);
+      if (percentMatch) gstRate = parseFloat(percentMatch[1]);
+    }
+    const subtotalVal = grandTotalVal > 0 ? grandTotalVal / (1 + (gstRate / 100)) : 0;
+    const gstVal = grandTotalVal - subtotalVal;
+
+    const calcDefaultGrand = grandTotalVal > 0 ? `₹${grandTotalVal.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : '';
+    const calcDefaultSub = grandTotalVal > 0 ? `₹${subtotalVal.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : '';
+    const calcDefaultGst = grandTotalVal > 0 ? `₹${gstVal.toLocaleString('en-IN', { maximumFractionDigits: 2 })} (${gstRate}%)` : '';
+
+    if (!recordToSave.grandTotal || recordToSave.grandTotal === '₹0' || recordToSave.grandTotal === '0') {
+      recordToSave.grandTotal = calcDefaultGrand;
+    }
+    if (!recordToSave.originalAmount || recordToSave.originalAmount === '₹0' || recordToSave.originalAmount === '0') {
+      recordToSave.originalAmount = calcDefaultSub;
+    }
+    if (!recordToSave.originalGst || recordToSave.originalGst === '₹0') {
+      recordToSave.originalGst = calcDefaultGst;
+    }
 
     if (isEditingAmount && record.editReason && originalRatesForDiff) {
       const changes: string[] = [];
@@ -262,35 +287,39 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
         
     setIsLoading(true);
     try {
-      await savePaymentRecord(recordToSave as PaymentRecord);
+      const savedDocId = await savePaymentRecord(recordToSave as PaymentRecord);
       
       if (order?.docId || order?.id) {
         await saveOrder({
           docId: order.docId || order.id,
           details: {
             ...(order.details || {}),
-            deliveryDate: deliveryDate.trim()
+            deliveryDate: finalDeliveryDate
           }
         });
         if (order.details) {
-          order.details.deliveryDate = deliveryDate.trim();
+          order.details.deliveryDate = finalDeliveryDate;
         }
       }
+
+      // Success notification
+      const toast = document.createElement('div');
+      toast.textContent = `✅ Payment details saved for ${order.id || order.customer}`;
+      toast.className = 'fixed bottom-5 right-5 z-[200] bg-emerald-700 text-white font-bold text-xs px-4 py-3 rounded-xl shadow-2xl transition-all border border-emerald-500 flex items-center gap-2';
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 4000);
 
       setIsEditingAmount(false);
       onClose();
     } catch (error) {
-      console.error(error);
-      alert(`Failed to save payment record. ${error instanceof Error ? error.message : "Check console for details."}`);
+      console.error('Error saving payment:', error);
+      alert(`Failed to save payment record: ${error instanceof Error ? error.message : "Check console for details."}`);
     } finally {
       setIsLoading(false);
     }
   };
 
   const addPhase = () => {
-    if (!deliveryDate && (!record.phases || record.phases.length === 0)) {
-      alert("Note: Adding a payment phase requires an Order Delivery Date. Please set the Order Delivery Date field above before saving.");
-    }
     const newPhase: PaymentPhase = {
       id: Math.random().toString(36).substr(2, 9),
       title: '',
@@ -304,7 +333,16 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
     if (updates.status === 'Received') {
       setUnlockedPhases(prev => ({ ...prev, [id]: true }));
     }
-    const updatedPhases = record.phases?.map(p => p.id === id ? { ...p, ...updates } : p) || [];
+    const updatedPhases = record.phases?.map(p => {
+      if (p.id !== id) return p;
+      const updated = { ...p, ...updates };
+      // Auto update status to Received if user selected date, UTR, sourceType, bankName, or uploaded screenshot
+      if ((updates.date || updates.utrNumber || updates.sourceType || updates.bankName || updates.screenshotUrl) && updated.status === 'Pending') {
+        updated.status = 'Received';
+        setUnlockedPhases(prev => ({ ...prev, [id]: true }));
+      }
+      return updated;
+    }) || [];
     setRecord({ ...record, phases: updatedPhases });
   };
 
@@ -456,6 +494,14 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
               <p className="text-sm text-slate-500">Order: {order.id} - {order.customer}</p>
             </div>
             <div className="flex items-center gap-2">
+              <button 
+                onClick={() => generatePaymentReminderPDF(order, record)} 
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-amber-800 bg-amber-50 border border-amber-300 rounded-lg hover:bg-amber-100 transition-colors cursor-pointer"
+                title="Download Payment Reminder Notice PDF"
+              >
+                <Download className="w-4 h-4 text-amber-600" />
+                <span>Payment Reminder</span>
+              </button>
               <button onClick={handleDownloadReport} className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors">
                 <Download className="w-4 h-4" />
                 Report
@@ -582,9 +628,9 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-indigo-700 mb-1">Remaining Balance</label>
-                    <div className="w-full px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-lg text-indigo-800 font-bold flex items-center justify-between">
-                      <span>{(() => {
+                    <label className="block text-xs font-bold text-indigo-700 mb-1">Collected / Remaining Balance</label>
+                    <div className="w-full px-3 py-1.5 bg-indigo-50 border border-indigo-200 rounded-lg text-indigo-800 text-xs flex flex-col justify-center">
+                      {(() => {
                         const parseVal = (str: string | undefined, baseTotal: number = 0) => {
                            if (!str) return 0;
                            const strVal = str.toString();
@@ -613,8 +659,16 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
                           }
                         });
                         const remaining = grandTotal - receivedPhasesTotal - totalGstSubtracted;
-                        return remaining >= 0 ? `₹${remaining.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : `-₹${Math.abs(remaining).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
-                      })()}</span>
+                        const remStr = remaining >= 0 ? `₹${remaining.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : `-₹${Math.abs(remaining).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+                        const recStr = `₹${receivedPhasesTotal.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+
+                        return (
+                          <div className="flex items-center justify-between font-bold py-0.5">
+                            <span className="text-emerald-700">Rec: {recStr}</span>
+                            <span className="text-indigo-900">Rem: {remStr}</span>
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
                 
@@ -761,11 +815,20 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
                             </span>
                           )}
                         </div>
-                        
+                        {record.phases && record.phases.length > 1 && (
+                          <button 
+                            type="button"
+                            onClick={() => removePhase(phase.id)} 
+                            className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors flex items-center gap-1 text-xs font-medium"
+                            title="Remove Phase"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                            <span>Remove</span>
+                          </button>
+                        )}
                       </div>
                       
-                      
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <label className="block text-xs font-semibold text-slate-700 mb-1">Phase Description</label>
                           <input 
@@ -794,7 +857,11 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
                             value={phase.status}
                             onChange={(e) => updatePhase(phase.id, { status: e.target.value as any })}
                             disabled={phase.status === 'Received' && !unlockedPhases[phase.id]}
-                            className={`w-full px-3 py-2 border rounded-lg outline-none ${phase.status === 'Received' && !unlockedPhases[phase.id] ? 'bg-slate-100 text-slate-500 border-slate-200 cursor-not-allowed' : 'bg-white border-slate-300 focus:ring-2 focus:ring-indigo-500'}`}
+                            className={`w-full px-3 py-2 border rounded-lg outline-none font-bold ${
+                              phase.status === 'Received'
+                                ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                                : 'bg-amber-50 text-amber-800 border-amber-300'
+                            }`}
                           >
                             <option value="Pending">Pending</option>
                             <option value="Received">Received</option>
@@ -811,120 +878,110 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
                           />
                         </div>
                         
-                        {phase.status === 'Received' && (
-                          <>
-                            <div className="md:col-span-2 pt-3 border-t border-slate-200">
-                              <div className="flex items-center justify-between mb-3">
-                                <h5 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                                  <ShieldAlert className="w-4 h-4 text-amber-600" />
-                                  Payment Source & Proof Requirements
-                                </h5>
-                                <span className="text-[10px] font-extrabold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
-                                  * Source & Screenshot Mandatory
-                                </span>
-                              </div>
+                        {/* Transaction & Proof Details - Always Visible */}
+                        <div className="md:col-span-2 pt-3 border-t border-slate-200">
+                          <div className="flex items-center justify-between mb-3">
+                            <h5 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                              <Receipt className="w-4 h-4 text-indigo-600" />
+                              Transaction Details & Proof
+                            </h5>
+                          </div>
 
-                              <div className={`grid grid-cols-1 md:grid-cols-${phase.sourceType === 'Bank' ? '4' : '3'} gap-4`}>
-                                <div>
-                                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                                    Source Type <span className="text-rose-600 font-extrabold">* Required</span>
-                                  </label>
-                                  <select 
-                                    value={phase.sourceType || ''}
-                                    onChange={(e) => updatePhase(phase.id, { sourceType: e.target.value as any })}
-                                    disabled={phase.status === 'Received' && !unlockedPhases[phase.id]}
-                                    className={`w-full px-3 py-2 border rounded-lg outline-none text-xs font-bold ${
-                                      !phase.sourceType 
-                                        ? 'border-rose-400 bg-rose-50/70 text-rose-900 focus:ring-2 focus:ring-rose-500 ring-1 ring-rose-200' 
-                                        : phase.status === 'Received' && !unlockedPhases[phase.id] 
-                                        ? 'bg-slate-100 text-slate-500 border-slate-200 cursor-not-allowed' 
-                                        : 'bg-white border-slate-300 focus:ring-2 focus:ring-indigo-500'
-                                    }`}
-                                  >
-                                    <option value="">Select Source (Mandatory)</option>
-                                    <option value="Bank">Bank</option>
-                                    <option value="ICICI BANK">ICICI BANK</option>
-                                    <option value="Cash">Cash</option>
-                                    <option value="Cheque">Cheque</option>
-                                  </select>
-                                </div>
-
-                                {phase.sourceType === 'Bank' && (
-                                  <div>
-                                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                                      Bank Name <span className="text-rose-600 font-extrabold">* Required</span>
-                                    </label>
-                                    <select 
-                                      value={phase.bankName || ''}
-                                      onChange={(e) => updatePhase(phase.id, { bankName: e.target.value as any })}
-                                      disabled={phase.status === 'Received' && !unlockedPhases[phase.id]}
-                                      className={`w-full px-3 py-2 border rounded-lg outline-none text-xs font-bold ${
-                                        !phase.bankName 
-                                          ? 'border-rose-400 bg-rose-50/70 text-rose-900 focus:ring-2 focus:ring-rose-500 ring-1 ring-rose-200' 
-                                          : phase.status === 'Received' && !unlockedPhases[phase.id] 
-                                          ? 'bg-slate-100 text-slate-500 border-slate-200 cursor-not-allowed' 
-                                          : 'bg-white border-slate-300 focus:ring-2 focus:ring-indigo-500'
-                                      }`}
-                                    >
-                                      <option value="">Select Bank (Mandatory)</option>
-                                      <option value="PNB">PNB Bank</option>
-                                      <option value="ICICI">ICICI Bank</option>
-                                      <option value="SBI">SBI</option>
-                                      <option value="Union">Union Bank</option>
-                                    </select>
-                                  </div>
-                                )}
-
-                                <div>
-                                  <label className="block text-xs font-semibold text-slate-700 mb-1">UTR Number / Ref ID</label>
-                                  <input 
-                                    type="text" 
-                                    value={phase.utrNumber || ''} 
-                                    onChange={(e) => updatePhase(phase.id, { utrNumber: e.target.value })}
-                                    disabled={phase.status === 'Received' && !unlockedPhases[phase.id]}
-                                    placeholder="Enter UTR or Transaction ID"
-                                    className={`w-full px-3 py-2 border rounded-lg outline-none text-xs ${phase.status === 'Received' && !unlockedPhases[phase.id] ? 'bg-slate-100 text-slate-500 border-slate-200 cursor-not-allowed' : 'bg-white border-slate-300 focus:ring-2 focus:ring-indigo-500'}`} 
-                                  />
-                                </div>
-
-                                <div>
-                                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                                    Transaction Screenshot <span className="text-rose-600 font-extrabold">* Required</span>
-                                  </label>
-                                  {phase.screenshotUrl ? (
-                                    <div className="flex items-center gap-3 bg-emerald-50 p-2 border border-emerald-200 rounded-lg">
-                                      <button type="button" onClick={() => setViewImage(phase.screenshotUrl || null)} className="block w-12 h-12 rounded border border-slate-300 overflow-hidden bg-slate-100 hover:opacity-80 transition-opacity shrink-0" title="Click to view full image">
-                                        <img src={phase.screenshotUrl} alt="Proof" className="w-full h-full object-cover" />
-                                      </button>
-                                      <div className="flex flex-col items-start gap-1">
-                                        <span className="text-[11px] font-bold text-emerald-800 flex items-center gap-1">
-                                          <Check className="w-3.5 h-3.5 text-emerald-600" /> Proof Attached
-                                        </span>
-                                        <div className="flex items-center gap-2">
-                                          <button type="button" onClick={() => setViewImage(phase.screenshotUrl || null)} className="text-xs font-bold text-indigo-600 hover:text-indigo-800 underline">View</button>
-                                          <button type="button" onClick={() => updatePhase(phase.id, { screenshotUrl: undefined })} disabled={phase.status === 'Received' && !unlockedPhases[phase.id]} className="text-xs font-bold text-rose-600 hover:text-rose-800 underline disabled:opacity-50 disabled:no-underline disabled:cursor-not-allowed">Remove</button>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    <div className="relative">
-                                      <input 
-                                        type="file" 
-                                        accept="image/*"
-                                        onChange={(e) => handleScreenshotUpload(phase.id, e)}
-                                        disabled={phase.status === 'Received' && !unlockedPhases[phase.id]}
-                                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10 disabled:cursor-not-allowed" 
-                                      />
-                                      <div className="w-full px-3 py-2 border-2 border-dashed border-rose-400 bg-rose-50/70 rounded-lg flex items-center justify-center text-xs font-black text-rose-900 hover:bg-rose-100/80 transition-colors">
-                                        <Upload className="w-4 h-4 mr-1.5 text-rose-700 animate-pulse" /> Upload Screenshot (Required)
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
+                          <div className={`grid grid-cols-1 md:grid-cols-${phase.sourceType === 'Bank' ? '4' : '3'} gap-4`}>
+                            <div>
+                              <label className="block text-xs font-bold text-slate-700 mb-1">
+                                Payment Source
+                              </label>
+                              <select 
+                                value={phase.sourceType || ''}
+                                onChange={(e) => updatePhase(phase.id, { sourceType: e.target.value as any })}
+                                disabled={phase.status === 'Received' && !unlockedPhases[phase.id]}
+                                className={`w-full px-3 py-2 border rounded-lg outline-none text-xs font-semibold ${
+                                  phase.status === 'Received' && !unlockedPhases[phase.id] 
+                                    ? 'bg-slate-100 text-slate-500 border-slate-200 cursor-not-allowed' 
+                                    : 'bg-white border-slate-300 focus:ring-2 focus:ring-indigo-500'
+                                }`}
+                              >
+                                <option value="">Select Source...</option>
+                                <option value="Bank">Bank</option>
+                                <option value="ICICI BANK">ICICI BANK</option>
+                                <option value="Cash">Cash</option>
+                                <option value="Cheque">Cheque</option>
+                              </select>
                             </div>
-                          </>
-                        )}
+
+                            {phase.sourceType === 'Bank' && (
+                              <div>
+                                <label className="block text-xs font-bold text-slate-700 mb-1">
+                                  Bank Name
+                                </label>
+                                <select 
+                                  value={phase.bankName || ''}
+                                  onChange={(e) => updatePhase(phase.id, { bankName: e.target.value as any })}
+                                  disabled={phase.status === 'Received' && !unlockedPhases[phase.id]}
+                                  className={`w-full px-3 py-2 border rounded-lg outline-none text-xs font-semibold ${
+                                    phase.status === 'Received' && !unlockedPhases[phase.id] 
+                                      ? 'bg-slate-100 text-slate-500 border-slate-200 cursor-not-allowed' 
+                                      : 'bg-white border-slate-300 focus:ring-2 focus:ring-indigo-500'
+                                  }`}
+                                >
+                                  <option value="">Select Bank...</option>
+                                  <option value="PNB">PNB Bank</option>
+                                  <option value="ICICI">ICICI Bank</option>
+                                  <option value="SBI">SBI</option>
+                                  <option value="Union">Union Bank</option>
+                                </select>
+                              </div>
+                            )}
+
+                            <div>
+                              <label className="block text-xs font-semibold text-slate-700 mb-1">UTR Number / Ref ID</label>
+                              <input 
+                                type="text" 
+                                value={phase.utrNumber || ''} 
+                                onChange={(e) => updatePhase(phase.id, { utrNumber: e.target.value })}
+                                disabled={phase.status === 'Received' && !unlockedPhases[phase.id]}
+                                placeholder="Enter UTR or Reference ID"
+                                className={`w-full px-3 py-2 border rounded-lg outline-none text-xs ${phase.status === 'Received' && !unlockedPhases[phase.id] ? 'bg-slate-100 text-slate-500 border-slate-200 cursor-not-allowed' : 'bg-white border-slate-300 focus:ring-2 focus:ring-indigo-500'}`} 
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-xs font-bold text-slate-700 mb-1">
+                                Transaction Proof / Screenshot
+                              </label>
+                              {phase.screenshotUrl ? (
+                                <div className="flex items-center gap-3 bg-emerald-50 p-2 border border-emerald-200 rounded-lg">
+                                  <button type="button" onClick={() => setViewImage(phase.screenshotUrl || null)} className="block w-12 h-12 rounded border border-slate-300 overflow-hidden bg-slate-100 hover:opacity-80 transition-opacity shrink-0" title="Click to view full image">
+                                    <img src={phase.screenshotUrl} alt="Proof" className="w-full h-full object-cover" />
+                                  </button>
+                                  <div className="flex flex-col items-start gap-1">
+                                    <span className="text-[11px] font-bold text-emerald-800 flex items-center gap-1">
+                                      <Check className="w-3.5 h-3.5 text-emerald-600" /> Proof Attached
+                                    </span>
+                                    <div className="flex items-center gap-2">
+                                      <button type="button" onClick={() => setViewImage(phase.screenshotUrl || null)} className="text-xs font-bold text-indigo-600 hover:text-indigo-800 underline">View</button>
+                                      <button type="button" onClick={() => updatePhase(phase.id, { screenshotUrl: undefined })} disabled={phase.status === 'Received' && !unlockedPhases[phase.id]} className="text-xs font-bold text-rose-600 hover:text-rose-800 underline disabled:opacity-50 disabled:no-underline disabled:cursor-not-allowed">Remove</button>
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="relative">
+                                  <input 
+                                    type="file" 
+                                    accept="image/*"
+                                    onChange={(e) => handleScreenshotUpload(phase.id, e)}
+                                    disabled={phase.status === 'Received' && !unlockedPhases[phase.id]}
+                                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10 disabled:cursor-not-allowed" 
+                                  />
+                                  <div className="w-full px-3 py-2 border-2 border-dashed border-slate-300 bg-slate-50 hover:bg-indigo-50/50 hover:border-indigo-300 rounded-lg flex items-center justify-center text-xs font-semibold text-slate-700 transition-colors">
+                                    <Upload className="w-4 h-4 mr-1.5 text-indigo-600" /> Upload Screenshot / Proof
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   ))}

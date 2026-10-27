@@ -47,6 +47,7 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
   const [storeMiddlePartition, setStoreMiddlePartition] = useState<'Included' | 'None'>('Included');
   const [selectedLegStyle, setSelectedLegStyle] = useState<string>('Square Loop Leg');
   const [selectedLegColor, setSelectedLegColor] = useState<string>('Metallic Grey');
+  const [selectedThickness, setSelectedThickness] = useState<string>('25 mm');
   const [selectedScreenColor, setSelectedScreenColor] = useState<string>('Frosty White');
   const [selectedFrontScreen, setSelectedFrontScreen] = useState<string>('Acrylic Privacy Screen');
   const [isQuotationModalOpen, setIsQuotationModalOpen] = useState(false);
@@ -623,6 +624,7 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                 if (activeElectricVar) summaryParts.push(`Electric: ${activeElectricVar.electricOption || activeElectricVar.name}`);
                 if (activeColorVar) summaryParts.push(`Top Finish: ${activeColorVar.color || activeColorVar.name}`);
                 if (isWorkstation) {
+                  summaryParts.push(`Thickness: ${selectedThickness}`);
                   summaryParts.push(`Leg: ${selectedLegStyle} (${selectedLegColor})`);
                   summaryParts.push(`Screen: ${selectedFrontScreen} (${selectedScreenColor})`);
                   summaryParts.push(`Partition: ${storeMiddlePartition}`);
@@ -635,8 +637,8 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
 
                 const effectiveSetup = currentWorkstationSetup || {
                   dimensions: activeSizeVar?.size || '1200 x 600 mm',
-                  material: 'PLPB Board (25mm)',
-                  thickness: '25 mm',
+                  material: `${selectedThickness} PLPB Board`,
+                  thickness: selectedThickness,
                   tableTopColor: activeColorVar?.color || activeColorVar?.name || 'Classic Walnut',
                   screenColor: selectedScreenColor,
                   middlePartition: storeMiddlePartition,
@@ -1208,6 +1210,33 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                             <Sparkles className="w-3.5 h-3.5" />
                             <span>Workstation CAD Customization</span>
                           </h3>
+
+                          {/* Tabletop Board Thickness */}
+                          <div>
+                            <label className="block text-xs font-bold uppercase tracking-wider text-slate-800 mb-2">
+                              Tabletop Board Thickness: <span className="text-amber-700 font-extrabold">{selectedThickness}</span>
+                            </label>
+                            <div className="grid grid-cols-3 gap-2">
+                              {[
+                                { label: '18 mm PLPB', val: '18 mm' },
+                                { label: '25 mm Commercial', val: '25 mm' },
+                                { label: '36 mm Heavy Duty', val: '36 mm' }
+                              ].map(t => (
+                                <button
+                                  key={t.val}
+                                  type="button"
+                                  onClick={() => setSelectedThickness(t.val)}
+                                  className={`p-2.5 rounded-xl border text-xs font-bold transition-all text-center cursor-pointer ${
+                                    selectedThickness === t.val
+                                      ? 'border-amber-600 bg-amber-50/90 text-amber-950 ring-2 ring-amber-500/20'
+                                      : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                                  }`}
+                                >
+                                  <span>{t.label}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
 
                           {/* 5. Leg Structure Style */}
                           <div>

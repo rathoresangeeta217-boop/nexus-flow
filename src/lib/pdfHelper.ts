@@ -1,7 +1,7 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { getProductFile } from './fileStorage';
-import { calculatePhaseGstAdjustment } from './payments';
+import { calculatePhaseGstAdjustment, getPaymentForOrder } from './payments';
 
 
 const addPageBorder = (doc: any) => {
@@ -436,6 +436,14 @@ export const generateDispatchPDF = async (order: any, showFare: boolean, docType
 
 
 export const generatePaymentReminderPDF = async (order: any, paymentRecord?: any) => {
+  if (!paymentRecord && order) {
+    try {
+      paymentRecord = await getPaymentForOrder(order.id || order.docId, order.docId);
+    } catch (e) {
+      console.warn('Could not load payment record for reminder PDF:', e);
+    }
+  }
+
   const doc = new jsPDF();
   const setBlackText = () => doc.setTextColor(0, 0, 0);
   const setGrayText = () => doc.setTextColor(100, 100, 100);
@@ -730,7 +738,28 @@ export const generatePaymentReminderPDF = async (order: any, paymentRecord?: any
   doc.text('For any queries, please contact us at +91-7878590209', 105, tY + 5, { align: 'center' });
   
   addPageBorder(doc);
-  doc.save(`Payment-Reminder-${order.id || order.docId}.pdf`);
+  const fileName = `Payment-Reminder-${order.id || order.docId}.pdf`;
+  try {
+    const pdfBlob = doc.output('blob');
+    const blobUrl = URL.createObjectURL(pdfBlob);
+    const downloadLink = document.createElement('a');
+    downloadLink.href = blobUrl;
+    downloadLink.download = fileName;
+    downloadLink.style.display = 'none';
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+    setTimeout(() => {
+      if (document.body.contains(downloadLink)) {
+        document.body.removeChild(downloadLink);
+      }
+      URL.revokeObjectURL(blobUrl);
+    }, 2500);
+    return { success: true, fileName };
+  } catch (err) {
+    console.warn('Blob download failed, falling back to doc.save:', err);
+    doc.save(fileName);
+    return { success: true, fileName };
+  }
 };
 
 export const generateSatisfactionFormPDF = async (order: any, installerDetails: any) => {

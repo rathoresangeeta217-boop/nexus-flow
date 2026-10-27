@@ -17,12 +17,16 @@ const app = initializeApp(firebaseConfig);
 
 // Clean up stale firestore localStorage keys to resolve QuotaExceededError in browser
 try {
-  if (typeof window !== 'undefined' && window.localStorage) {
-    Object.keys(window.localStorage).forEach(key => {
-      if (key.includes('firestore') || key.includes('firebase')) {
-        window.localStorage.removeItem(key);
+  if (typeof window !== 'undefined') {
+    const ls = window.localStorage;
+    if (ls) {
+      for (let i = ls.length - 1; i >= 0; i--) {
+        const key = ls.key(i);
+        if (key && (key.includes('firestore') || key.includes('firebase'))) {
+          ls.removeItem(key);
+        }
       }
-    });
+    }
   }
 } catch (e) {
   console.warn("Could not prune localStorage", e);

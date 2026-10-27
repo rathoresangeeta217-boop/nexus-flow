@@ -279,11 +279,12 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
         const isBoardCategory = catLower.includes('board') || catLower.includes('plywood') ||
                                 nameLower.includes('plywood') || nameLower.includes('board') ||
                                 nameLower.includes('mdf') || nameLower.includes('hdhmr') || nameLower.includes('plpb');
+        const isChairCategory = catLower.includes('chair') || catLower.includes('seating') || nameLower.includes('chair');
 
         return {
           id: `scanned-${Date.now()}-${idx}`,
           name,
-          category: isBoardCategory ? (it.category || 'Plywood & Boards') : category,
+          category: isChairCategory ? 'Chairs & Seating' : (isBoardCategory ? (it.category || 'Plywood & Boards') : category),
           sku: it.sku || `RM-SCAN-${Math.floor(100 + Math.random() * 900)}`,
           specs: it.specs || it.specification || '',
           quantity: typeof it.quantity === 'number' && it.quantity > 0 ? it.quantity : (parseFloat(it.quantity) || 1),

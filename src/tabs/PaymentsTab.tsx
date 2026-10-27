@@ -4,6 +4,8 @@ import { CreditCard, AlertCircle, X } from 'lucide-react';
 import { StatCard } from '../components/StatCard';
 import { Badge } from '../components/Badge';
 import { Trash2, Edit, DollarSign, Receipt, Filter, Users, Building2, Download, Trash } from 'lucide-react';
+import { collection, getDocs } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 import { deletePurchase } from '../lib/purchases';
 import { getAllVendorPayments, deleteVendorPaymentRecord, subscribeToVendorPayments, VendorPaymentRecord } from '../lib/vendorPayments';
 import { subscribeToOrders, Order } from '../lib/orders';
@@ -11,17 +13,33 @@ import { subscribeToPurchases, Purchase } from '../lib/purchases';
 import { PaymentManagementModal } from '../components/PaymentManagementModal';
 import { VendorPaymentModal } from '../components/VendorPaymentModal';
 import { ProjectVendorSummaryModal } from '../components/ProjectVendorSummaryModal';
-import { getAllPayments, subscribeToPayments, PaymentRecord, calculatePhaseGstAdjustment } from '../lib/payments';
+import { getAllPayments, subscribeToPayments, PaymentRecord, calculatePhaseGstAdjustment, isPaymentMatchingOrder, isPhaseReceived, calculateOrderTotalAmount } from '../lib/payments';
+import { generatePaymentReminderPDF } from '../lib/pdfHelper';
 
 import * as XLSX from 'xlsx';
 
 export type PaymentFilterType = 'all' | 'remaining' | 'unpaid' | 'paid';
 
 export function getOrderPaymentSummary(order: Order, customerPayments: PaymentRecord[]) {
-  const rawAmt = (order.amount || order.details?.totalAmount || "").toString();
-  const match = rawAmt.match(/\d[\d,]*(\.\d+)?/);
-  const orderAmt = match ? parseFloat(match[0].replace(/,/g, "")) : 0;
-  const paymentRecord = customerPayments.find(p => p.orderId === order.id || p.orderId === order.docId);
+  const orderAmt = calculateOrderTotalAmount(order);
+
+  const matchingPayments = customerPayments.filter(p => isPaymentMatchingOrder(order.id, order.docId, p, order.customer));
+
+  matchingPayments.sort((a, b) => {
+    const aRecPhases = (a.phases || []).filter(p => isPhaseReceived(p)).length;
+    const bRecPhases = (b.phases || []).filter(p => isPhaseReceived(p)).length;
+    if (aRecPhases !== bRecPhases) return bRecPhases - aRecPhases;
+
+    const aPhases = a.phases?.length || 0;
+    const bPhases = b.phases?.length || 0;
+    if (aPhases !== bPhases) return bPhases - aPhases;
+
+    const aTime = a.updatedAt?.seconds || 0;
+    const bTime = b.updatedAt?.seconds || 0;
+    return bTime - aTime;
+  });
+
+  const paymentRecord = matchingPayments[0];
 
   const parseVal = (str: string | undefined, baseTotal: number = 0) => {
     if (!str) return 0;
@@ -51,12 +69,13 @@ export function getOrderPaymentSummary(order: Order, customerPayments: PaymentRe
   }
 
   if (paymentRecord) {
-    const grandTotal = parseVal(paymentRecord.grandTotal) || orderAmt;
+    const recGrand = parseVal(paymentRecord.grandTotal);
+    const grandTotal = recGrand > 0 ? recGrand : orderAmt;
     displayTotalAmt = grandTotal;
 
     if (paymentRecord.phases) {
       paymentRecord.phases.forEach(phase => {
-        if (phase.status === 'Received') {
+        if (isPhaseReceived(phase)) {
           const grossAmt = parseVal(phase.amount, grandTotal);
           totalGrossReceived += grossAmt;
 
@@ -148,6 +167,33 @@ export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
   const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
+    let isMounted = true;
+
+    const loadInitialFallback = async () => {
+      try {
+        const [allP, allO] = await Promise.all([
+          getAllPayments(), 
+          getDocs(collection(db, 'orders'))
+        ]);
+        if (isMounted) {
+          if (allP && allP.length > 0) {
+            setCustomerPayments(prev => prev.length === 0 ? allP : prev);
+          }
+          if (allO && !allO.empty) {
+            const rawOrders = allO.docs.map(doc => ({ 
+              ...doc.data(), 
+              id: doc.data().id || doc.id, 
+              docId: doc.id 
+            } as Order));
+            setOrders(prev => prev.length === 0 ? rawOrders : prev);
+          }
+        }
+      } catch (e) {
+        console.warn('Initial payments fallback fetch warning:', e);
+      }
+    };
+    loadInitialFallback();
+
     const unsubOrders = subscribeToOrders((fetchedOrders) => {
       setOrders(fetchedOrders);
     });
@@ -161,6 +207,7 @@ export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
       setVendorPayments(fetched);
     });
     return () => {
+      isMounted = false;
       unsubOrders();
       unsubPurchases();
       unsubCustPayments();
@@ -235,6 +282,50 @@ export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
     });
   }, [purchases, searchQuery]);
 
+  // Synthesize effective orders list combining orders and payment records so zero payments are ever missed
+  const effectiveOrders = useMemo(() => {
+    const map = new Map<string, Order>();
+    
+    orders.forEach(o => {
+      const key = (o.id || o.docId || '').trim();
+      if (key) map.set(key, o);
+      if (o.docId) map.set(o.docId.trim(), o);
+    });
+
+    customerPayments.forEach(p => {
+      if (!p.orderId) return;
+      
+      let exists = false;
+      for (const ord of map.values()) {
+        if (isPaymentMatchingOrder(ord.id, ord.docId, p, ord.customer)) {
+          exists = true;
+          break;
+        }
+      }
+
+      if (!exists) {
+        const virtualOrder: Order = {
+          id: p.orderId,
+          docId: p.docId || p.orderId,
+          customer: p.orderId.includes(' - ') ? p.orderId.split(' - ')[1].trim() : 'Customer',
+          amount: p.grandTotal || p.originalAmount || '₹0',
+          date: p.deliveryDate || new Date().toISOString().split('T')[0],
+          status: 'Confirmed',
+          items: 1,
+          createdAt: p.updatedAt || new Date().toISOString(),
+          details: {
+            totalAmount: p.grandTotal || p.originalAmount,
+            advancePayment: p.advancePayment || p.advanceRequirement,
+            deliveryDate: p.deliveryDate
+          }
+        };
+        map.set(p.orderId.trim(), virtualOrder);
+      }
+    });
+
+    return Array.from(new Map(Array.from(map.values()).map(o => [o.id || o.docId, o])).values());
+  }, [orders, customerPayments]);
+
   // Overall metrics and counts for Customer orders
   const customerMetrics = useMemo(() => {
     let totalReceivables = 0;
@@ -244,11 +335,11 @@ export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
     let unpaidCount = 0;
     let fullyPaidCount = 0;
 
-    orders.forEach(order => {
+    effectiveOrders.forEach(order => {
       const summary = getOrderPaymentSummary(order, customerPayments);
       totalReceivables += summary.displayTotalAmt;
       totalRemaining += summary.remainingAmount;
-      totalCollected += Math.max(0, summary.displayTotalAmt - summary.remainingAmount);
+      totalCollected += summary.totalGrossReceived;
 
       if (summary.hasRemaining) remainingCount++;
       if (summary.isUnpaid) unpaidCount++;
@@ -262,9 +353,9 @@ export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
       remainingCount,
       unpaidCount,
       fullyPaidCount,
-      totalCount: orders.length
+      totalCount: effectiveOrders.length
     };
-  }, [orders, customerPayments]);
+  }, [effectiveOrders, customerPayments]);
 
   // Overall metrics and counts for Vendor projects
   const vendorMetrics = useMemo(() => {
@@ -299,7 +390,7 @@ export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
 
   // Filtered Customer Orders based on search and paymentFilter
   const filteredOrders = useMemo(() => {
-    let result = orders;
+    let result = effectiveOrders;
     
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
@@ -329,7 +420,7 @@ export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
     }
 
     return result;
-  }, [orders, searchQuery, customerPayments, paymentFilter]);
+  }, [effectiveOrders, searchQuery, customerPayments, paymentFilter]);
 
   // Filtered Vendor Projects based on search and paymentFilter
   const filteredAggregatedProjects = useMemo(() => {
@@ -831,7 +922,16 @@ export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
                           {displayStatus}
                         </Badge>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
+                      <td className="px-6 py-4 whitespace-nowrap text-right flex items-center justify-end gap-2">
+                        <button 
+                          onClick={() => {
+                            generatePaymentReminderPDF(order, summary.paymentRecord);
+                          }}
+                          className="inline-flex items-center px-2.5 py-1.5 text-xs font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-md transition-colors cursor-pointer"
+                          title="Download Payment Reminder Notice"
+                        >
+                          <Download className="w-3.5 h-3.5 mr-1 text-amber-600" /> Reminder Notice
+                        </button>
                         <button 
                           onClick={() => {
                             setSelectedOrder(order);

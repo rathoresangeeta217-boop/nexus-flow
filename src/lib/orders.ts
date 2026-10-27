@@ -170,41 +170,46 @@ export const subscribeToOrders = (callback: (orders: Order[]) => void) => {
       return getTime(b) - getTime(a);
     });
 
-    const userEmail = (auth.currentUser?.email || '').toLowerCase();
-    const userName = (auth.currentUser?.displayName || '').toLowerCase();
+    const userEmail = (auth.currentUser?.email || '').toLowerCase().trim();
+    const userName = (auth.currentUser?.displayName || '').toLowerCase().trim();
 
     const isBhawna = userEmail.includes('bhawna') || userName.includes('bhawna');
     const isAnshuman = userEmail.includes('anshuman') || userName.includes('anshuman');
     const isNidhi = userEmail.includes('nidhi') || userName.includes('nidhi');
 
     const isSuperOrAdmin = !auth.currentUser ||
-                           userEmail === 'marketing.srkmodular@gmail.com' ||
-                           userEmail === 'rathoresangeeta217@gmail.com' ||
+                           userEmail.includes('marketing') ||
+                           userEmail.includes('srk') ||
+                           userEmail.includes('rathore') ||
+                           userEmail.includes('admin') ||
                            isBhawna ||
                            isAnshuman ||
                            isNidhi ||
                            !currentProfile ||
+                           !currentProfile.role ||
                            currentProfile.role === 'super_admin' ||
                            currentProfile.role === 'admin' ||
                            currentProfile.role === 'employee' ||
+                           currentProfile.role === 'management' ||
                            currentProfile.role !== 'sales_executive';
 
-    // Filter orders ONLY for restricted sales executives
+    // Filter orders ONLY for strictly configured sales executive accounts
     if (!isSuperOrAdmin && currentProfile && currentProfile.role === 'sales_executive') {
       const profileName = (currentProfile.displayName || '').toLowerCase().trim();
-      
-      orders = orders.filter(order => {
-        const empName = (order.details?.employeeName || '').toLowerCase().trim();
-        if (!empName) return true; // Show unassigned orders to sales executives
-        
-        const empFirstName = empName.split(' ')[0];
-        const profileFirstName = profileName.split(' ')[0];
-        
-        return empName === profileName || 
-               profileName.includes(empName) || 
-               empName.includes(profileName) ||
-               (empFirstName && profileFirstName && empFirstName === profileFirstName);
-      });
+      if (profileName) {
+        orders = orders.filter(order => {
+          const empName = (order.details?.employeeName || '').toLowerCase().trim();
+          if (!empName) return true; // Show unassigned orders
+          
+          const empFirstName = empName.split(' ')[0];
+          const profileFirstName = profileName.split(' ')[0];
+          
+          return empName === profileName || 
+                 profileName.includes(empName) || 
+                 empName.includes(profileName) ||
+                 (empFirstName && profileFirstName && empFirstName === profileFirstName);
+        });
+      }
     }
     
     callback(orders);

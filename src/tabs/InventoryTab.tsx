@@ -178,7 +178,11 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
         const matchSku = (item.sku || '').toLowerCase().includes(effectiveSearch);
         const matchCategory = (item.category || '').toLowerCase().includes(effectiveSearch);
         const matchNotes = (item.notes || '').toLowerCase().includes(effectiveSearch);
-        if (!matchName && !matchSpecs && !matchSku && !matchCategory && !matchNotes) {
+        const matchChairType = (item.chairType || '').toLowerCase().includes(effectiveSearch);
+        const matchChairBrand = (item.chairBrand || '').toLowerCase().includes(effectiveSearch);
+        const matchChairColor = (item.chairColor || '').toLowerCase().includes(effectiveSearch);
+        const matchChairMaterial = (item.chairUpholstery || '').toLowerCase().includes(effectiveSearch);
+        if (!matchName && !matchSpecs && !matchSku && !matchCategory && !matchNotes && !matchChairType && !matchChairBrand && !matchChairColor && !matchChairMaterial) {
           return false;
         }
       }
@@ -672,6 +676,31 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
                                   <span className="inline-block text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md">
                                     {item.sku || 'RM'}
                                   </span>
+                                  {item.chairType && (
+                                    <span className="text-[10px] font-extrabold text-sky-900 bg-sky-100 px-1.5 py-0.5 rounded-md border border-sky-200">
+                                      {item.chairType}
+                                    </span>
+                                  )}
+                                  {item.chairBrand && (
+                                    <span className="text-[10px] font-bold text-indigo-900 bg-indigo-100 px-1.5 py-0.5 rounded-md border border-indigo-200">
+                                      {item.chairBrand}
+                                    </span>
+                                  )}
+                                  {item.chairColor && (
+                                    <span className="text-[10px] font-bold text-purple-800 bg-purple-50 px-1.5 py-0.5 rounded-md border border-purple-200">
+                                      Color: {item.chairColor}
+                                    </span>
+                                  )}
+                                  {item.chairUpholstery && (
+                                    <span className="text-[10px] font-bold text-slate-800 bg-slate-100 px-1.5 py-0.5 rounded-md border border-slate-200">
+                                      {item.chairUpholstery}
+                                    </span>
+                                  )}
+                                  {item.chairArmrest && (
+                                    <span className="text-[10px] font-medium text-slate-700 bg-slate-100 px-1 py-0.5 rounded-md">
+                                      {item.chairArmrest}
+                                    </span>
+                                  )}
                                   {item.boardCompany && (
                                     <span className="text-[10px] font-extrabold text-amber-900 bg-amber-100 px-1.5 py-0.5 rounded-md border border-amber-200">
                                       {item.boardCompany}
