@@ -1,7 +1,14 @@
 import { set, get, del } from 'idb-keyval';
 
-export async function saveOrderFiles(orderId: string, files: { quotationFileData?: string, poFileData?: string, drawingFileData?: string, ocFileData?: string }) {
-  await set(`order_files_${orderId}`, files);
+export async function saveOrderFiles(orderId: string, files: { quotationFileData?: string, poFileData?: string, drawingFileData?: string, ocFileData?: string, checklistFileData?: string }) {
+  const existing = (await get(`order_files_${orderId}`)) || {};
+  const cleanedUpdates: any = {};
+  for (const key in files) {
+    if ((files as any)[key] !== undefined) {
+      cleanedUpdates[key] = (files as any)[key];
+    }
+  }
+  await set(`order_files_${orderId}`, { ...existing, ...cleanedUpdates });
 }
 
 export async function getOrderFiles(orderId: string) {

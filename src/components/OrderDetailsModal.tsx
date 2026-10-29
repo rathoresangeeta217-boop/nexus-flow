@@ -1,12 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, FileText, Download, User, Building, Phone, Mail, MapPin, Hash, Paperclip, Loader2, Trash2, Truck, MessageCircle, Calendar } from 'lucide-react';
+import { X, FileText, Download, User, Building, Phone, Mail, MapPin, Hash, Paperclip, Loader2, Trash2, Truck, MessageCircle, Calendar, Upload, CheckCircle2, FileSpreadsheet } from 'lucide-react';
 import { Badge } from './Badge';
-import { getOrderFiles } from '../lib/fileStorage';
+import { getOrderFiles, saveOrderFiles } from '../lib/fileStorage';
 import { getPaymentForOrder, PaymentRecord, calculatePhaseGstAdjustment } from '../lib/payments';
 import { saveOrder } from '../lib/orders';
 import { generatePaymentReminderPDF } from '../lib/pdfHelper';
 import { Clock, TrendingUp, Edit2, Check, AlertTriangle } from 'lucide-react';
+import { UploadDrawingChecklistModal } from './UploadDrawingChecklistModal';
 
 interface OrderDetailsModalProps {
   isOpen: boolean;
@@ -22,6 +23,68 @@ export function OrderDetailsModal({ isOpen, onClose, order, onDelete }: OrderDet
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const [isEditingDate, setIsEditingDate] = useState(false);
   const [editedDate, setEditedDate] = useState('');
+  const [isUploadDocsOpen, setIsUploadDocsOpen] = useState(false);
+
+  const poInputRef = useRef<HTMLInputElement>(null);
+  const drawingInputRef = useRef<HTMLInputElement>(null);
+  const checklistInputRef = useRef<HTMLInputElement>(null);
+  const ocInputRef = useRef<HTMLInputElement>(null);
+  const quotationInputRef = useRef<HTMLInputElement>(null);
+
+  const handleDirectUpload = async (docType: 'po' | 'drawing' | 'checklist' | 'oc' | 'quotation', file: File) => {
+    if (!order || !file) return;
+    setIsLoadingFiles(true);
+    try {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const fileData = reader.result as string;
+        const nowIso = new Date().toISOString();
+        const targetDocId = order.docId || order.id;
+
+        const mapping = {
+          po: { name: 'poFileName', date: 'poUploadedAt', data: 'poFileData' },
+          drawing: { name: 'drawingFileName', date: 'drawingUploadedAt', data: 'drawingFileData' },
+          checklist: { name: 'checklistFileName', date: 'checklistUploadedAt', data: 'checklistFileData' },
+          oc: { name: 'ocFileName', date: 'ocUploadedAt', data: 'ocFileData' },
+          quotation: { name: 'quotationFileName', date: 'quotationUploadedAt', data: 'quotationFileData' }
+        }[docType];
+
+        const updatedDetails = {
+          ...(order.details || {}),
+          [mapping.name]: file.name,
+          [mapping.date]: nowIso
+        };
+
+        order.details = updatedDetails;
+
+        await saveOrder({
+          docId: targetDocId,
+          id: order.id,
+          details: updatedDetails
+        });
+
+        await saveOrderFiles(order.id || targetDocId, {
+          [mapping.data]: fileData
+        });
+
+        setFiles((prev: any) => ({
+          ...prev,
+          [mapping.data]: fileData
+        }));
+
+        setIsLoadingFiles(false);
+      };
+      reader.onerror = () => {
+        setIsLoadingFiles(false);
+        alert('Failed to read file.');
+      };
+      reader.readAsDataURL(file);
+    } catch (err: any) {
+      setIsLoadingFiles(false);
+      console.error(err);
+      alert('Upload failed: ' + (err.message || 'Unknown error'));
+    }
+  };
 
   const [currentScheduledReason, setCurrentScheduledReason] = useState(order?.details?.scheduledReason || '');
   const [isSavingReason, setIsSavingReason] = useState(false);
@@ -485,7 +548,6 @@ You have a new dispatch scheduled.\n\nOrder ID: ${order.id}\n${items}\n${vehicle
                     <h5 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3">Payment Phases</h5>
                     <div className="space-y-3">
                       {paymentRecord.phases.map((phase, idx) => {
-                        const isPRorCash = phase.sourceType === 'Cash' || phase.sourceType === 'ICICI BANK' || phase.sourceType === 'ICICI' || (phase.sourceType === 'Bank' && (phase.bankName === 'PR' || phase.bankName === 'PNB' || phase.bankName === 'ICICI' || phase.bankName?.toUpperCase() === 'PNB' || phase.bankName?.toUpperCase() === 'ICICI' || phase.bankName?.toUpperCase() === 'PR'));
                         const parseVal = (str: any) => {
                           if (!str) return 0;
                           const m = str.toString().match(/\d[\d,]*(\.\d+)?/);
@@ -513,12 +575,6 @@ You have a new dispatch scheduled.\n\nOrder ID: ${order.id}\n${items}\n${vehicle
                               </div>
                             </div>
 
-                            {isPRorCash && phase.status === 'Received' && (
-                              <div className="text-[11px] font-medium bg-amber-50 text-amber-900 border border-amber-200 p-2 rounded-md flex items-center justify-between">
-                                <span>⚡ <strong>PNB/ICICI Rule:</strong> GST Excluded (-₹{adj.gstAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })})</span>
-                                <span className="font-bold text-emerald-800">Credited to {phase.bankName || phase.sourceType}: ₹{adj.netCreditedAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
-                              </div>
-                            )}
                           </div>
                         );
                       })}
@@ -608,11 +664,68 @@ You have a new dispatch scheduled.\n\nOrder ID: ${order.id}\n${items}\n${vehicle
                   </div>
                 </div>
               )}
-              
-              {/* Attachments */}
+              {/* Attachments & Customer Documents */}
               <div>
-                <h4 className="text-sm font-bold text-slate-800 mb-4 border-b border-slate-100 pb-2">Attachments</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {/* Hidden File Inputs for Direct One-Click Upload */}
+                <input 
+                  type="file" 
+                  ref={quotationInputRef} 
+                  className="hidden" 
+                  accept=".pdf,.png,.jpg,.jpeg,image/*" 
+                  onChange={(e) => {
+                    if (e.target.files?.[0]) handleDirectUpload('quotation', e.target.files[0]);
+                  }} 
+                />
+                <input 
+                  type="file" 
+                  ref={poInputRef} 
+                  className="hidden" 
+                  accept=".pdf,.png,.jpg,.jpeg,.doc,.docx" 
+                  onChange={(e) => {
+                    if (e.target.files?.[0]) handleDirectUpload('po', e.target.files[0]);
+                  }} 
+                />
+                <input 
+                  type="file" 
+                  ref={drawingInputRef} 
+                  className="hidden" 
+                  accept=".pdf,.png,.jpg,.jpeg,.dwg,.dxf,image/*" 
+                  onChange={(e) => {
+                    if (e.target.files?.[0]) handleDirectUpload('drawing', e.target.files[0]);
+                  }} 
+                />
+                <input 
+                  type="file" 
+                  ref={checklistInputRef} 
+                  className="hidden" 
+                  accept=".pdf,.doc,.docx,.xls,.xlsx,image/*" 
+                  onChange={(e) => {
+                    if (e.target.files?.[0]) handleDirectUpload('checklist', e.target.files[0]);
+                  }} 
+                />
+                <input 
+                  type="file" 
+                  ref={ocInputRef} 
+                  className="hidden" 
+                  accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xlsx" 
+                  onChange={(e) => {
+                    if (e.target.files?.[0]) handleDirectUpload('oc', e.target.files[0]);
+                  }} 
+                />
+
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4 border-b border-slate-100 pb-2">
+                  <h4 className="text-sm font-bold text-slate-800">Order Attachments & Documents</h4>
+                  <button
+                    type="button"
+                    onClick={() => setIsUploadDocsOpen(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-xs font-bold transition-all shadow-2xs cursor-pointer w-fit"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>Upload & Manage All Documents</span>
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {/* Quotation */}
                   <div className="border border-slate-200 rounded-xl p-4 flex flex-col justify-between bg-white hover:border-indigo-300 transition-colors">
                     <div className="flex items-start gap-3 mb-4">
@@ -620,89 +733,202 @@ You have a new dispatch scheduled.\n\nOrder ID: ${order.id}\n${items}\n${vehicle
                         {isLoadingFiles ? <Loader2 className="w-4 h-4 text-indigo-600 animate-spin" /> : <FileText className="w-4 h-4 text-indigo-600" />}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Quotation</p>
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="text-xs font-bold text-slate-700 uppercase tracking-wider">Quotation</p>
+                          {(order.details?.quotationFileName || files.quotationFileData) ? (
+                            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">Attached</span>
+                          ) : (
+                            <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.2 rounded">Missing</span>
+                          )}
+                        </div>
                         <p className="text-sm font-medium text-slate-600 truncate">
-                          {order.details?.quotationFileName || 'No quotation attached'}
+                          {order.details?.quotationFileName || (files.quotationFileData ? 'Quotation.pdf' : 'No quotation attached')}
                         </p>
                       </div>
                     </div>
-                    <button 
-                      onClick={() => handleDownload(order.details?.quotationFileName || 'Quotation.pdf', files.quotationFileData)}
-                      disabled={!order.details?.quotationFileName || isLoadingFiles || !files.quotationFileData}
-                      className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-indigo-50 text-indigo-700 rounded-lg text-sm font-semibold hover:bg-indigo-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <Download className="w-4 h-4" />
-                      Download
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button 
+                        onClick={() => handleDownload(order.details?.quotationFileName || 'Quotation.pdf', files.quotationFileData)}
+                        disabled={!order.details?.quotationFileName && !files.quotationFileData}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-indigo-50 text-indigo-700 rounded-lg text-xs font-bold hover:bg-indigo-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        Download
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => quotationInputRef.current?.click()}
+                        className="flex items-center justify-center gap-1 py-2 px-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                        title="Upload or Replace Quotation"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        {order.details?.quotationFileName ? 'Replace' : 'Upload'}
+                      </button>
+                    </div>
                   </div>
 
-                  {/* PO */}
+                  {/* Purchase Order (PO) */}
                   <div className="border border-slate-200 rounded-xl p-4 flex flex-col justify-between bg-white hover:border-emerald-300 transition-colors">
                     <div className="flex items-start gap-3 mb-4">
                       <div className="w-8 h-8 bg-emerald-50 rounded-lg flex items-center justify-center shrink-0">
                         {isLoadingFiles ? <Loader2 className="w-4 h-4 text-emerald-600 animate-spin" /> : <Paperclip className="w-4 h-4 text-emerald-600" />}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Purchase Order</p>
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="text-xs font-bold text-slate-700 uppercase tracking-wider">Purchase Order (PO)</p>
+                          {(order.details?.poFileName || files.poFileData) ? (
+                            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">Attached</span>
+                          ) : (
+                            <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.2 rounded">Missing</span>
+                          )}
+                        </div>
                         <p className="text-sm font-medium text-slate-600 truncate">
-                          {order.details?.poFileName || 'No PO attached'}
+                          {order.details?.poFileName || (files.poFileData ? 'Purchase_Order.pdf' : 'No PO attached')}
                         </p>
                       </div>
                     </div>
-                    <button 
-                      onClick={() => handleDownload(order.details?.poFileName || 'PO.pdf', files.poFileData)}
-                      disabled={!order.details?.poFileName || isLoadingFiles || !files.poFileData}
-                      className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-emerald-50 text-emerald-700 rounded-lg text-sm font-semibold hover:bg-emerald-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <Download className="w-4 h-4" />
-                      Download
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button 
+                        onClick={() => handleDownload(order.details?.poFileName || 'Purchase_Order.pdf', files.poFileData)}
+                        disabled={!order.details?.poFileName && !files.poFileData}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-emerald-50 text-emerald-800 rounded-lg text-xs font-bold hover:bg-emerald-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        Download
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => poInputRef.current?.click()}
+                        className="flex items-center justify-center gap-1 py-2 px-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                        title="Upload or Replace Purchase Order"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        {order.details?.poFileName || files.poFileData ? 'Replace' : 'Upload'}
+                      </button>
+                    </div>
                   </div>
 
-                  {/* Drawing */}
+                  {/* Customer Drawing / Layout */}
                   <div className="border border-slate-200 rounded-xl p-4 flex flex-col justify-between bg-white hover:border-amber-300 transition-colors">
                     <div className="flex items-start gap-3 mb-4">
                       <div className="w-8 h-8 bg-amber-50 rounded-lg flex items-center justify-center shrink-0">
                         {isLoadingFiles ? <Loader2 className="w-4 h-4 text-amber-600 animate-spin" /> : <FileText className="w-4 h-4 text-amber-600" />}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Drawing</p>
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="text-xs font-bold text-slate-700 uppercase tracking-wider">Drawing / Layout</p>
+                          {(order.details?.drawingFileName || files.drawingFileData) ? (
+                            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">Attached</span>
+                          ) : (
+                            <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.2 rounded">Missing</span>
+                          )}
+                        </div>
                         <p className="text-sm font-medium text-slate-600 truncate">
-                          {order.details?.drawingFileName || 'No drawing attached'}
+                          {order.details?.drawingFileName || (files.drawingFileData ? 'Drawing.pdf' : 'No drawing attached')}
                         </p>
                       </div>
                     </div>
-                    <button 
-                      onClick={() => handleDownload(order.details?.drawingFileName || 'Drawing.pdf', files.drawingFileData)}
-                      disabled={!order.details?.drawingFileName || isLoadingFiles || !files.drawingFileData}
-                      className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-amber-50 text-amber-700 rounded-lg text-sm font-semibold hover:bg-amber-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <Download className="w-4 h-4" />
-                      Download
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button 
+                        onClick={() => handleDownload(order.details?.drawingFileName || 'Drawing.pdf', files.drawingFileData)}
+                        disabled={!order.details?.drawingFileName && !files.drawingFileData}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-amber-50 text-amber-800 rounded-lg text-xs font-bold hover:bg-amber-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        Download
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => drawingInputRef.current?.click()}
+                        className="flex items-center justify-center gap-1 py-2 px-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                        title="Upload or Replace Drawing"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        {order.details?.drawingFileName || files.drawingFileData ? 'Replace' : 'Upload'}
+                      </button>
+                    </div>
                   </div>
 
-                  {/* OC Document */}
+                  {/* Customer Checklist */}
+                  <div className="border border-slate-200 rounded-xl p-4 flex flex-col justify-between bg-white hover:border-indigo-300 transition-colors">
+                    <div className="flex items-start gap-3 mb-4">
+                      <div className="w-8 h-8 bg-indigo-50 rounded-lg flex items-center justify-center shrink-0">
+                        {isLoadingFiles ? <Loader2 className="w-4 h-4 text-indigo-600 animate-spin" /> : <CheckCircle2 className="w-4 h-4 text-indigo-600" />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="text-xs font-bold text-slate-700 uppercase tracking-wider">Customer Checklist</p>
+                          {(order.details?.checklistFileName || files.checklistFileData) ? (
+                            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">Attached</span>
+                          ) : (
+                            <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.2 rounded">Missing</span>
+                          )}
+                        </div>
+                        <p className="text-sm font-medium text-slate-600 truncate">
+                          {order.details?.checklistFileName || (files.checklistFileData ? 'Customer_Checklist.pdf' : 'No checklist attached')}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button 
+                        onClick={() => handleDownload(order.details?.checklistFileName || 'Customer_Checklist.pdf', files.checklistFileData)}
+                        disabled={!order.details?.checklistFileName && !files.checklistFileData}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-indigo-50 text-indigo-800 rounded-lg text-xs font-bold hover:bg-indigo-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        Download
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => checklistInputRef.current?.click()}
+                        className="flex items-center justify-center gap-1 py-2 px-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                        title="Upload or Replace Checklist"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        {order.details?.checklistFileName || files.checklistFileData ? 'Replace' : 'Upload'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* OC / QC Document */}
                   <div className="border border-slate-200 rounded-xl p-4 flex flex-col justify-between bg-white hover:border-pink-300 transition-colors">
                     <div className="flex items-start gap-3 mb-4">
                       <div className="w-8 h-8 bg-pink-50 rounded-lg flex items-center justify-center shrink-0">
-                        {isLoadingFiles ? <Loader2 className="w-4 h-4 text-pink-600 animate-spin" /> : <FileText className="w-4 h-4 text-pink-600" />}
+                        {isLoadingFiles ? <Loader2 className="w-4 h-4 text-pink-600 animate-spin" /> : <FileSpreadsheet className="w-4 h-4 text-pink-600" />}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">OC Document</p>
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="text-xs font-bold text-slate-700 uppercase tracking-wider">OC / QC Document</p>
+                          {(order.details?.ocFileName || files.ocFileData) ? (
+                            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">Attached</span>
+                          ) : (
+                            <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.2 rounded">Missing</span>
+                          )}
+                        </div>
                         <p className="text-sm font-medium text-slate-600 truncate">
-                          {files.ocFileData ? 'Attached' : 'No OC attached'}
+                          {order.details?.ocFileName || (files.ocFileData ? 'OC_QC_Document.pdf' : 'No OC/QC attached')}
                         </p>
                       </div>
                     </div>
-                    <button 
-                      onClick={() => handleDownload('OC_Document.pdf', files.ocFileData)}
-                      disabled={isLoadingFiles || !files.ocFileData}
-                      className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-pink-50 text-pink-700 rounded-lg text-sm font-semibold hover:bg-pink-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <Download className="w-4 h-4" />
-                      Download
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button 
+                        onClick={() => handleDownload(order.details?.ocFileName || 'OC_QC_Document.pdf', files.ocFileData)}
+                        disabled={!order.details?.ocFileName && !files.ocFileData}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-pink-50 text-pink-800 rounded-lg text-xs font-bold hover:bg-pink-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        Download
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => ocInputRef.current?.click()}
+                        className="flex items-center justify-center gap-1 py-2 px-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                        title="Upload or Replace OC/QC Document"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        {order.details?.ocFileName || files.ocFileData ? 'Replace' : 'Upload'}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -744,6 +970,20 @@ You have a new dispatch scheduled.\n\nOrder ID: ${order.id}\n${items}\n${vehicle
             </div>
           </motion.div>
         </div>
+      )}
+
+      {order && (
+        <UploadDrawingChecklistModal
+          isOpen={isUploadDocsOpen}
+          onClose={() => setIsUploadDocsOpen(false)}
+          order={order}
+          onSuccess={(updatedOrder) => {
+            if (updatedOrder?.details) {
+              order.details = { ...(order.details || {}), ...updatedOrder.details };
+            }
+            getOrderFiles(order.id || order.docId).then((f) => setFiles(f || {}));
+          }}
+        />
       )}
     </AnimatePresence>
   );

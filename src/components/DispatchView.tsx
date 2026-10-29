@@ -841,12 +841,16 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
   };
 
   const markReadyForInstallation = async () => {
-    if (!order || !order.docId) return;
+    if (!order || (!order.docId && !order.id)) return;
     setIsSaving(true);
     try {
       const updatedOrder = {
         ...order,
-        status: 'Installation Pending'
+        status: 'Installation Pending',
+        details: {
+          ...order.details,
+          products: products
+        }
       };
       await saveOrder(updatedOrder);
       
@@ -898,7 +902,7 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
         </button>
         <div>
           <h2 className="text-xl font-bold text-slate-800 tracking-tight flex items-center gap-3">
-            Dispatch Order
+            {isInstallationView ? 'Installation Tracking' : 'Dispatch Order'}
             <Badge variant="info">{order.id}</Badge>
           </h2>
           <div className="flex items-center gap-3 mt-1">
@@ -913,18 +917,66 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
         </div>
       </div>
 
-      {/* Compulsory 2-day Dispatch Confirmation Term Banner */}
-      <div className="p-3.5 rounded-xl bg-amber-50 border-2 border-amber-300 text-amber-950 text-xs font-semibold flex items-center gap-3 shadow-2xs">
-        <Clock className="w-5 h-5 text-amber-600 shrink-0 animate-pulse" />
-        <div>
-          <span className="font-extrabold uppercase tracking-wider block text-amber-900 text-[11px]">
-            ℹ️ Compulsory Dispatch Confirmation Term:
-          </span>
-          <span>
-            Dispatch MUST be confirmed within 2 days of Delivery Challan creation or Scheduled Dispatch. If any order's dispatch confirmation is overdue (&gt; 2 days), scheduling any new orders or dispatches is automatically blocked.
-          </span>
+      {/* Compulsory 2-day Dispatch Confirmation Term Banner (Only shown during dispatch flow) */}
+      {!isInstallationView ? (
+        <div className="p-3.5 rounded-xl bg-amber-50 border-2 border-amber-300 text-amber-950 text-xs font-semibold flex items-center gap-3 shadow-2xs">
+          <Clock className="w-5 h-5 text-amber-600 shrink-0 animate-pulse" />
+          <div>
+            <span className="font-extrabold uppercase tracking-wider block text-amber-900 text-[11px]">
+              ℹ️ Compulsory Dispatch Confirmation Term:
+            </span>
+            <span>
+              Dispatch MUST be confirmed within 2 days of Delivery Challan creation or Scheduled Dispatch. If any order's dispatch confirmation is overdue (&gt; 2 days), scheduling any new orders or dispatches is automatically blocked.
+            </span>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="p-4 rounded-xl bg-purple-50 border-2 border-purple-200 text-purple-950 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center shrink-0 border border-purple-200">
+              <ClipboardList className="w-5 h-5" />
+            </div>
+            <div>
+              <span className="font-bold text-sm block text-purple-900">
+                Installation Batch Details & Customer Satisfaction Letter
+              </span>
+              <span className="text-purple-700 font-medium">
+                Showing ONLY dispatched quantities for this installation. The Customer Satisfaction Letter (CSL) will include these exact quantities.
+              </span>
+            </div>
+          </div>
+          <button
+            onClick={async () => {
+              setIsSaving(true);
+              try {
+                const installersList = await getInstallers();
+                const installerDetails = installersList.find(i => i.name === (installerName || order.details?.installerName)) || null;
+                const currentOrderWithProducts = {
+                  ...order,
+                  details: {
+                    ...order.details,
+                    products: products,
+                    installerName: installerName || order.details?.installerName,
+                    installationHelpers: installationHelpers || order.details?.installationHelpers,
+                    installationDate: installationDate || order.details?.installationDate
+                  }
+                };
+                await generateSatisfactionFormPDF(currentOrderWithProducts, installerDetails);
+                setAlertMessage('Customer Satisfaction Letter downloaded successfully!');
+              } catch (error) {
+                console.error('Error generating satisfaction form:', error);
+                setAlertMessage('Failed to generate form.');
+              }
+              setIsSaving(false);
+            }}
+            disabled={isSaving}
+            className="flex items-center gap-2 px-3.5 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-lg transition-colors shadow-sm shrink-0 self-start sm:self-center"
+          >
+            <Download className="w-4 h-4" />
+            Download Satisfaction Letter
+          </button>
+        </div>
+      )}
 
       <div className="space-y-6 max-w-4xl mx-auto">
         <div className="flex justify-end">
@@ -1135,8 +1187,25 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
             )}
 
             <div className="divide-y divide-slate-100 flex-1 overflow-y-auto">
-              {(isInstallationView ? products.filter(p => p.requiresInstallation) : products).map((product, idx) => {
-                return (
+              {(() => {
+                const hasDispatchInfo = products.some(p => p.isDispatched || (p.dispatchedQuantity !== undefined && p.dispatchedQuantity > 0));
+                const listToRender = isInstallationView
+                  ? products.filter(p => {
+                      if (!p.requiresInstallation) return false;
+                      if (hasDispatchInfo) {
+                        return p.isDispatched || (p.dispatchedQuantity !== undefined && p.dispatchedQuantity > 0);
+                      }
+                      return true;
+                    })
+                  : products;
+
+                return listToRender.map((product, idx) => {
+                  const effectiveInstallQty = (product.dispatchedQuantity !== undefined && product.dispatchedQuantity !== null && Number(product.dispatchedQuantity) > 0)
+                    ? Number(product.dispatchedQuantity)
+                    : product.quantity;
+                  const isPartial = Boolean(product.dispatchedQuantity !== undefined && product.dispatchedQuantity !== null && product.dispatchedQuantity > 0 && product.dispatchedQuantity < product.quantity);
+
+                  return (
                 <div key={`${product.id || "k"}-${idx}`} className="flex flex-col sm:flex-row sm:items-center p-4 sm:p-6 hover:bg-slate-50 transition-colors gap-4 group">
                   {!isInstallationView && (
                     <div 
@@ -1186,9 +1255,9 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
                       (product.image || matchedImages[product.id] || (quotationFile && quotationFile.startsWith('data:image'))) ? (
                         <img src={product.image || matchedImages[product.id] || quotationFile || ''} alt={product.name || 'Product'} className="w-full h-full object-cover" />
                       ) : (quotationFile && quotationFile.startsWith('data:application/pdf')) ? (
-                        <div className="flex flex-col items-center justify-center w-full h-full bg-indigo-50 text-indigo-400">
-                           <FileText className="w-6 h-6" />
-                           <span className="text-[10px] mt-1 font-medium">PDF</span>
+                        <div className="flex flex-col items-center justify-center w-full h-full bg-indigo-50 text-indigo-400"> 
+                          <FileText className="w-6 h-6" /> 
+                          <span className="text-[10px] mt-1 font-medium">PDF</span>
                         </div>
                       ) : (
                         <ImageIcon className="w-6 h-6 text-slate-400" />
@@ -1245,28 +1314,42 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
                         <h4 className="text-base font-bold text-slate-800">
                           {product.name || <span className="text-slate-400 italic">Click to select product...</span>}
                         </h4>
-                        <div className="mt-1 flex items-center gap-3 text-sm text-slate-500">
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-500">
                           {product.size && (
                             <span className="bg-slate-100 px-2 py-0.5 rounded text-slate-600 font-medium border border-slate-200">
                               Desc: {product.size}
                             </span>
                           )}
-                          <span className="font-semibold">Qty: {product.quantity}</span>
-                          {product.rate && <span className="bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded font-medium border border-emerald-100">Rate: {product.rate}</span>}
-                          {product.isDispatched && product.dispatchedQuantity !== undefined && (
-                            <span 
-                              className={`bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded font-medium ml-2 ${!isInstallationView ? 'cursor-pointer hover:bg-indigo-200 transition-colors inline-flex items-center' : 'inline-flex items-center'}`}
-                              onClick={(e) => {
-                                if (isInstallationView) return;
-                                e.stopPropagation();
-                                setDispatchPromptProduct(product);
-                                setDispatchQty(product.dispatchedQuantity || 1);
-                              }}
-                              title={!isInstallationView ? "Edit dispatched quantity" : undefined}
-                            >
-                              Dispatching: {product.dispatchedQuantity}
-                              {!isInstallationView && <Edit2 className="w-3 h-3 ml-1" />}
-                            </span>
+                          {isInstallationView ? (
+                            <div className="flex items-center gap-2">
+                              <span className="bg-purple-100 text-purple-900 border border-purple-300 px-2.5 py-0.5 rounded font-bold text-xs">
+                                Installation Qty: {effectiveInstallQty} units
+                              </span>
+                              {isPartial && (
+                                <span className="text-xs font-semibold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                                  Partial ({effectiveInstallQty} of {product.quantity} total)
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <>
+                              <span className="font-semibold">Qty: {product.quantity}</span>
+                              {product.rate && <span className="bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded font-medium border border-emerald-100">Rate: {product.rate}</span>}
+                              {product.isDispatched && product.dispatchedQuantity !== undefined && (
+                                <span 
+                                  className="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded font-medium ml-2 cursor-pointer hover:bg-indigo-200 transition-colors inline-flex items-center"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setDispatchPromptProduct(product);
+                                    setDispatchQty(product.dispatchedQuantity || 1);
+                                  }}
+                                  title="Edit dispatched quantity"
+                                >
+                                  Dispatching: {product.dispatchedQuantity}
+                                  <Edit2 className="w-3 h-3 ml-1" />
+                                </span>
+                              )}
+                            </>
                           )}
                         </div>
                       </div>
@@ -1298,22 +1381,29 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
                           <Wrench className="w-4 h-4" />
                           {product.requiresInstallation && <span className="text-xs font-semibold">Install</span>}
                         </button>
-
                         <button onClick={() => deleteProduct(product.id)} className="p-2 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 opacity-0 group-hover:opacity-100 transition-opacity" title="Delete">
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </>
                     )}
                     <div className="ml-2">
-                      <Badge variant={product.isDispatched ? (product.dispatchedQuantity === product.quantity ? 'success' : 'info') : 'warning'}>
-                        {product.isDispatched ? (product.dispatchedQuantity === product.quantity ? 'Ready' : 'Partial') : 'Pending'}
-                      </Badge>
+                      {isInstallationView ? (
+                        <Badge variant={isPartial ? 'warning' : 'success'}>
+                          {isPartial ? `Partial (${effectiveInstallQty}/${product.quantity})` : `Full (${effectiveInstallQty})`}
+                        </Badge>
+                      ) : (
+                        <Badge variant={product.isDispatched ? (product.dispatchedQuantity === product.quantity ? 'success' : 'info') : 'warning'}>
+                          {product.isDispatched ? (product.dispatchedQuantity === product.quantity ? 'Ready' : 'Partial') : 'Pending'}
+                        </Badge>
+                      )}
                     </div>
                   </div>
                 </div>
-              )})}
+              );
+              });
+              })()}
               
-              {(isInstallationView ? products.filter(p => p.requiresInstallation) : products).length === 0 && (
+              {((isInstallationView ? products.filter(p => p.requiresInstallation) : products).length === 0) && (
                 <div className="p-12 text-center text-slate-500">
                   <Package className="w-12 h-12 mx-auto mb-3 text-slate-300" />
                   <p>{isInstallationView ? 'No products flagged for installation.' : 'No products found for this order.'}</p>
@@ -1438,14 +1528,25 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
                       Send to Installer
                     </button>
                   )}
-                  {isInstallationView && order.status === 'Installation In Progress' && (
+                  {isInstallationView && (
                     <button 
                       onClick={async () => {
                         setIsSaving(true);
                         try {
                           const installers = await getInstallers();
-                          const installerDetails = installers.find(i => i.name === order.details?.installerName) || null;
-                          await generateSatisfactionFormPDF(order, installerDetails);
+                          const installerDetails = installers.find(i => i.name === (installerName || order.details?.installerName)) || null;
+                          const currentOrderWithProducts = {
+                            ...order,
+                            details: {
+                              ...order.details,
+                              products: products,
+                              installerName: installerName || order.details?.installerName,
+                              installationHelpers: installationHelpers || order.details?.installationHelpers,
+                              installationDate: installationDate || order.details?.installationDate
+                            }
+                          };
+                          await generateSatisfactionFormPDF(currentOrderWithProducts, installerDetails);
+                          setAlertMessage('Customer Satisfaction Form downloaded!');
                         } catch (error) {
                           console.error('Error generating satisfaction form:', error);
                           setAlertMessage('Failed to generate form.');
@@ -1723,6 +1824,21 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
                     <span className="font-semibold text-slate-700">Full Quantity</span>
                     <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-sm font-bold">{dispatchPromptProduct.quantity} units</span>
                   </button>
+
+                  {dispatchPromptProduct.quantity > 1 && (
+                    <button
+                      onClick={() => confirmDispatchQty(Math.floor(dispatchPromptProduct.quantity / 2))}
+                      className="w-full flex items-center justify-between px-4 py-3 border-2 border-amber-200 bg-amber-50/60 rounded-lg hover:border-amber-500 hover:bg-amber-100/70 transition-colors"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-amber-900">Half Quantity (50%)</span>
+                        <span className="text-[10px] font-bold bg-amber-200/90 text-amber-950 px-1.5 py-0.5 rounded">Partial Dispatch</span>
+                      </div>
+                      <span className="bg-white text-amber-900 border border-amber-300 px-2 py-1 rounded text-sm font-bold shadow-2xs">
+                        {Math.floor(dispatchPromptProduct.quantity / 2)} units
+                      </span>
+                    </button>
+                  )}
                   
                   <div className="pt-2">
                     <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Custom Quantity</label>

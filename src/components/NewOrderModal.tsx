@@ -35,6 +35,7 @@ export function NewOrderModal({ isOpen, onClose, fileName, fileData, onAddOrder,
 
   const [poFile, setPoFile] = useState<File | null>(null);
   const [drawingFile, setDrawingFile] = useState<File | null>(null);
+  const [checklistFile, setChecklistFile] = useState<File | null>(null);
   const [parsedProducts, setParsedProducts] = useState<any[]>([]);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [productEditForm, setProductEditForm] = useState<any>({});
@@ -55,6 +56,7 @@ export function NewOrderModal({ isOpen, onClose, fileName, fileData, onAddOrder,
   };
   const poInputRef = useRef<HTMLInputElement>(null);
   const drawingInputRef = useRef<HTMLInputElement>(null);
+  const checklistInputRef = useRef<HTMLInputElement>(null);
 
   const generatePdfThumbnail = async (pdfDataUrl: string): Promise<string | null> => {
     try {
@@ -225,6 +227,7 @@ export function NewOrderModal({ isOpen, onClose, fileName, fileData, onAddOrder,
     try {
       const poFileData = await readFileAsDataURL(poFile);
       const drawingFileData = await readFileAsDataURL(drawingFile);
+      const checklistFileData = await readFileAsDataURL(checklistFile);
       
       if (onAddOrder) {
         await onAddOrder({
@@ -233,8 +236,12 @@ export function NewOrderModal({ isOpen, onClose, fileName, fileData, onAddOrder,
           quotationFileName: fileName,
           poFileName: poFile?.name,
           drawingFileName: drawingFile?.name,
+          checklistFileName: checklistFile?.name,
+          drawingUploadedAt: drawingFile ? new Date().toISOString() : undefined,
+          checklistUploadedAt: checklistFile ? new Date().toISOString() : undefined,
           poFileData,
-          drawingFileData
+          drawingFileData,
+          checklistFileData
         });
       }
     } catch (error) {
@@ -418,7 +425,7 @@ export function NewOrderModal({ isOpen, onClose, fileName, fileData, onAddOrder,
 
                   <div className="pt-4 mt-6 border-t border-slate-100">
                     <h3 className="text-sm font-semibold text-slate-800 uppercase tracking-wider mb-4">Additional Documents</h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                       
                       {/* PO File Upload */}
                       <div className="border border-dashed border-slate-300 rounded-xl p-4 flex flex-col items-center justify-center bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer group" onClick={() => poInputRef.current?.click()}>
@@ -428,10 +435,10 @@ export function NewOrderModal({ isOpen, onClose, fileName, fileData, onAddOrder,
                         <div className="w-10 h-10 bg-white rounded-full shadow-sm flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
                           <Upload className="w-5 h-5 text-indigo-500" />
                         </div>
-                        <p className="text-sm font-medium text-slate-700 text-center">
+                        <p className="text-xs font-semibold text-slate-700 text-center truncate max-w-full px-1">
                           {poFile ? poFile.name : 'Upload PO Document'}
                         </p>
-                        <p className="text-xs text-slate-500 mt-1">PDF or Image</p>
+                        <p className="text-[11px] text-slate-400 mt-1">PDF or Image</p>
                       </div>
 
                       {/* Drawing File Upload */}
@@ -440,12 +447,26 @@ export function NewOrderModal({ isOpen, onClose, fileName, fileData, onAddOrder,
                           if (e.target.files?.[0]) setDrawingFile(e.target.files[0]);
                         }} />
                         <div className="w-10 h-10 bg-white rounded-full shadow-sm flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
-                          <Paperclip className="w-5 h-5 text-indigo-500" />
+                          <Paperclip className="w-5 h-5 text-amber-500" />
                         </div>
-                        <p className="text-sm font-medium text-slate-700 text-center">
-                          {drawingFile ? drawingFile.name : 'Upload Drawing/Layout'}
+                        <p className="text-xs font-semibold text-slate-700 text-center truncate max-w-full px-1">
+                          {drawingFile ? drawingFile.name : 'Upload Drawing / Layout'}
                         </p>
-                        <p className="text-xs text-slate-500 mt-1">PDF or Image</p>
+                        <p className="text-[11px] text-slate-400 mt-1">PDF or Image</p>
+                      </div>
+
+                      {/* Customer Checklist Upload */}
+                      <div className="border border-dashed border-slate-300 rounded-xl p-4 flex flex-col items-center justify-center bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer group" onClick={() => checklistInputRef.current?.click()}>
+                        <input type="file" ref={checklistInputRef} className="hidden" accept=".pdf,.doc,.docx,.xls,.xlsx,image/*" onChange={(e) => {
+                          if (e.target.files?.[0]) setChecklistFile(e.target.files[0]);
+                        }} />
+                        <div className="w-10 h-10 bg-white rounded-full shadow-sm flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                          <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                        </div>
+                        <p className="text-xs font-semibold text-slate-700 text-center truncate max-w-full px-1">
+                          {checklistFile ? checklistFile.name : 'Customer Checklist'}
+                        </p>
+                        <p className="text-[11px] text-slate-400 mt-1">PDF, Excel, Word, Image</p>
                       </div>
 
                     </div>

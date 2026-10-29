@@ -853,14 +853,38 @@ export const generateSatisfactionFormPDF = async (order: any, installerDetails: 
   doc.text('Items Installed', 14, y);
   y += 4;
   
-  const products = order.details?.products?.filter((p: any) => p.requiresInstallation) || [];
+  const rawProducts = order.details?.products || [];
+  const hasDispatchInfo = rawProducts.some((p: any) => p.isDispatched || (p.dispatchedQuantity !== undefined && Number(p.dispatchedQuantity) > 0));
+
+  const installProducts = rawProducts.filter((p: any) => {
+    const reqInstall = p.requiresInstallation !== false;
+    if (hasDispatchInfo) {
+      return reqInstall && (p.isDispatched || (p.dispatchedQuantity !== undefined && Number(p.dispatchedQuantity) > 0));
+    }
+    return p.requiresInstallation;
+  });
+
+  const products = installProducts.length > 0 
+    ? installProducts 
+    : rawProducts.filter((p: any) => p.requiresInstallation);
   
   if (products.length > 0) {
-    const tableData = products.map((p: any, index: number) => [
-      index + 1,
-      p.name || '-',
-      p.quantity || 0
-    ]);
+    const tableData = products.map((p: any, index: number) => {
+      const effectiveQty = (p.dispatchedQuantity !== undefined && p.dispatchedQuantity !== null && Number(p.dispatchedQuantity) > 0)
+        ? Number(p.dispatchedQuantity)
+        : (Number(p.quantity) || 1);
+      
+      const isPartial = p.dispatchedQuantity !== undefined && p.dispatchedQuantity !== null && Number(p.dispatchedQuantity) > 0 && Number(p.dispatchedQuantity) < Number(p.quantity);
+      let desc = p.name || '-';
+      if (p.size) desc += ` - ${p.size}`;
+      if (isPartial) desc += ` (Partial Dispatch: ${effectiveQty} of ${p.quantity})`;
+
+      return [
+        index + 1,
+        desc,
+        effectiveQty
+      ];
+    });
     
     autoTable(doc, {
       startY: y,

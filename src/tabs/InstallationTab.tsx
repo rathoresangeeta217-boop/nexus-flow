@@ -348,7 +348,33 @@ export function InstallationTab({ searchQuery = '' }: { searchQuery?: string }) 
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-800 font-semibold">{order.customer}</td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">{order.date}</td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">
-                            {order.details?.products?.filter(p => p.requiresInstallation).reduce((sum, p) => sum + (p.quantity || 1), 0) || 0} Items
+                            {(() => {
+                              const installProducts = order.details?.products?.filter(p => p.requiresInstallation) || [];
+                              const hasDispatchInfo = installProducts.some(p => p.isDispatched || (p.dispatchedQuantity !== undefined && p.dispatchedQuantity > 0));
+                              const activeProducts = hasDispatchInfo 
+                                ? installProducts.filter(p => p.isDispatched || (p.dispatchedQuantity && p.dispatchedQuantity > 0))
+                                : installProducts;
+                              
+                              const totalInstallQty = activeProducts.reduce((sum, p) => {
+                                const q = (p.dispatchedQuantity !== undefined && p.dispatchedQuantity !== null && Number(p.dispatchedQuantity) > 0)
+                                  ? Number(p.dispatchedQuantity)
+                                  : Number(p.quantity || 1);
+                                return sum + q;
+                              }, 0);
+
+                              const isPartial = activeProducts.some(p => p.dispatchedQuantity !== undefined && p.dispatchedQuantity !== null && p.dispatchedQuantity > 0 && p.dispatchedQuantity < p.quantity);
+
+                              return (
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-semibold text-slate-800">{totalInstallQty} Items</span>
+                                  {isPartial && (
+                                    <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded border border-amber-200">
+                                      Partial
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })()}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-800 font-semibold">{order.amount}</td>
                           <td className="px-6 py-4 whitespace-nowrap">

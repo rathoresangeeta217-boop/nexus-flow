@@ -13,7 +13,7 @@ import { subscribeToPurchases, Purchase } from '../lib/purchases';
 import { PaymentManagementModal } from '../components/PaymentManagementModal';
 import { VendorPaymentModal } from '../components/VendorPaymentModal';
 import { ProjectVendorSummaryModal } from '../components/ProjectVendorSummaryModal';
-import { getAllPayments, subscribeToPayments, PaymentRecord, calculatePhaseGstAdjustment, isPaymentMatchingOrder, isPhaseReceived, calculateOrderTotalAmount } from '../lib/payments';
+import { getAllPayments, subscribeToPayments, PaymentRecord, calculatePhaseGstAdjustment, isPaymentMatchingOrder, isPhaseReceived, calculateOrderTotalAmount, mergePaymentRecords } from '../lib/payments';
 import { generatePaymentReminderPDF } from '../lib/pdfHelper';
 
 import * as XLSX from 'xlsx';
@@ -25,21 +25,8 @@ export function getOrderPaymentSummary(order: Order, customerPayments: PaymentRe
 
   const matchingPayments = customerPayments.filter(p => isPaymentMatchingOrder(order.id, order.docId, p, order.customer));
 
-  matchingPayments.sort((a, b) => {
-    const aRecPhases = (a.phases || []).filter(p => isPhaseReceived(p)).length;
-    const bRecPhases = (b.phases || []).filter(p => isPhaseReceived(p)).length;
-    if (aRecPhases !== bRecPhases) return bRecPhases - aRecPhases;
-
-    const aPhases = a.phases?.length || 0;
-    const bPhases = b.phases?.length || 0;
-    if (aPhases !== bPhases) return bPhases - aPhases;
-
-    const aTime = a.updatedAt?.seconds || 0;
-    const bTime = b.updatedAt?.seconds || 0;
-    return bTime - aTime;
-  });
-
-  const paymentRecord = matchingPayments[0];
+  // Merge all matching records for this order so no payment phase is ever omitted
+  const paymentRecord = matchingPayments.length > 0 ? mergePaymentRecords(matchingPayments) : undefined;
 
   const parseVal = (str: string | undefined, baseTotal: number = 0) => {
     if (!str) return 0;

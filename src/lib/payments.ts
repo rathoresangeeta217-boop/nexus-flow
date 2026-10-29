@@ -1,4 +1,4 @@
-import { collection, addDoc, getDocs, query, where, updateDoc, doc, onSnapshot, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, getDocs, setDoc, query, updateDoc, doc, onSnapshot, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
 import { getCachedPayments, setCachedPayments, BASELINE_PAYMENTS } from './paymentsCache';
 
@@ -10,8 +10,8 @@ export interface PaymentPhase {
   utrNumber?: string;     // Transaction reference
   screenshotUrl?: string; // or base64 data
   date?: string;          // Expected or Received date
-  sourceType?: 'Bank' | 'Cash' | 'ICICI BANK' | 'ICICI' | 'Cheque';
-  bankName?: 'SBI' | 'Union' | 'PNB' | 'ICICI' | 'PR';
+  sourceType?: 'Bank' | 'Cheque' | 'Cash' | string;
+  bankName?: 'SBI' | 'ICICI' | 'PNB' | 'Union' | 'PR' | string;
 }
 
 export function calculateOrderTotalAmount(order: any): number {
@@ -77,6 +77,8 @@ export interface PaymentRecord {
   id?: string;
   docId?: string;
   orderId: string;
+  customer?: string;
+  aliases?: string[];
   // Auto-fetched from Order/Quote
   originalAmount: string;
   originalGst?: string;
@@ -100,53 +102,6 @@ export interface PaymentRecord {
 }
 
 const getPaymentsCollection = () => collection(db, 'payments');
-
-export const getAllPayments = async (): Promise<PaymentRecord[]> => {
-  try {
-    const snapshot = await getDocs(getPaymentsCollection());
-    const payments = snapshot.docs.map(doc => ({ docId: doc.id, ...doc.data() } as PaymentRecord));
-    if (payments.length > 0) {
-      await setCachedPayments(payments);
-    }
-    return payments;
-  } catch (err: any) {
-    console.warn("getAllPayments firestore notice, using cached payments:", err);
-    if (err?.message?.includes('Quota') || err?.code === 'resource-exhausted') {
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('firestore-quota-exceeded', { detail: { message: err.message } }));
-      }
-    }
-    return await getCachedPayments();
-  }
-};
-
-export const subscribeToPayments = (callback: (payments: PaymentRecord[]) => void) => {
-  // Immediately provide cached payments
-  getCachedPayments().then(cached => {
-    if (cached && cached.length > 0) {
-      callback(cached);
-    }
-  }).catch(e => console.warn("Initial payments cache fetch notice:", e));
-
-  const q = query(getPaymentsCollection());
-  return onSnapshot(q, (snapshot) => {
-    const payments = snapshot.docs.map(doc => ({ docId: doc.id, ...doc.data() } as PaymentRecord));
-    if (payments.length > 0) {
-      setCachedPayments(payments);
-    }
-    callback(payments);
-  }, async (error) => {
-    console.warn('Firestore snapshot error in src/lib/payments.ts:', error);
-    if (error?.message?.includes('Quota') || (error as any)?.code === 'resource-exhausted') {
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('firestore-quota-exceeded', { detail: { message: error.message } }));
-      }
-    }
-    const cached = await getCachedPayments();
-    callback(cached);
-  });
-};
-
 
 export function extractOrderBaseId(rawId?: string): string {
   if (!rawId) return '';
@@ -176,6 +131,7 @@ export function isPaymentMatchingOrder(
 
   const pOrderId = payment.orderId ? payment.orderId.trim().toLowerCase() : '';
   const pDocId = payment.docId ? payment.docId.trim().toLowerCase() : '';
+  const pCust = (payment.customer || '').trim().toLowerCase();
   const pBase = extractOrderBaseId(payment.orderId) || extractOrderBaseId(payment.docId);
 
   // Exact full string match
@@ -185,50 +141,268 @@ export function isPaymentMatchingOrder(
   // Exact base order code match (e.g. ord-2026-3285735 === ord-2026-3285735)
   if (oBase && pBase && oBase === pBase) return true;
 
-  // Substring match by base order code
-  if (oBase && oBase.length > 3 && (pOrderId.includes(oBase) || pDocId.includes(oBase))) {
+  // Check aliases array on payment
+  if (payment.aliases && Array.isArray(payment.aliases)) {
+    for (const alias of payment.aliases) {
+      if (!alias) continue;
+      const aLow = alias.trim().toLowerCase();
+      const aBase = extractOrderBaseId(alias);
+      if (oIdFull && aLow === oIdFull) return true;
+      if (oDocFull && aLow === oDocFull) return true;
+      if (oBase && (aLow === oBase || aBase === oBase || aLow.includes(oBase))) return true;
+    }
+  }
+
+  // Known mapping for Subhas Sir order ID alias (ORD-2026-4809459 <-> ORD-2026-3285735)
+  const isSubhasOrder = oIdFull.includes('4809459') || oIdFull.includes('3285735') || oCustFull.includes('subhas');
+  const isSubhasPayment = pOrderId.includes('4809459') || pOrderId.includes('3285735') || pCust.includes('subhas') || pDocId.includes('subhas');
+  if (isSubhasOrder && isSubhasPayment) {
     return true;
   }
 
-  // Match by customer name if present
-  if (oCustFull && oCustFull.length > 2 && (pOrderId.includes(oCustFull) || pDocId.includes(oCustFull))) {
+  // Substring match by base order code
+  if (oBase && oBase.length > 5 && (pOrderId.includes(oBase) || pDocId.includes(oBase))) {
     return true;
+  }
+
+  // Match by customer name if present and sufficiently distinct
+  if (oCustFull && oCustFull.length > 3) {
+    if (pOrderId.includes(oCustFull) || pDocId.includes(oCustFull)) {
+      return true;
+    }
+    if (pCust) {
+      if (pCust === oCustFull) return true;
+      if (pCust.includes(oCustFull) || oCustFull.includes(pCust)) return true;
+      // Word tokens overlap
+      const pTokens = pCust.split(/\s+/).filter(t => t.length >= 4);
+      const oTokens = oCustFull.split(/\s+/).filter(t => t.length >= 4);
+      if (pTokens.some(pt => oTokens.includes(pt))) return true;
+    }
   }
 
   return false;
 }
 
+/**
+ * Merges two arrays of payment phases defensively so that no previously received or recorded phase is lost.
+ */
+export function mergePhases(existingPhases: PaymentPhase[] = [], incomingPhases: PaymentPhase[] = []): PaymentPhase[] {
+  if (!existingPhases || existingPhases.length === 0) {
+    return (incomingPhases || []).map(p => ({
+      ...p,
+      id: p.id || Math.random().toString(36).substring(2, 9)
+    }));
+  }
+  if (!incomingPhases || incomingPhases.length === 0) {
+    return existingPhases.map(p => ({
+      ...p,
+      id: p.id || Math.random().toString(36).substring(2, 9)
+    }));
+  }
+
+  const result: PaymentPhase[] = [];
+  const incomingUsed = new Set<number>();
+
+  existingPhases.forEach(exPhase => {
+    // Find matching incoming phase by ID or by same title + amount
+    const incIndex = incomingPhases.findIndex((inc, idx) => {
+      if (incomingUsed.has(idx)) return false;
+      if (exPhase.id && inc.id && exPhase.id === inc.id) return true;
+      const exTitle = (exPhase.title || '').trim().toLowerCase();
+      const incTitle = (inc.title || '').trim().toLowerCase();
+      const exAmt = (exPhase.amount || '').toString().trim();
+      const incAmt = (inc.amount || '').toString().trim();
+      return exTitle && incTitle && exTitle === incTitle && exAmt === incAmt;
+    });
+
+    if (incIndex >= 0) {
+      incomingUsed.add(incIndex);
+      const incPhase = incomingPhases[incIndex];
+      const isReceived = isPhaseReceived(incPhase) || isPhaseReceived(exPhase);
+      result.push({
+        ...exPhase,
+        ...incPhase,
+        id: exPhase.id || incPhase.id || Math.random().toString(36).substring(2, 9),
+        status: isReceived ? 'Received' : (incPhase.status || exPhase.status || 'Pending'),
+        utrNumber: incPhase.utrNumber || exPhase.utrNumber,
+        screenshotUrl: incPhase.screenshotUrl || exPhase.screenshotUrl,
+        date: incPhase.date || exPhase.date,
+        sourceType: incPhase.sourceType || exPhase.sourceType,
+        bankName: incPhase.bankName || exPhase.bankName
+      });
+    } else {
+      // Existing phase was not in incoming: preserve it so history is never lost!
+      result.push({
+        ...exPhase,
+        id: exPhase.id || Math.random().toString(36).substring(2, 9)
+      });
+    }
+  });
+
+  // Append new phases from incoming
+  incomingPhases.forEach((incPhase, idx) => {
+    if (!incomingUsed.has(idx)) {
+      result.push({
+        ...incPhase,
+        id: incPhase.id || Math.random().toString(36).substring(2, 9)
+      });
+    }
+  });
+
+  return result;
+}
+
+/**
+ * Merges multiple PaymentRecord documents for the same order into a single unified record.
+ */
+export function mergePaymentRecords(records: PaymentRecord[]): PaymentRecord {
+  if (records.length === 0) {
+    return { orderId: '', originalAmount: '', phases: [] };
+  }
+  if (records.length === 1) {
+    return records[0];
+  }
+
+  // Sort: prioritize actual firestore docId (not starting with pay_) and records with more received phases
+  const sorted = [...records].sort((a, b) => {
+    const aReal = a.docId && !a.docId.startsWith('pay_') ? 1 : 0;
+    const bReal = b.docId && !b.docId.startsWith('pay_') ? 1 : 0;
+    if (aReal !== bReal) return bReal - aReal;
+
+    const aRec = (a.phases || []).filter(p => isPhaseReceived(p)).length;
+    const bRec = (b.phases || []).filter(p => isPhaseReceived(p)).length;
+    if (aRec !== bRec) return bRec - aRec;
+
+    const aLen = (a.phases || []).length;
+    const bLen = (b.phases || []).length;
+    return bLen - aLen;
+  });
+
+  const base = { ...sorted[0] };
+  let allPhases: PaymentPhase[] = [...(base.phases || [])];
+
+  for (let i = 1; i < sorted.length; i++) {
+    const other = sorted[i];
+    allPhases = mergePhases(allPhases, other.phases || []);
+    if (!base.grandTotal || base.grandTotal === '₹0') base.grandTotal = other.grandTotal;
+    if (!base.originalAmount || base.originalAmount === '₹0') base.originalAmount = other.originalAmount;
+    if (!base.originalGst || base.originalGst === '₹0') base.originalGst = other.originalGst;
+    if (!base.deliveryDate) base.deliveryDate = other.deliveryDate;
+    if (!base.advancePayment) base.advancePayment = other.advancePayment;
+    if (!base.transportationCharges) base.transportationCharges = other.transportationCharges;
+    if (!base.installationCharges) base.installationCharges = other.installationCharges;
+  }
+
+  base.phases = allPhases;
+  return base;
+}
+
+/**
+ * Consolidates an array of PaymentRecords, merging duplicates by base order ID.
+ */
+export function consolidatePayments(payments: PaymentRecord[]): PaymentRecord[] {
+  const groups = new Map<string, PaymentRecord[]>();
+  payments.forEach(p => {
+    const baseId = extractOrderBaseId(p.orderId) || extractOrderBaseId(p.docId) || p.orderId || p.docId || 'unknown';
+    const list = groups.get(baseId) || [];
+    list.push(p);
+    groups.set(baseId, list);
+  });
+
+  const result: PaymentRecord[] = [];
+  groups.forEach((group) => {
+    result.push(mergePaymentRecords(group));
+  });
+  return result;
+}
+
+export const getAllPayments = async (): Promise<PaymentRecord[]> => {
+  try {
+    const snapshot = await getDocs(getPaymentsCollection());
+    const rawPayments = snapshot.docs.map(d => ({ docId: d.id, ...d.data() } as PaymentRecord));
+    if (rawPayments.length > 0) {
+      const consolidated = consolidatePayments(rawPayments);
+      await setCachedPayments(consolidated);
+      return consolidated;
+    }
+  } catch (err: any) {
+    console.warn("getAllPayments firestore notice, using cached payments:", err);
+    if (err?.message?.includes('Quota') || err?.code === 'resource-exhausted') {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('firestore-quota-exceeded', { detail: { message: err.message } }));
+      }
+    }
+  }
+  const cached = await getCachedPayments();
+  return consolidatePayments(cached);
+};
+
+export const subscribeToPayments = (callback: (payments: PaymentRecord[]) => void) => {
+  // Immediately provide cached payments
+  getCachedPayments().then(cached => {
+    if (cached && cached.length > 0) {
+      callback(consolidatePayments(cached));
+    }
+  }).catch(e => console.warn("Initial payments cache fetch notice:", e));
+
+  const q = query(getPaymentsCollection());
+  return onSnapshot(q, (snapshot) => {
+    const rawPayments = snapshot.docs.map(d => ({ docId: d.id, ...d.data() } as PaymentRecord));
+    if (rawPayments.length > 0) {
+      const consolidated = consolidatePayments(rawPayments);
+      setCachedPayments(consolidated);
+      callback(consolidated);
+    } else {
+      getCachedPayments().then(cached => callback(consolidatePayments(cached)));
+    }
+  }, async (error) => {
+    console.warn('Firestore snapshot error in src/lib/payments.ts:', error);
+    if (error?.message?.includes('Quota') || (error as any)?.code === 'resource-exhausted') {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('firestore-quota-exceeded', { detail: { message: error.message } }));
+      }
+    }
+    const cached = await getCachedPayments();
+    callback(consolidatePayments(cached));
+  });
+};
+
 export const getPaymentForOrder = async (orderId: string, docId?: string, customerName?: string): Promise<PaymentRecord | null> => {
+  const matchingRecords: PaymentRecord[] = [];
+
+  // 1. Try Firestore
   try {
     const allSnapshot = await getDocs(getPaymentsCollection());
-    const matches: PaymentRecord[] = [];
-
     allSnapshot.docs.forEach(d => {
       const data = { docId: d.id, ...d.data() } as PaymentRecord;
       if (isPaymentMatchingOrder(orderId, docId, data, customerName)) {
-        matches.push(data);
+        matchingRecords.push(data);
       }
     });
-
-    if (matches.length > 0) {
-      matches.sort((a, b) => {
-        const aRec = (a.phases || []).filter(p => p.status === 'Received').length;
-        const bRec = (b.phases || []).filter(p => p.status === 'Received').length;
-        if (aRec !== bRec) return bRec - aRec;
-
-        const aPhases = a.phases?.length || 0;
-        const bPhases = b.phases?.length || 0;
-        if (aPhases !== bPhases) return bPhases - aPhases;
-
-        const aTime = a.updatedAt?.seconds || 0;
-        const bTime = b.updatedAt?.seconds || 0;
-        return bTime - aTime;
-      });
-      return matches[0];
-    }
   } catch (err) {
-    console.warn('getPaymentForOrder error:', err);
+    console.warn('getPaymentForOrder firestore notice, checking local cache:', err);
   }
+
+  // 2. Also check local cache to ensure no offline or unsynced records are missed
+  try {
+    const cached = await getCachedPayments();
+    cached.forEach(c => {
+      if (isPaymentMatchingOrder(orderId, docId, c, customerName)) {
+        const alreadyExists = matchingRecords.some(m => m.docId === c.docId);
+        if (!alreadyExists) {
+          matchingRecords.push(c);
+        }
+      }
+    });
+  } catch (cErr) {
+    console.warn('getPaymentForOrder cache lookup warning:', cErr);
+  }
+
+  if (matchingRecords.length > 0) {
+    // Merge all matching records into one comprehensive record
+    return mergePaymentRecords(matchingRecords);
+  }
+
   return null;
 };
 
@@ -249,13 +423,49 @@ const removeUndefined = (obj: any): any => {
 
 export const savePaymentRecord = async (record: Partial<PaymentRecord>) => {
   const cleanData = removeUndefined(record);
-  let targetDocId = cleanData.docId || `pay_${Date.now()}`;
+
+  // Check if there is an existing payment record for this order
+  let existingRecord: PaymentRecord | null = null;
+  try {
+    existingRecord = await getPaymentForOrder(cleanData.orderId || '', cleanData.docId, cleanData.customer);
+  } catch (e) {
+    console.warn("Could not check existing record prior to save:", e);
+  }
+
+  // Choose the best document ID: prefer real Firestore ID if one already exists
+  let targetDocId = cleanData.docId;
+  if (existingRecord?.docId && !existingRecord.docId.startsWith('pay_')) {
+    targetDocId = existingRecord.docId;
+  } else if (!targetDocId) {
+    targetDocId = `pay_${Date.now()}`;
+  }
   cleanData.docId = targetDocId;
 
-  // Persist locally first
+  if (!cleanData.customer && existingRecord?.customer) {
+    cleanData.customer = existingRecord.customer;
+  }
+
+  const combinedAliases = Array.from(new Set([
+    ...(cleanData.aliases || []),
+    ...(existingRecord?.aliases || []),
+    cleanData.orderId,
+    existingRecord?.orderId,
+    targetDocId
+  ].filter(Boolean)));
+  cleanData.aliases = combinedAliases;
+
+  // Defensive Phase Merge: Ensure no previously received phases are ever accidentally removed
+  if (existingRecord?.phases && existingRecord.phases.length > 0) {
+    cleanData.phases = mergePhases(existingRecord.phases, cleanData.phases || []);
+  }
+
+  // Persist locally first for instant, resilient offline update
   try {
     const cached = await getCachedPayments();
-    const existingIndex = cached.findIndex(p => (targetDocId && p.docId === targetDocId) || (cleanData.orderId && isPaymentMatchingOrder(cleanData.orderId, undefined, p)));
+    const existingIndex = cached.findIndex(p => 
+      (targetDocId && p.docId === targetDocId) || 
+      (cleanData.orderId && isPaymentMatchingOrder(cleanData.orderId, undefined, p))
+    );
     let updated: PaymentRecord[];
     if (existingIndex >= 0) {
       updated = [...cached];
@@ -263,26 +473,19 @@ export const savePaymentRecord = async (record: Partial<PaymentRecord>) => {
     } else {
       updated = [{ ...cleanData, docId: targetDocId } as PaymentRecord, ...cached];
     }
-    await setCachedPayments(updated);
+    await setCachedPayments(consolidatePayments(updated));
   } catch (cErr) {
     console.warn("Payment local cache write warning:", cErr);
   }
 
+  // Persist to Firestore using setDoc with merge: true to avoid creating duplicate docs
   try {
-    if (cleanData.docId && cleanData.docId.startsWith('pay_') === false) {
-      const { docId, ...updateData } = cleanData;
-      await updateDoc(doc(db, 'payments', targetDocId), {
-        ...updateData,
-        updatedAt: serverTimestamp()
-      });
-      return targetDocId;
-    } else {
-      const docRef = await addDoc(getPaymentsCollection(), {
-        ...cleanData,
-        updatedAt: serverTimestamp()
-      });
-      return docRef.id;
-    }
+    const { docId, ...dataToSave } = cleanData;
+    await setDoc(doc(db, 'payments', targetDocId), {
+      ...dataToSave,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+    return targetDocId;
   } catch (err: any) {
     console.warn("Firestore savePaymentRecord notice (persisted in local cache):", err);
     if (err?.message?.includes('Quota') || err?.code === 'resource-exhausted') {
@@ -294,12 +497,30 @@ export const savePaymentRecord = async (record: Partial<PaymentRecord>) => {
   }
 };
 
+export function isNonGstBankOrCash(sourceType?: string, bankName?: string): boolean {
+  const bnk = (bankName || '').trim().toUpperCase();
+  const src = (sourceType || '').trim().toUpperCase();
+
+  // PNB and ICICI: GST is NOT applicable (e.g. 10 Rs paid -> 11.8 Rs deducted from total amount)
+  if (bnk === 'ICICI' || bnk.includes('ICICI')) return true;
+  if (bnk === 'PNB' || bnk.includes('PNB')) return true;
+  if (bnk === 'PR' || bnk.includes('PR')) return true;
+  if (src === 'ICICI' || src === 'ICICI BANK') return true;
+  if (src === 'CASH') return true;
+
+  // SBI and UNION: GST is applicable (exact amount deducted)
+  return false;
+}
+
 export interface PhaseGstAdjustment {
   isPRorCash: boolean;
+  isGstExempt: boolean;
+  isGstApplicable: boolean;
   grossAmount: number;
   gstRate: number;
   gstAmount: number;
   netCreditedAmount: number;
+  totalDeduction: number;
 }
 
 export function calculatePhaseGstAdjustment(
@@ -309,7 +530,7 @@ export function calculatePhaseGstAdjustment(
   gstRate: number = 18,
   baseGrandTotal: number = 0
 ): PhaseGstAdjustment {
-  const isPRorCash = sourceType === 'Cash' || sourceType === 'ICICI BANK' || sourceType === 'ICICI' || bankName === 'PR' || bankName === 'PNB' || bankName === 'ICICI' || (bankName && ['PR', 'PNB', 'ICICI', 'ICICI BANK'].includes(bankName.toUpperCase())) || (sourceType === 'Bank' && (bankName && ['PR', 'PNB', 'ICICI', 'ICICI BANK'].includes(bankName.toUpperCase())));
+  const isNoGst = isNonGstBankOrCash(sourceType, bankName);
 
   let grossAmount = 0;
   if (phaseAmountStr !== undefined && phaseAmountStr !== null) {
@@ -324,24 +545,32 @@ export function calculatePhaseGstAdjustment(
     }
   }
 
-  if (!isPRorCash || grossAmount <= 0) {
+  // SBI or UNION (or default when GST is applicable)
+  if (!isNoGst || grossAmount <= 0) {
     return {
       isPRorCash: false,
+      isGstExempt: false,
+      isGstApplicable: true,
       grossAmount,
       gstRate,
       gstAmount: 0,
-      netCreditedAmount: grossAmount
+      netCreditedAmount: grossAmount,
+      totalDeduction: grossAmount
     };
   }
 
+  // PNB or ICICI: GST is NOT applicable on this amount, so on gross of 10, 1.80 GST is waived/deducted from total (total 11.80 deducted)
   const gstAmount = grossAmount * (gstRate / 100);
-  const netCreditedAmount = grossAmount;
+  const netCreditedAmount = grossAmount + gstAmount;
 
   return {
     isPRorCash: true,
+    isGstExempt: true,
+    isGstApplicable: false,
     grossAmount,
     gstRate,
     gstAmount,
-    netCreditedAmount
+    netCreditedAmount,
+    totalDeduction: netCreditedAmount
   };
 }

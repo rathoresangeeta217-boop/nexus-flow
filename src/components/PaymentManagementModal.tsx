@@ -37,7 +37,7 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
       setAuthPassword('');
       setAuthAction(null);
     }
-  }, [isOpen, order]);
+  }, [isOpen, order?.id, order?.docId]);
 
   
   const handleAuthSubmit = () => {
@@ -79,7 +79,8 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
     setIsLoading(true);
     try {
       const orderIdToUse = order.id || order.docId || '';
-      const existing = await getPaymentForOrder(order.id, order.docId, order.customer);
+      const customerToUse = order.customer || order.details?.customerName || (order.details as any)?.companyName || '';
+      const existing = await getPaymentForOrder(order.id, order.docId, customerToUse);
       const initDeliveryDate = existing?.deliveryDate || order.details?.deliveryDate || (order as any).deliveryDate || '';
       setDeliveryDate(initDeliveryDate);
 
@@ -152,6 +153,8 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
           ...existing,
           docId: existing.docId,
           orderId: existing.orderId || orderIdToUse,
+          customer: existing.customer || customerToUse,
+          aliases: Array.from(new Set([...(existing.aliases || []), orderIdToUse, existing.orderId, order.id, order.docId].filter(Boolean) as string[])),
           originalAmount: hasValidSub ? existing.originalAmount : defaultOriginalAmount,
           originalGst: (existing.originalGst && existing.originalGst !== '₹0') ? existing.originalGst : defaultOriginalGst,
           grandTotal: hasValidGrand ? existing.grandTotal : defaultGrandTotal,
@@ -164,6 +167,8 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
       } else {
         setRecord({
           orderId: orderIdToUse,
+          customer: customerToUse,
+          aliases: [orderIdToUse, order.id, order.docId].filter(Boolean) as string[],
           originalAmount: defaultOriginalAmount,
           originalGst: defaultOriginalGst,
           grandTotal: defaultGrandTotal,
@@ -204,8 +209,8 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
         if (!phaseCopy.sourceType) {
           phaseCopy.sourceType = 'Bank';
         }
-        if (phaseCopy.sourceType === 'Bank' && !phaseCopy.bankName) {
-          phaseCopy.bankName = 'PNB';
+        if ((phaseCopy.sourceType === 'Bank' || phaseCopy.sourceType === 'Cheque') && !phaseCopy.bankName) {
+          phaseCopy.bankName = 'SBI';
         }
         if (!phaseCopy.date) {
           phaseCopy.date = new Date().toISOString().split('T')[0];
@@ -215,10 +220,13 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
     });
 
     const orderIdToUse = order?.id || order?.docId || record.orderId || '';
+    const customerToUse = order?.customer || order?.details?.customerName || (order?.details as any)?.companyName || record.customer || '';
 
     let recordToSave: Partial<PaymentRecord> = { 
       ...record,
       orderId: orderIdToUse,
+      customer: customerToUse,
+      aliases: Array.from(new Set([...(record.aliases || []), orderIdToUse, record.orderId, order?.id, order?.docId].filter(Boolean) as string[])),
       docId: record.docId,
       deliveryDate: finalDeliveryDate,
       phases: processedPhases
@@ -320,35 +328,42 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
   };
 
   const addPhase = () => {
-    const newPhase: PaymentPhase = {
-      id: Math.random().toString(36).substr(2, 9),
-      title: '',
-      amount: '',
-      status: 'Pending'
-    };
-    setRecord({ ...record, phases: [...(record.phases || []), newPhase] });
+    setRecord(prev => {
+      const currentPhases = prev.phases || [];
+      const newPhase: PaymentPhase = {
+        id: Math.random().toString(36).substring(2, 9),
+        title: `Phase ${currentPhases.length + 1}`,
+        amount: '',
+        status: 'Pending'
+      };
+      return { ...prev, phases: [...currentPhases, newPhase] };
+    });
   };
 
   const updatePhase = (id: string, updates: Partial<PaymentPhase>) => {
     if (updates.status === 'Received') {
       setUnlockedPhases(prev => ({ ...prev, [id]: true }));
     }
-    const updatedPhases = record.phases?.map(p => {
-      if (p.id !== id) return p;
-      const updated = { ...p, ...updates };
-      // Auto update status to Received if user selected date, UTR, sourceType, bankName, or uploaded screenshot
-      if ((updates.date || updates.utrNumber || updates.sourceType || updates.bankName || updates.screenshotUrl) && updated.status === 'Pending') {
-        updated.status = 'Received';
-        setUnlockedPhases(prev => ({ ...prev, [id]: true }));
-      }
-      return updated;
-    }) || [];
-    setRecord({ ...record, phases: updatedPhases });
+    setRecord(prev => {
+      const updatedPhases = (prev.phases || []).map(p => {
+        if (p.id !== id) return p;
+        const updated = { ...p, ...updates };
+        // Auto update status to Received if user selected date, UTR, sourceType, bankName, or uploaded screenshot
+        if ((updates.date || updates.utrNumber || updates.sourceType || updates.bankName || updates.screenshotUrl) && updated.status === 'Pending') {
+          updated.status = 'Received';
+          setUnlockedPhases(u => ({ ...u, [id]: true }));
+        }
+        return updated;
+      });
+      return { ...prev, phases: updatedPhases };
+    });
   };
 
   const removePhase = (id: string) => {
-    const updatedPhases = record.phases?.filter(p => p.id !== id) || [];
-    setRecord({ ...record, phases: updatedPhases });
+    setRecord(prev => {
+      const updatedPhases = (prev.phases || []).filter(p => p.id !== id);
+      return { ...prev, phases: updatedPhases };
+    });
   };
 
 
@@ -363,28 +378,34 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
       
       if (record.phases && record.phases.length > 0) {
         record.phases.forEach((phase, index) => {
-          const isPRorCash = phase.sourceType === 'Cash' || phase.sourceType === 'ICICI BANK' || phase.sourceType === 'ICICI' || (phase.sourceType === 'Bank' && (phase.bankName === 'PR' || phase.bankName === 'PNB' || phase.bankName === 'ICICI' || phase.bankName?.toUpperCase() === 'PNB' || phase.bankName?.toUpperCase() === 'ICICI' || phase.bankName?.toUpperCase() === 'PR'));
           const parseVal = (str: any) => {
             if (!str) return 0;
             const m = str.toString().match(/\d[\d,]*(\.\d+)?/);
             return m ? parseFloat(m[0].replace(/,/g, "")) : 0;
           };
           const grandVal = parseVal(record.grandTotal);
-          const adj = calculatePhaseGstAdjustment(phase.amount, phase.sourceType, phase.bankName, 18, grandVal);
+          let gstRate = 18;
+          if (record.originalGst) {
+            const m = record.originalGst.match(/(\d+(?:\.\d+)?)\s*%/);
+            if (m) gstRate = parseFloat(m[1]);
+          }
+          const adj = calculatePhaseGstAdjustment(phase.amount, phase.sourceType, phase.bankName, gstRate, grandVal);
+
+          const isNonGst = !adj.isGstApplicable;
 
           paymentsData.push({
             "Order ID": order.id,
             "Customer": customerName,
             "Total Amount": totalAmount,
             "Phase Title": phase.title || `Phase ${index + 1}`,
-            "Phase Amount": phase.amount || '',
+            "Phase Amount (Gross)": phase.amount || '',
             "Status": phase.status || '',
             "Date": phase.date ? new Date(phase.date).toLocaleString('en-IN') : '',
             "Source Type": phase.sourceType || '',
             "Bank Name": phase.bankName || '',
-            "GST Exemption Rule": isPRorCash ? "PNB/ICICI/Cash - GST Excluded" : "Standard GST Applied",
-            "GST Subtracted": isPRorCash ? `₹${adj.gstAmount.toFixed(2)}` : "₹0.00",
-            "Net Credited Amount": `₹${adj.netCreditedAmount.toFixed(2)}`,
+            "GST Policy": isNonGst ? "PNB/ICICI (GST Not Applicable)" : "SBI/Union (GST Applied)",
+            "GST Waived/Adjusted": isNonGst ? `₹${adj.gstAmount.toFixed(2)}` : "₹0.00",
+            "Total Deducted from Order": `₹${adj.totalDeduction.toFixed(2)}`,
             "UTR Number": phase.utrNumber || ''
           });
         });
@@ -628,8 +649,8 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-indigo-700 mb-1">Collected / Remaining Balance</label>
-                    <div className="w-full px-3 py-1.5 bg-indigo-50 border border-indigo-200 rounded-lg text-indigo-800 text-xs flex flex-col justify-center">
+                    <label className="block text-xs font-bold text-indigo-700 mb-1">Payment Summary & Balance</label>
+                    <div className="w-full px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-lg text-indigo-900 text-xs flex flex-col justify-center gap-1">
                       {(() => {
                         const parseVal = (str: string | undefined, baseTotal: number = 0) => {
                            if (!str) return 0;
@@ -645,7 +666,7 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
                         const grandTotal = parseVal(record.grandTotal);
                         
                         let receivedPhasesTotal = 0;
-                        let totalGstSubtracted = 0;
+                        let totalDeductedFromTotal = 0;
                         let gstRate = 18;
                         if (record.originalGst) {
                           const m = record.originalGst.match(/(\d+(?:\.\d+)?)\s*%/);
@@ -653,19 +674,27 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
                         }
                         (record.phases || []).forEach(p => {
                           if (p.status === 'Received') {
-                            receivedPhasesTotal += parseVal(p.amount, grandTotal);
+                            const gross = parseVal(p.amount, grandTotal);
+                            receivedPhasesTotal += gross;
                             const adj = calculatePhaseGstAdjustment(p.amount, p.sourceType, p.bankName, gstRate, grandTotal);
-                            totalGstSubtracted += adj.gstAmount;
+                            totalDeductedFromTotal += adj.totalDeduction;
                           }
                         });
-                        const remaining = grandTotal - receivedPhasesTotal - totalGstSubtracted;
-                        const remStr = remaining >= 0 ? `₹${remaining.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : `-₹${Math.abs(remaining).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+                        const remaining = Math.max(0, grandTotal - totalDeductedFromTotal);
+                        const remStr = `₹${remaining.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
                         const recStr = `₹${receivedPhasesTotal.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+                        const dedStr = `₹${totalDeductedFromTotal.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 
                         return (
-                          <div className="flex items-center justify-between font-bold py-0.5">
-                            <span className="text-emerald-700">Rec: {recStr}</span>
-                            <span className="text-indigo-900">Rem: {remStr}</span>
+                          <div className="flex flex-col gap-1 text-[11px]">
+                            <div className="flex items-center justify-between font-semibold">
+                              <span className="text-emerald-700">Bank Received: {recStr}</span>
+                              <span className="text-indigo-800 font-bold">Total Deducted: {dedStr}</span>
+                            </div>
+                            <div className="flex items-center justify-between pt-1 border-t border-indigo-200/60 font-bold">
+                              <span className="text-slate-600">Remaining Balance:</span>
+                              <span className={remaining <= 0.01 ? "text-emerald-700 font-black" : "text-amber-700 font-black"}>{remStr}</span>
+                            </div>
                           </div>
                         );
                       })()}
@@ -887,14 +916,20 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
                             </h5>
                           </div>
 
-                          <div className={`grid grid-cols-1 md:grid-cols-${phase.sourceType === 'Bank' ? '4' : '3'} gap-4`}>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                             <div>
                               <label className="block text-xs font-bold text-slate-700 mb-1">
                                 Payment Source
                               </label>
                               <select 
-                                value={phase.sourceType || ''}
-                                onChange={(e) => updatePhase(phase.id, { sourceType: e.target.value as any })}
+                                value={phase.sourceType || 'Bank'}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  updatePhase(phase.id, { 
+                                    sourceType: val as any,
+                                    bankName: phase.bankName || 'SBI'
+                                  });
+                                }}
                                 disabled={phase.status === 'Received' && !unlockedPhases[phase.id]}
                                 className={`w-full px-3 py-2 border rounded-lg outline-none text-xs font-semibold ${
                                   phase.status === 'Received' && !unlockedPhases[phase.id] 
@@ -902,37 +937,31 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
                                     : 'bg-white border-slate-300 focus:ring-2 focus:ring-indigo-500'
                                 }`}
                               >
-                                <option value="">Select Source...</option>
                                 <option value="Bank">Bank</option>
-                                <option value="ICICI BANK">ICICI BANK</option>
-                                <option value="Cash">Cash</option>
                                 <option value="Cheque">Cheque</option>
                               </select>
                             </div>
 
-                            {phase.sourceType === 'Bank' && (
-                              <div>
-                                <label className="block text-xs font-bold text-slate-700 mb-1">
-                                  Bank Name
-                                </label>
-                                <select 
-                                  value={phase.bankName || ''}
-                                  onChange={(e) => updatePhase(phase.id, { bankName: e.target.value as any })}
-                                  disabled={phase.status === 'Received' && !unlockedPhases[phase.id]}
-                                  className={`w-full px-3 py-2 border rounded-lg outline-none text-xs font-semibold ${
-                                    phase.status === 'Received' && !unlockedPhases[phase.id] 
-                                      ? 'bg-slate-100 text-slate-500 border-slate-200 cursor-not-allowed' 
-                                      : 'bg-white border-slate-300 focus:ring-2 focus:ring-indigo-500'
-                                  }`}
-                                >
-                                  <option value="">Select Bank...</option>
-                                  <option value="PNB">PNB Bank</option>
-                                  <option value="ICICI">ICICI Bank</option>
-                                  <option value="SBI">SBI</option>
-                                  <option value="Union">Union Bank</option>
-                                </select>
-                              </div>
-                            )}
+                            <div>
+                              <label className="block text-xs font-bold text-slate-700 mb-1">
+                                Bank Name
+                              </label>
+                              <select 
+                                value={phase.bankName || 'SBI'}
+                                onChange={(e) => updatePhase(phase.id, { bankName: e.target.value as any })}
+                                disabled={phase.status === 'Received' && !unlockedPhases[phase.id]}
+                                className={`w-full px-3 py-2 border rounded-lg outline-none text-xs font-semibold ${
+                                  phase.status === 'Received' && !unlockedPhases[phase.id] 
+                                    ? 'bg-slate-100 text-slate-500 border-slate-200 cursor-not-allowed' 
+                                    : 'bg-white border-slate-300 focus:ring-2 focus:ring-indigo-500'
+                                }`}
+                              >
+                                <option value="SBI">SBI</option>
+                                <option value="ICICI">ICICI</option>
+                                <option value="PNB">PNB</option>
+                                <option value="Union">Union</option>
+                              </select>
+                            </div>
 
                             <div>
                               <label className="block text-xs font-semibold text-slate-700 mb-1">UTR Number / Ref ID</label>

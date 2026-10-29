@@ -19,7 +19,11 @@
         "poFileName": "string",
         "poFileData": "string",
         "drawingFileName": "string",
-        "drawingFileData": "string"
+        "drawingFileData": "string",
+        "checklistFileName": "string",
+        "checklistFileData": "string",
+        "ocFileName": "string",
+        "ocFileData": "string"
       }
     }
   ]

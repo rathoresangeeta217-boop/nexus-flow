@@ -30,8 +30,16 @@ export interface OrderDetails {
   quotationFileData?: string;
   poFileName?: string;
   poFileData?: string;
+  poUploadedAt?: string;
   drawingFileName?: string;
   drawingFileData?: string;
+  drawingUploadedAt?: string;
+  checklistFileName?: string;
+  checklistFileData?: string;
+  checklistUploadedAt?: string;
+  ocFileName?: string;
+  ocFileData?: string;
+  ocUploadedAt?: string;
   advancePayment?: string;
   transportationCharges?: string;
   installationCharges?: string;

@@ -118,17 +118,40 @@ export const BASELINE_ORDERS: Order[] = [
     }
   },
   {
+    id: "ORD-2026-4809459",
+    docId: "hVM3ohG3hwlJX7sSphTu",
+    customer: "subhas sir",
+    amount: "₹3,28,660",
+    date: "Sep 11, 2026",
+    status: "Dispatched",
+    items: 2,
+    createdAt: { seconds: 1789132043 },
+    details: {
+      totalAmount: "₹3,28,660",
+      customerName: "subhas sir",
+      companyName: "subhas sir",
+      employeeName: "Abhilasha verma",
+      deliveryDate: "2026-10-15",
+      advancePayment: "50% advance payment required at the time of order.",
+      transportationCharges: "Rs. 3,500",
+      installationCharges: "Rs. 16,000",
+      gst: "08AAIPM7265R1ZR"
+    }
+  },
+  {
     id: "ORD-2026-3285735",
     docId: "ord_3285735",
     customer: "subhas sir",
     amount: "₹3,28,660",
     date: "Oct 15, 2026",
-    status: "New Order",
+    status: "Dispatched",
     items: 8,
     createdAt: { seconds: 1792051200 },
     details: {
       totalAmount: "₹3,28,660",
-      employeeName: "Anshuman Singh",
+      customerName: "subhas sir",
+      companyName: "subhas sir",
+      employeeName: "Abhilasha verma",
       deliveryDate: "2026-10-15",
       advancePayment: "50% advance payment required at the time",
       transportationCharges: "Rs. 3,500",

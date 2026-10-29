@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { ShoppingCart, TrendingUp, Clock, CheckCircle2, MoreHorizontal, Filter, Plus, FileText, Download, Loader2, X, Truck, Calendar, AlertTriangle, Trash2, Check } from 'lucide-react';
+import { ShoppingCart, TrendingUp, Clock, CheckCircle2, MoreHorizontal, Filter, Plus, FileText, Download, Loader2, X, Truck, Calendar, AlertTriangle, Trash2, Check, Paperclip, Upload, FileCheck2 } from 'lucide-react';
 import { StatCard } from '../components/StatCard';
 import { Badge } from '../components/Badge';
 import { NewOrderModal } from '../components/NewOrderModal';
 import { OrderDetailsModal } from '../components/OrderDetailsModal';
+import { UploadDrawingChecklistModal } from '../components/UploadDrawingChecklistModal';
 import { subscribeToOrders, saveOrder, deleteOrder, Order, getOverdueUnconfirmedDispatches } from '../lib/orders';
 import { BASELINE_ORDERS } from '../lib/ordersCache';
 import { useAuth } from '../contexts/AuthContext';
@@ -31,6 +32,8 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
   const [uploadedFileData, setUploadedFileData] = useState<string | undefined>();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
+  const [isDocUploadModalOpen, setIsDocUploadModalOpen] = useState(false);
+  const [orderForDocUpload, setOrderForDocUpload] = useState<Order | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 15;
 
@@ -161,15 +164,16 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
     }
 
     // Extract file data to avoid Firebase size limits
-    const { poFileData, drawingFileData, ...orderDetails } = newOrder;
+    const { poFileData, drawingFileData, checklistFileData, ...orderDetails } = newOrder;
 
-    const orderData = {
+    const orderData: Order = {
       id: `ORD-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}${String(Math.floor(Math.random() * 1000)).padStart(3, '0')}`,
       customer: orderDetails.companyName || orderDetails.customerName || 'Unknown Customer',
       amount: orderDetails.totalAmount || '₹0.00',
       date: orderDetails.orderDate ? new Date(orderDetails.orderDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
       status: 'New Order',
       items: Number(orderDetails.totalItems) || 0,
+      createdAt: new Date().toISOString(),
       details: {
         ...orderDetails,
       }
@@ -182,9 +186,14 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
       await saveOrderFiles(orderData.id, {
         quotationFileData: uploadedFileData,
         poFileData: poFileData,
-        drawingFileData: drawingFileData
+        drawingFileData: drawingFileData,
+        checklistFileData: checklistFileData
       });
       
+      // Give option to upload drawing and checklist immediately after adding the order
+      setOrderForDocUpload(orderData);
+      setIsDocUploadModalOpen(true);
+
     } catch (error: any) {
       console.error('Error saving order:', error);
       alert(`Failed to save order: ${error.message}`);
@@ -480,6 +489,21 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
         onDelete={() => selectedOrder?.docId && handleDeleteOrder(selectedOrder.docId)}
       />
 
+      <UploadDrawingChecklistModal
+        isOpen={isDocUploadModalOpen}
+        onClose={() => {
+          setIsDocUploadModalOpen(false);
+          setOrderForDocUpload(null);
+        }}
+        order={orderForDocUpload}
+        onSuccess={(updatedOrder) => {
+          setOrders(prev => prev.map(o => (o.id === updatedOrder.id || o.docId === updatedOrder.docId) ? updatedOrder : o));
+          if (selectedOrder && (selectedOrder.id === updatedOrder.id || selectedOrder.docId === updatedOrder.docId)) {
+            setSelectedOrder(updatedOrder);
+          }
+        }}
+      />
+
       {/* Firestore Quota Notice Banner */}
       {quotaExceeded && (
         <div className="p-4 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
@@ -710,13 +734,14 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
                   <th className="px-6 py-3 border-b border-slate-200">Items</th>
                   <th className="px-6 py-3 border-b border-slate-200">Total Amount</th>
                   <th className="px-6 py-3 border-b border-slate-200">Status</th>
+                  <th className="px-6 py-3 border-b border-slate-200">Drawing & Checklist</th>
                   <th className="px-6 py-3 border-b border-slate-200 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {isLoading ? (
                   <tr>
-                    <td colSpan={9} className="px-6 py-12 text-center text-slate-500">
+                    <td colSpan={10} className="px-6 py-12 text-center text-slate-500">
                       <div className="flex flex-col items-center justify-center">
                         <Loader2 className="w-8 h-8 text-indigo-500 animate-spin mb-4" />
                         <p>Loading orders...</p>
@@ -725,7 +750,7 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
                   </tr>
                 ) : filteredOrders.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-6 py-12 text-center text-slate-500">
+                    <td colSpan={10} className="px-6 py-12 text-center text-slate-500">
                       No orders found matching the selected filters.
                     </td>
                   </tr>
@@ -775,6 +800,45 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
                       )}
                     </div>
                   </td>
+                  <td className="px-6 py-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                    {order.details?.drawingFileName && order.details?.checklistFileName ? (
+                      <button 
+                        onClick={() => { setOrderForDocUpload(order); setIsDocUploadModalOpen(true); }}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 transition-colors cursor-pointer"
+                        title="Drawing & Checklist attached. Click to view or replace."
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Attached</span>
+                      </button>
+                    ) : order.details?.drawingFileName ? (
+                      <button 
+                        onClick={() => { setOrderForDocUpload(order); setIsDocUploadModalOpen(true); }}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 transition-colors cursor-pointer"
+                        title="Drawing attached, checklist pending. Click to upload checklist."
+                      >
+                        <Paperclip className="w-3.5 h-3.5 text-amber-600" />
+                        <span>Checklist Pending</span>
+                      </button>
+                    ) : order.details?.checklistFileName ? (
+                      <button 
+                        onClick={() => { setOrderForDocUpload(order); setIsDocUploadModalOpen(true); }}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition-colors cursor-pointer"
+                        title="Checklist attached, drawing pending. Click to upload drawing."
+                      >
+                        <FileCheck2 className="w-3.5 h-3.5 text-indigo-600" />
+                        <span>Drawing Pending</span>
+                      </button>
+                    ) : (
+                      <button 
+                        onClick={() => { setOrderForDocUpload(order); setIsDocUploadModalOpen(true); }}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold text-slate-600 bg-slate-50 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-300 border border-slate-200 transition-colors cursor-pointer shadow-2xs"
+                        title="Upload Drawing & Customer Checklist"
+                      >
+                        <Upload className="w-3.5 h-3.5 text-slate-400" />
+                        <span>+ Upload Docs</span>
+                      </button>
+                    )}
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium relative" onClick={(e) => e.stopPropagation()}>
                     <button 
                       onClick={() => setActiveMenuOrderId(activeMenuOrderId === (order.docId || order.id) ? null : (order.docId || order.id))}
@@ -785,7 +849,7 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
                     </button>
 
                     {activeMenuOrderId === (order.docId || order.id) && (
-                      <div className="absolute right-6 top-12 z-50 w-52 bg-white rounded-xl shadow-2xl border border-slate-200 py-2 text-left text-xs space-y-1 animate-fadeIn">
+                      <div className="absolute right-6 top-12 z-50 w-56 bg-white rounded-xl shadow-2xl border border-slate-200 py-2 text-left text-xs space-y-1 animate-fadeIn">
                         <div className="px-3 py-1.5 border-b border-slate-100 font-bold text-slate-800 flex items-center justify-between">
                           <span>Order Actions #{order.id}</span>
                           <button onClick={() => setActiveMenuOrderId(null)} className="text-slate-400 hover:text-slate-600 p-0.5 rounded">
@@ -798,6 +862,13 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
                           className="w-full px-3 py-1.5 hover:bg-indigo-50/70 flex items-center gap-2 text-indigo-700 font-bold cursor-pointer transition-colors"
                         >
                           <FileText className="w-3.5 h-3.5 text-indigo-600" /> View Order Details
+                        </button>
+
+                        <button 
+                          onClick={() => { setActiveMenuOrderId(null); setOrderForDocUpload(order); setIsDocUploadModalOpen(true); }}
+                          className="w-full px-3 py-1.5 hover:bg-indigo-50/70 flex items-center gap-2 text-indigo-700 font-bold cursor-pointer transition-colors"
+                        >
+                          <FileCheck2 className="w-3.5 h-3.5 text-indigo-600" /> Upload Drawing & Checklist
                         </button>
 
                         <button 
