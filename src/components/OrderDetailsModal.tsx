@@ -225,17 +225,17 @@ You have a new dispatch scheduled.\n\nOrder ID: ${order.id}\n${items}\n${vehicle
             initial={{ opacity: 0, scale: 0.95, y: 20 }} 
             animate={{ opacity: 1, scale: 1, y: 0 }} 
             exit={{ opacity: 0, scale: 0.95, y: 20 }} 
-            className="relative bg-white rounded-none md:rounded-2xl shadow-xl w-full max-w-3xl overflow-hidden flex flex-col max-h-full"
+            className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[95vh] md:max-h-full"
           >
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/50">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600">
-                  <FileText className="w-5 h-5" />
+            <div className="flex items-center justify-between px-3.5 sm:px-6 py-3 sm:py-4 border-b border-slate-100 bg-slate-50/80">
+              <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 shrink-0">
+                  <FileText className="w-4 h-4 sm:w-5 sm:h-5" />
                 </div>
-                <div>
-                  <h3 className="font-bold text-slate-800 text-lg">Order Details</h3>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <p className="text-xs font-medium text-slate-500">{order.id}</p>
+                <div className="min-w-0">
+                  <h3 className="font-bold text-slate-800 text-sm sm:text-lg truncate">Order Details</h3>
+                  <div className="flex items-center gap-1.5 sm:gap-2 mt-0.5 flex-wrap">
+                    <p className="text-[11px] sm:text-xs font-semibold text-slate-500 truncate">{order.id}</p>
                     <Badge variant={
                       order.status === 'Installation Complete' ? 'success' : 
                       order.status === 'Installation Scheduled' ? 'info' :
@@ -250,7 +250,7 @@ You have a new dispatch scheduled.\n\nOrder ID: ${order.id}\n${items}\n${vehicle
                   </div>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
                 <button 
                   onClick={async () => {
                     try {
@@ -259,24 +259,26 @@ You have a new dispatch scheduled.\n\nOrder ID: ${order.id}\n${items}\n${vehicle
                       console.error('Error generating payment reminder notice:', err);
                     }
                   }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                  className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg text-xs font-bold transition-colors cursor-pointer"
                   title="Download Payment Reminder Notice"
                 >
-                  <Download className="w-3.5 h-3.5 text-amber-600" />
-                  <span>Payment Reminder</span>
+                  <Download className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                  <span className="hidden xs:inline">Payment Reminder</span>
+                  <span className="xs:hidden">Reminder</span>
                 </button>
                 <button 
                   onClick={onClose}
-                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"
+                  className="w-9 h-9 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 rounded-full transition-colors cursor-pointer"
+                  aria-label="Close"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
             </div>
 
-            <div className="p-6 overflow-y-auto custom-scrollbar space-y-8">
+            <div className="p-3.5 sm:p-6 overflow-y-auto custom-scrollbar space-y-6 sm:space-y-8">
               {/* Customer Info */}
-              <div className="bg-slate-50 rounded-xl p-5 border border-slate-100">
+              <div className="bg-slate-50 rounded-xl p-3.5 sm:p-5 border border-slate-100">
                 <h4 className="text-sm font-bold text-slate-800 mb-4 border-b border-slate-200 pb-2">Order & Customer Information</h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="flex items-start gap-3">

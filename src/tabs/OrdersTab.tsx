@@ -1,6 +1,30 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { ShoppingCart, TrendingUp, Clock, CheckCircle2, MoreHorizontal, Filter, Plus, FileText, Download, Loader2, X, Truck, Calendar, AlertTriangle, Trash2, Check, Paperclip, Upload, FileCheck2 } from 'lucide-react';
+import { 
+  ShoppingCart, 
+  TrendingUp, 
+  Clock, 
+  CheckCircle2, 
+  MoreHorizontal, 
+  Filter, 
+  Plus, 
+  FileText, 
+  Download, 
+  Loader2, 
+  X, 
+  Truck, 
+  Calendar, 
+  AlertTriangle, 
+  Trash2, 
+  Check, 
+  Paperclip, 
+  Upload, 
+  FileCheck2,
+  LayoutGrid,
+  List,
+  ChevronDown,
+  ChevronUp
+} from 'lucide-react';
 import { StatCard } from '../components/StatCard';
 import { Badge } from '../components/Badge';
 import { NewOrderModal } from '../components/NewOrderModal';
@@ -36,6 +60,8 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
   const [orderForDocUpload, setOrderForDocUpload] = useState<Order | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 15;
+  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
+  const [showStats, setShowStats] = useState(true);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -550,18 +576,54 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
       )}
 
       {/* Action Bar */}
-      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
         <div>
-          <h2 className="text-xl font-bold text-slate-800 tracking-tight">Dashboard</h2>
-          <p className="text-sm text-slate-500 font-medium mt-1">Manage and track customer orders across the pipeline.</p>
+          <h2 className="text-lg sm:text-xl font-bold text-slate-800 tracking-tight">Dashboard</h2>
+          <p className="text-xs sm:text-sm text-slate-500 font-medium">Manage and track customer orders across the pipeline.</p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
+          {/* Mobile View Toggle and Stats Toggle */}
+          <div className="flex items-center gap-1.5 md:hidden">
+            <button
+              type="button"
+              onClick={() => setShowStats(!showStats)}
+              className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors"
+              title="Show/Hide Stats"
+            >
+              {showStats ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              <span>Stats</span>
+            </button>
+
+            <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+              <button
+                type="button"
+                onClick={() => setViewMode('cards')}
+                className={`p-1.5 rounded-md transition-all ${
+                  viewMode === 'cards' ? 'bg-white text-indigo-600 shadow-2xs font-bold' : 'text-slate-500'
+                }`}
+                title="Card View"
+              >
+                <LayoutGrid className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('table')}
+                className={`p-1.5 rounded-md transition-all ${
+                  viewMode === 'table' ? 'bg-white text-indigo-600 shadow-2xs font-bold' : 'text-slate-500'
+                }`}
+                title="Table View"
+              >
+                <List className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
           <button 
             onClick={handleNewOrderClick}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors shadow-sm flex items-center"
+            className="px-3.5 sm:px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs sm:text-sm font-semibold hover:bg-indigo-700 transition-colors shadow-sm flex items-center shrink-0 cursor-pointer"
           >
-            <Plus className="w-4 h-4 mr-2" />
-            New Order
+            <Plus className="w-4 h-4 mr-1.5" />
+            <span>New Order</span>
           </button>
           <input 
             type="file" 
@@ -573,68 +635,72 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
         </div>
       </div>
 
-      {/* Stats Grid */}
-      <div className={`grid grid-cols-1 md:grid-cols-2 ${(dateFilter === 'all' || dateFilter === 'month' || dateFilter === 'lastMonth') ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-6`}>
-        <StatCard 
-          title="Total Orders" 
-          value={stats.lifetime.toLocaleString()} 
-          icon={<ShoppingCart className="w-5 h-5" />}
-          colorClass="bg-blue-50 text-blue-600"
-        />
-        <StatCard 
-          title="Total Orders (This Month)" 
-          value={stats.thisMonth.toLocaleString()} 
-          trend={stats.lastMonth > 0 ? { value: parseFloat(Math.abs(stats.thisMonthTrend).toFixed(1)), isPositive: stats.thisMonthTrend >= 0, label: 'from last month' } : undefined}
-          icon={<ShoppingCart className="w-5 h-5" />}
-          colorClass="bg-emerald-50 text-emerald-600"
-        />
-        <StatCard 
-          title="Total Orders (Last Month)" 
-          value={stats.lastMonth.toLocaleString()} 
-          icon={<ShoppingCart className="w-5 h-5" />}
-          colorClass="bg-amber-50 text-amber-600"
-        />
-        {(dateFilter === 'all' || dateFilter === 'month' || dateFilter === 'lastMonth') && (
-          <StatCard 
-            title="Projected Orders (This Month)" 
-            value={stats.projected.toLocaleString()} 
-            trend={{ value: parseFloat(Math.abs(stats.projectedTrend).toFixed(1)), isPositive: stats.projectedTrend >= 0, label: 'vs current' }}
-            icon={<ShoppingCart className="w-5 h-5" />}
-            colorClass="bg-indigo-50 text-indigo-600"
-          />
-        )}
-      </div>
+      {/* Stats Grid - 2 columns on mobile, 4 on desktop */}
+      {showStats && (
+        <div className="space-y-3 sm:space-y-6">
+          <div className={`grid grid-cols-2 ${(dateFilter === 'all' || dateFilter === 'month' || dateFilter === 'lastMonth') ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-2.5 sm:gap-6`}>
+            <StatCard 
+              title="Total Orders" 
+              value={stats.lifetime.toLocaleString()} 
+              icon={<ShoppingCart className="w-4 sm:w-5 h-4 sm:h-5" />}
+              colorClass="bg-blue-50 text-blue-600"
+            />
+            <StatCard 
+              title="Orders (This Mo)" 
+              value={stats.thisMonth.toLocaleString()} 
+              trend={stats.lastMonth > 0 ? { value: parseFloat(Math.abs(stats.thisMonthTrend).toFixed(1)), isPositive: stats.thisMonthTrend >= 0, label: 'from last month' } : undefined}
+              icon={<ShoppingCart className="w-4 sm:w-5 h-4 sm:h-5" />}
+              colorClass="bg-emerald-50 text-emerald-600"
+            />
+            <StatCard 
+              title="Orders (Last Mo)" 
+              value={stats.lastMonth.toLocaleString()} 
+              icon={<ShoppingCart className="w-4 sm:w-5 h-4 sm:h-5" />}
+              colorClass="bg-amber-50 text-amber-600"
+            />
+            {(dateFilter === 'all' || dateFilter === 'month' || dateFilter === 'lastMonth') && (
+              <StatCard 
+                title="Projected (This Mo)" 
+                value={stats.projected.toLocaleString()} 
+                trend={{ value: parseFloat(Math.abs(stats.projectedTrend).toFixed(1)), isPositive: stats.projectedTrend >= 0, label: 'vs current' }}
+                icon={<ShoppingCart className="w-4 sm:w-5 h-4 sm:h-5" />}
+                colorClass="bg-indigo-50 text-indigo-600"
+              />
+            )}
+          </div>
 
-      <div className={`grid grid-cols-1 md:grid-cols-2 ${(dateFilter === 'all' || dateFilter === 'month' || dateFilter === 'lastMonth') ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-6`}>
-        <StatCard 
-          title="Total Revenue" 
-          value={stats.lifetimeRev} 
-          icon={<TrendingUp className="w-5 h-5" />}
-          colorClass="bg-blue-50 text-blue-600"
-        />
-        <StatCard 
-          title="Revenue (This Month)" 
-          value={stats.thisMonthRev} 
-          trend={stats.lastMonthRev !== '₹0' && stats.lastMonthRev !== '₹0 Lac' && stats.lastMonthRev !== '₹0.00 Lac' ? { value: parseFloat(Math.abs(stats.thisMonthRevTrend).toFixed(1)), isPositive: stats.thisMonthRevTrend >= 0, label: 'from last month' } : undefined}
-          icon={<TrendingUp className="w-5 h-5" />}
-          colorClass="bg-emerald-50 text-emerald-600"
-        />
-        <StatCard 
-          title="Revenue (Last Month)" 
-          value={stats.lastMonthRev} 
-          icon={<TrendingUp className="w-5 h-5" />}
-          colorClass="bg-amber-50 text-amber-600"
-        />
-        {(dateFilter === 'all' || dateFilter === 'month' || dateFilter === 'lastMonth') && (
-          <StatCard 
-            title="Projected Revenue (This Month)" 
-            value={stats.projectedRev} 
-            trend={{ value: parseFloat(Math.abs(stats.projectedRevTrend).toFixed(1)), isPositive: stats.projectedRevTrend >= 0, label: 'vs current' }}
-            icon={<TrendingUp className="w-5 h-5" />}
-            colorClass="bg-indigo-50 text-indigo-600"
-          />
-        )}
-      </div>
+          <div className={`grid grid-cols-2 ${(dateFilter === 'all' || dateFilter === 'month' || dateFilter === 'lastMonth') ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-2.5 sm:gap-6`}>
+            <StatCard 
+              title="Total Revenue" 
+              value={stats.lifetimeRev} 
+              icon={<TrendingUp className="w-4 sm:w-5 h-4 sm:h-5" />}
+              colorClass="bg-blue-50 text-blue-600"
+            />
+            <StatCard 
+              title="Revenue (This Mo)" 
+              value={stats.thisMonthRev} 
+              trend={stats.lastMonthRev !== '₹0' && stats.lastMonthRev !== '₹0 Lac' && stats.lastMonthRev !== '₹0.00 Lac' ? { value: parseFloat(Math.abs(stats.thisMonthRevTrend).toFixed(1)), isPositive: stats.thisMonthRevTrend >= 0, label: 'from last month' } : undefined}
+              icon={<TrendingUp className="w-4 sm:w-5 h-4 sm:h-5" />}
+              colorClass="bg-emerald-50 text-emerald-600"
+            />
+            <StatCard 
+              title="Revenue (Last Mo)" 
+              value={stats.lastMonthRev} 
+              icon={<TrendingUp className="w-4 sm:w-5 h-4 sm:h-5" />}
+              colorClass="bg-amber-50 text-amber-600"
+            />
+            {(dateFilter === 'all' || dateFilter === 'month' || dateFilter === 'lastMonth') && (
+              <StatCard 
+                title="Projected Rev" 
+                value={stats.projectedRev} 
+                trend={{ value: parseFloat(Math.abs(stats.projectedRevTrend).toFixed(1)), isPositive: stats.projectedRevTrend >= 0, label: 'vs current' }}
+                icon={<TrendingUp className="w-4 sm:w-5 h-4 sm:h-5" />}
+                colorClass="bg-indigo-50 text-indigo-600"
+              />
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Main Table */}
       <motion.div 
@@ -643,30 +709,54 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
         transition={{ delay: 0.1 }}
         className="flex-1 flex flex-col"
       >
-        <div className="bg-white rounded-t-xl border border-slate-200 flex flex-col lg:flex-row items-start lg:items-center justify-between px-4 sm:px-6 py-4 gap-4">
-          <h2 className="font-bold text-slate-800">Recent Sales Orders</h2>
+        <div className="bg-white rounded-t-xl border border-slate-200 flex flex-col lg:flex-row items-start lg:items-center justify-between px-3 sm:px-6 py-3.5 sm:py-4 gap-3">
+          <div className="flex items-center justify-between w-full lg:w-auto">
+            <h2 className="font-bold text-slate-800 text-sm sm:text-base">Recent Sales Orders</h2>
+            {/* View Mode Switcher on Mobile/Tablet */}
+            <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 md:hidden">
+              <button
+                type="button"
+                onClick={() => setViewMode('cards')}
+                className={`px-2 py-1 rounded text-xs font-bold transition-all ${
+                  viewMode === 'cards' ? 'bg-white text-indigo-700 shadow-2xs' : 'text-slate-500'
+                }`}
+              >
+                Cards
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('table')}
+                className={`px-2 py-1 rounded text-xs font-bold transition-all ${
+                  viewMode === 'table' ? 'bg-white text-indigo-700 shadow-2xs' : 'text-slate-500'
+                }`}
+              >
+                Table
+              </button>
+            </div>
+          </div>
+
           <div className="flex flex-wrap gap-2 items-center w-full lg:w-auto">
             {dateFilter === 'custom' && (
-              <div className="flex gap-2 items-center mr-2">
+              <div className="flex gap-1.5 items-center w-full sm:w-auto">
                 <input 
                   type="date" 
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
-                  className="px-2 py-1 border border-slate-300 rounded text-xs font-medium text-slate-600 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="px-2 py-1.5 border border-slate-300 rounded-lg text-xs font-medium text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 flex-1 sm:flex-none"
                 />
                 <span className="text-xs text-slate-500">to</span>
                 <input 
                   type="date" 
                   value={endDate}
                   onChange={(e) => setEndDate(e.target.value)}
-                  className="px-2 py-1 border border-slate-300 rounded text-xs font-medium text-slate-600 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="px-2 py-1.5 border border-slate-300 rounded-lg text-xs font-medium text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 flex-1 sm:flex-none"
                 />
               </div>
             )}
             <select 
               value={salespersonFilter}
               onChange={(e) => setSalespersonFilter(e.target.value)}
-              className="px-3 py-1 border border-slate-300 rounded text-xs font-medium text-slate-600 bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="px-2.5 sm:px-3 py-1.5 border border-slate-300 rounded-lg text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer flex-1 sm:flex-none min-h-[36px]"
             >
               <option value="all">All Salespersons</option>
               {uniqueSalesPersons.map((sp) => (
@@ -676,7 +766,7 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
             <select 
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="px-3 py-1 border border-slate-300 rounded text-xs font-medium text-slate-600 bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="px-2.5 sm:px-3 py-1.5 border border-slate-300 rounded-lg text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer flex-1 sm:flex-none min-h-[36px]"
             >
               <option value="all">All Statuses</option>
               <option value="New Order">New Order</option>
@@ -690,14 +780,14 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
             <select 
               value={dateFilter}
               onChange={(e) => setDateFilter(e.target.value)}
-              className="px-3 py-1 border border-slate-300 rounded text-xs font-medium text-slate-600 bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="px-2.5 sm:px-3 py-1.5 border border-slate-300 rounded-lg text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer flex-1 sm:flex-none min-h-[36px]"
             >
               <option value="all">All Dates</option>
               <option value="day">Today</option>
               <option value="month">This Month</option>
               <option value="lastMonth">Last Month</option>
               <option value="year">This Year</option>
-              <option value="custom">Custom Date Range</option>
+              <option value="custom">Custom Range</option>
             </select>
             <button onClick={() => {
               const headers = ['Order ID', 'Customer', 'Amount', 'Date', 'Status'];
@@ -716,14 +806,137 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
               document.body.appendChild(link);
               link.click();
               document.body.removeChild(link);
-            }} className="px-3 py-1 border border-slate-300 rounded text-xs font-medium text-slate-600 bg-white hover:bg-slate-50 flex items-center">
+            }} className="px-3 py-1.5 border border-slate-300 rounded-lg text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 flex items-center justify-center cursor-pointer min-h-[36px] w-full sm:w-auto">
               <Download className="w-3.5 h-3.5 mr-1.5 inline" /> Export Excel
             </button>
           </div>
         </div>
+
         <div className="flex-1 bg-white border-x border-b border-slate-200 overflow-hidden rounded-b-xl">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+          {/* MOBILE CARDS VIEW (Shown on small screens when viewMode === 'cards') */}
+          <div className={viewMode === 'cards' ? 'md:hidden' : 'hidden'}>
+            {isLoading ? (
+              <div className="p-8 text-center text-slate-500">
+                <Loader2 className="w-7 h-7 text-indigo-500 animate-spin mx-auto mb-2" />
+                <p className="text-sm">Loading orders...</p>
+              </div>
+            ) : filteredOrders.length === 0 ? (
+              <div className="p-8 text-center text-slate-500 text-sm">
+                No orders found matching the selected filters.
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100 bg-slate-50/40 p-2.5 space-y-2.5">
+                {paginatedOrders.map((order) => {
+                  const hasDrawing = !!order.details?.drawingFileName;
+                  const hasChecklist = !!order.details?.checklistFileName;
+                  const hasPo = !!order.details?.poFileName;
+                  const hasOc = !!order.details?.ocFileName;
+
+                  return (
+                    <motion.div
+                      key={order.docId || order.id}
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-2xs hover:shadow-xs transition-shadow space-y-3"
+                    >
+                      {/* Card Header */}
+                      <div className="flex items-start justify-between gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedOrder(order)}
+                          className="font-bold text-sm text-indigo-600 hover:text-indigo-800 text-left cursor-pointer"
+                        >
+                          #{order.id}
+                        </button>
+                        <div className="flex flex-col items-end gap-1 shrink-0">
+                          <Badge variant={
+                            order.status === 'Installation Complete' ? 'success' : 
+                            order.status === 'Installation Scheduled' ? 'info' :
+                            order.status === 'Dispatched' ? 'success' : 
+                            order.status === 'Scheduled Dispatched' ? 'indigo' :
+                            order.status === 'Production' ? 'warning' :
+                            order.status === 'Purchase' ? 'purple' :
+                            (order.status === 'New Order' || order.status === 'New') ? 'default' : 'default'
+                          }>
+                            {order.status === 'New' ? 'New Order' : order.status}
+                          </Badge>
+                          {order.details?.scheduledReason && (
+                            <span className="text-[9px] font-black text-amber-900 bg-amber-100 border border-amber-300 px-1 rounded">
+                              {order.details.scheduledReason}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Customer & Amount */}
+                      <div className="flex items-baseline justify-between gap-2" onClick={() => setSelectedOrder(order)}>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-bold text-slate-900 text-sm truncate">{order.customer}</p>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            {order.details?.employeeName || 'No rep'} • {order.items} units • {order.date}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="font-extrabold text-slate-900 text-sm sm:text-base">{order.amount}</p>
+                        </div>
+                      </div>
+
+                      {/* Delivery Date Tag */}
+                      {order.details?.deliveryDate && (
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-amber-900 bg-amber-50 border border-amber-200 px-2 py-1 rounded-lg">
+                          <Truck className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                          <span>Delivery: {new Date(order.details.deliveryDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                        </div>
+                      )}
+
+                      {/* Document Status Badges */}
+                      <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t border-slate-100">
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex items-center gap-1 ${hasPo ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-400'}`}>
+                          <Paperclip className="w-2.5 h-2.5" /> PO
+                        </span>
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex items-center gap-1 ${hasDrawing ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-slate-100 text-slate-400'}`}>
+                          <FileText className="w-2.5 h-2.5" /> Drawing
+                        </span>
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex items-center gap-1 ${hasChecklist ? 'bg-indigo-50 text-indigo-700 border border-indigo-200' : 'bg-slate-100 text-slate-400'}`}>
+                          <Check className="w-2.5 h-2.5" /> Checklist
+                        </span>
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex items-center gap-1 ${hasOc ? 'bg-pink-50 text-pink-700 border border-pink-200' : 'bg-slate-100 text-slate-400'}`}>
+                          <FileCheck2 className="w-2.5 h-2.5" /> QC
+                        </span>
+                      </div>
+
+                      {/* Card Action Buttons */}
+                      <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedOrder(order)}
+                          className="flex-1 py-2 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-lg text-center transition-colors cursor-pointer"
+                        >
+                          View Details
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOrderForDocUpload(order);
+                            setIsDocUploadModalOpen(true);
+                          }}
+                          className="py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
+                          title="Manage Documents"
+                        >
+                          <Upload className="w-3.5 h-3.5" />
+                          <span>Docs</span>
+                        </button>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* DESKTOP TABLE VIEW (Shown on md+ or when Table viewMode is selected) */}
+          <div className={`overflow-x-auto ${viewMode === 'cards' ? 'hidden md:block' : 'block'}`}>
+            <table className="w-full text-left border-collapse min-w-[900px]">
               <thead className="bg-slate-50 text-[11px] font-bold text-slate-500 uppercase">
                 <tr>
                   <th className="px-6 py-3 border-b border-slate-200">Order ID</th>
@@ -770,7 +983,7 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-slate-700">
                     {order.details?.deliveryDate ? (
                       <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-900 border border-amber-200 px-2 py-0.5 rounded text-xs font-extrabold">
-                        <Truck className="w-3 h-3 text-amber-600 shrink-0" />
+                        <Truck className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                         {new Date(order.details.deliveryDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
                       </span>
                     ) : (
@@ -898,12 +1111,12 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
               </tbody>
             </table>
           </div>
-          <div className="px-6 py-4 bg-white flex items-center justify-between text-sm text-slate-500 font-medium border-t border-slate-100">
+          <div className="px-4 sm:px-6 py-3.5 bg-white flex flex-col sm:flex-row items-center justify-between gap-3 text-xs sm:text-sm text-slate-500 font-medium border-t border-slate-100">
             <span>
               Showing {totalEntries === 0 ? 0 : startIndex} to {endIndex} of {totalEntries.toLocaleString()} entries
             </span>
             {totalPages > 1 && (
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1 flex-wrap justify-center">
                 <button
                   onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                   disabled={validCurrentPage === 1}

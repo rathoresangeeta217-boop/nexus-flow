@@ -112,30 +112,30 @@ export function DispatchedTab({ searchQuery = '' }: { searchQuery?: string }) {
             </div>
           </div>
 
-          {/* Stats Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
+          {/* Stats Grid - 2 cols on mobile, 4 on desktop */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-6">
             <StatCard 
               title="Pending Dispatch" 
               value={pendingCount.toString()} 
-              icon={<AlertCircle className="w-5 h-5" />}
+              icon={<AlertCircle className="w-4 sm:w-5 h-4 sm:h-5" />}
               colorClass="bg-amber-50 text-amber-600"
             />
             <StatCard 
-              title="Scheduled Dispatch" 
+              title="Scheduled" 
               value={scheduledCount.toString()} 
-              icon={<Truck className="w-5 h-5" />}
+              icon={<Truck className="w-4 sm:w-5 h-4 sm:h-5" />}
               colorClass="bg-blue-50 text-blue-600"
             />
             <StatCard 
               title="Dispatch History" 
               value={historyCount.toString()} 
-              icon={<PackageCheck className="w-5 h-5" />}
+              icon={<PackageCheck className="w-4 sm:w-5 h-4 sm:h-5" />}
               colorClass="bg-emerald-50 text-emerald-600"
             />
             <StatCard 
               title="Total Orders" 
               value={orders.length.toString()} 
-              icon={<Package className="w-5 h-5" />}
+              icon={<Package className="w-4 sm:w-5 h-4 sm:h-5" />}
               colorClass="bg-indigo-50 text-indigo-600"
             />
           </div>
@@ -149,36 +149,36 @@ export function DispatchedTab({ searchQuery = '' }: { searchQuery?: string }) {
           >
             
           {/* Section Tabs */}
-          <div className="flex bg-slate-100 p-1 rounded-lg w-full max-w-xl">
+          <div className="flex bg-slate-100 p-1 rounded-xl w-full max-w-xl text-xs sm:text-sm">
             <button
               onClick={() => setActiveSection('pending')}
-              className={`flex-1 py-2 text-sm font-semibold rounded-md transition-colors ${
+              className={`flex-1 py-1.5 sm:py-2 font-semibold rounded-lg transition-colors ${
                 activeSection === 'pending' 
-                  ? 'bg-white text-indigo-700 shadow-sm' 
+                  ? 'bg-white text-indigo-700 shadow-sm font-bold' 
                   : 'text-slate-500 hover:text-slate-700'
               }`}
             >
-              Pending Dispatch
+              Pending ({pendingCount})
             </button>
             <button
               onClick={() => setActiveSection('scheduled')}
-              className={`flex-1 py-2 text-sm font-semibold rounded-md transition-colors ${
+              className={`flex-1 py-1.5 sm:py-2 font-semibold rounded-lg transition-colors ${
                 activeSection === 'scheduled' 
-                  ? 'bg-white text-indigo-700 shadow-sm' 
+                  ? 'bg-white text-indigo-700 shadow-sm font-bold' 
                   : 'text-slate-500 hover:text-slate-700'
               }`}
             >
-              Scheduled
+              Scheduled ({scheduledCount})
             </button>
             <button
               onClick={() => setActiveSection('history')}
-              className={`flex-1 py-2 text-sm font-semibold rounded-md transition-colors ${
+              className={`flex-1 py-1.5 sm:py-2 font-semibold rounded-lg transition-colors ${
                 activeSection === 'history' 
-                  ? 'bg-white text-indigo-700 shadow-sm' 
+                  ? 'bg-white text-indigo-700 shadow-sm font-bold' 
                   : 'text-slate-500 hover:text-slate-700'
               }`}
             >
-              History
+              History ({historyCount})
             </button>
           </div>
 
@@ -192,7 +192,74 @@ export function DispatchedTab({ searchQuery = '' }: { searchQuery?: string }) {
             </div>
 
             <div className="flex-1 bg-white border-x border-b border-slate-200 overflow-hidden rounded-b-xl">
-              <div className="overflow-x-auto">
+              {/* MOBILE DISPATCH CARDS (< md) */}
+              <div className="md:hidden">
+                {isLoading ? (
+                  <div className="p-8 text-center text-sm text-slate-500">Loading orders...</div>
+                ) : displayedOrders.length === 0 ? (
+                  <div className="p-8 text-center text-sm text-slate-500">No orders found.</div>
+                ) : (
+                  <div className="divide-y divide-slate-100 bg-slate-50/40 p-2.5 space-y-2.5">
+                    {displayedOrders.map((order) => (
+                      <div
+                        key={order.docId || order.id}
+                        className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-2xs space-y-2.5"
+                      >
+                        <div className="flex items-center justify-between">
+                          <button
+                            type="button"
+                            onClick={() => openDispatchView(order)}
+                            className="font-bold text-sm text-indigo-600 hover:text-indigo-800 cursor-pointer"
+                          >
+                            #{order.id}
+                          </button>
+                          <div className="flex flex-col items-end gap-1">
+                            <Badge variant={
+                              order.status === 'Delivered' ? 'success' : 
+                              order.status === 'Completed' || order.status === 'Installation Complete' ? 'success' : 
+                              order.status === 'Out for Delivery' ? 'purple' :
+                              order.status === 'Scheduled Dispatched' ? 'indigo' :
+                              order.status === 'Dispatched' ? 'success' : 
+                              order.status === 'Installation In Progress' ? 'purple' :
+                              order.status === 'Installation Pending' ? 'warning' :
+                              order.status === 'New' ? 'info' : 'warning'
+                            }>
+                              {order.status}
+                            </Badge>
+                            {order.details?.scheduledReason && (
+                              <span className="text-[9px] font-black text-amber-900 bg-amber-100 border border-amber-300 px-1 rounded">
+                                {order.details.scheduledReason}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div onClick={() => openDispatchView(order)} className="cursor-pointer">
+                          <p className="font-bold text-slate-900 text-sm truncate">{order.customer}</p>
+                          <div className="flex items-center justify-between mt-1 text-xs text-slate-500">
+                            <span>{order.items} Items • {order.date}</span>
+                            <span className="font-bold text-slate-900">{order.amount}</span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+                          <button
+                            type="button"
+                            onClick={() => openDispatchView(order)}
+                            className="flex-1 py-2 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-lg text-center transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                          >
+                            <Truck className="w-3.5 h-3.5" />
+                            <span>Dispatch / Details</span>
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* DESKTOP DISPATCH TABLE (md+) */}
+              <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead className="bg-slate-50 text-[11px] font-bold text-slate-500 uppercase">
                     <tr>

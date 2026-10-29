@@ -703,14 +703,14 @@ export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
         )}
       </div>
 
-      {/* KPI Stat Cards Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* KPI Stat Cards Row - 2 cols on mobile, 4 on desktop */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
         {activeTab === 'customer' ? (
           <>
             <StatCard 
               title="Total Receivables"
               value={`₹${customerMetrics.totalReceivables.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`}
-              icon={<DollarSign className="w-5 h-5 text-indigo-600" />}
+              icon={<DollarSign className="w-4 sm:w-5 h-4 sm:h-5 text-indigo-600" />}
               colorClass="bg-indigo-50 text-indigo-600"
             />
             <div 
@@ -718,23 +718,25 @@ export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
               className="cursor-pointer transition-transform hover:scale-[1.02] active:scale-[0.98]"
               title="Click to filter orders with remaining amount"
             >
-              <div className={`p-4 rounded-xl border transition-all ${paymentFilter === 'remaining' ? 'bg-amber-500/10 border-amber-500 shadow-md ring-2 ring-amber-400/30' : 'bg-white border-slate-200 shadow-sm hover:border-amber-300'}`}>
-                <div className="flex justify-between items-center mb-1">
-                  <p className="text-amber-700 text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-                    Remaining Amount
-                  </p>
-                  <div className="opacity-80 p-1.5 rounded-lg bg-amber-100 text-amber-700">
-                    <AlertCircle className="w-4 h-4" />
+              <div className={`p-3 sm:p-4 rounded-xl border transition-all h-full flex flex-col justify-between ${paymentFilter === 'remaining' ? 'bg-amber-500/10 border-amber-500 shadow-md ring-2 ring-amber-400/30' : 'bg-white border-slate-200 shadow-2xs hover:border-amber-300'}`}>
+                <div>
+                  <div className="flex justify-between items-start gap-1 mb-1">
+                    <p className="text-amber-700 text-[10px] sm:text-xs font-bold uppercase tracking-wider flex items-center gap-1 truncate">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse shrink-0" />
+                      <span className="truncate">Remaining</span>
+                    </p>
+                    <div className="opacity-80 p-1 rounded-md bg-amber-100 text-amber-700 shrink-0">
+                      <AlertCircle className="w-3.5 h-3.5" />
+                    </div>
                   </div>
+                  <p className="text-base sm:text-xl md:text-2xl font-black text-amber-600 truncate">
+                    ₹{customerMetrics.totalRemaining.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                  </p>
                 </div>
-                <p className="text-2xl font-black text-amber-600">
-                  ₹{customerMetrics.totalRemaining.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
-                </p>
-                <div className="mt-2 text-xs flex items-center justify-between text-slate-500 font-medium">
-                  <span className="text-amber-700 font-bold">{customerMetrics.remainingCount} Orders with balance</span>
-                  <span className="text-[11px] underline text-indigo-600 font-bold">
-                    {paymentFilter === 'remaining' ? 'Showing filtered' : 'Click to filter'}
+                <div className="mt-1.5 text-[10px] sm:text-xs flex items-center justify-between text-slate-500 font-medium">
+                  <span className="text-amber-700 font-bold truncate">{customerMetrics.remainingCount} orders</span>
+                  <span className="underline text-indigo-600 font-bold hidden xs:inline">
+                    {paymentFilter === 'remaining' ? 'Filtered' : 'Filter'}
                   </span>
                 </div>
               </div>
@@ -742,13 +744,13 @@ export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
             <StatCard 
               title="Payments Collected"
               value={`₹${customerMetrics.totalCollected.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`}
-              icon={<CreditCard className="w-5 h-5 text-emerald-600" />}
+              icon={<CreditCard className="w-4 sm:w-5 h-4 sm:h-5 text-emerald-600" />}
               colorClass="bg-emerald-50 text-emerald-600"
             />
             <StatCard 
               title="Settled Orders"
               value={`${customerMetrics.fullyPaidCount} / ${customerMetrics.totalCount}`}
-              icon={<Receipt className="w-5 h-5 text-sky-600" />}
+              icon={<Receipt className="w-4 sm:w-5 h-4 sm:h-5 text-sky-600" />}
               colorClass="bg-sky-50 text-sky-600"
             />
           </>
@@ -757,7 +759,7 @@ export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
             <StatCard 
               title="Total Payables"
               value={`₹${vendorMetrics.totalPayables.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`}
-              icon={<DollarSign className="w-5 h-5 text-blue-600" />}
+              icon={<DollarSign className="w-4 sm:w-5 h-4 sm:h-5 text-blue-600" />}
               colorClass="bg-blue-50 text-blue-600"
             />
             <div 
@@ -765,23 +767,25 @@ export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
               className="cursor-pointer transition-transform hover:scale-[1.02] active:scale-[0.98]"
               title="Click to filter purchase orders with remaining amount"
             >
-              <div className={`p-4 rounded-xl border transition-all ${paymentFilter === 'remaining' ? 'bg-amber-500/10 border-amber-500 shadow-md ring-2 ring-amber-400/30' : 'bg-white border-slate-200 shadow-sm hover:border-amber-300'}`}>
-                <div className="flex justify-between items-center mb-1">
-                  <p className="text-amber-700 text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-                    Remaining Payables
-                  </p>
-                  <div className="opacity-80 p-1.5 rounded-lg bg-amber-100 text-amber-700">
-                    <AlertCircle className="w-4 h-4" />
+              <div className={`p-3 sm:p-4 rounded-xl border transition-all h-full flex flex-col justify-between ${paymentFilter === 'remaining' ? 'bg-amber-500/10 border-amber-500 shadow-md ring-2 ring-amber-400/30' : 'bg-white border-slate-200 shadow-2xs hover:border-amber-300'}`}>
+                <div>
+                  <div className="flex justify-between items-start gap-1 mb-1">
+                    <p className="text-amber-700 text-[10px] sm:text-xs font-bold uppercase tracking-wider flex items-center gap-1 truncate">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse shrink-0" />
+                      <span className="truncate">Remaining</span>
+                    </p>
+                    <div className="opacity-80 p-1 rounded-md bg-amber-100 text-amber-700 shrink-0">
+                      <AlertCircle className="w-3.5 h-3.5" />
+                    </div>
                   </div>
+                  <p className="text-base sm:text-xl md:text-2xl font-black text-amber-600 truncate">
+                    ₹{vendorMetrics.totalRemaining.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                  </p>
                 </div>
-                <p className="text-2xl font-black text-amber-600">
-                  ₹{vendorMetrics.totalRemaining.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
-                </p>
-                <div className="mt-2 text-xs flex items-center justify-between text-slate-500 font-medium">
-                  <span className="text-amber-700 font-bold">{vendorMetrics.remainingCount} POs with balance</span>
-                  <span className="text-[11px] underline text-blue-600 font-bold">
-                    {paymentFilter === 'remaining' ? 'Showing filtered' : 'Click to filter'}
+                <div className="mt-1.5 text-[10px] sm:text-xs flex items-center justify-between text-slate-500 font-medium">
+                  <span className="text-amber-700 font-bold truncate">{vendorMetrics.remainingCount} POs</span>
+                  <span className="underline text-blue-600 font-bold hidden xs:inline">
+                    {paymentFilter === 'remaining' ? 'Filtered' : 'Filter'}
                   </span>
                 </div>
               </div>
@@ -789,13 +793,13 @@ export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
             <StatCard 
               title="Disbursed to Vendors"
               value={`₹${vendorMetrics.totalDisbursed.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`}
-              icon={<CreditCard className="w-5 h-5 text-emerald-600" />}
+              icon={<CreditCard className="w-4 sm:w-5 h-4 sm:h-5 text-emerald-600" />}
               colorClass="bg-emerald-50 text-emerald-600"
             />
             <StatCard 
               title="Settled Vendor POs"
               value={`${vendorMetrics.fullyPaidCount} / ${vendorMetrics.totalCount}`}
-              icon={<Receipt className="w-5 h-5 text-sky-600" />}
+              icon={<Receipt className="w-4 sm:w-5 h-4 sm:h-5 text-sky-600" />}
               colorClass="bg-sky-50 text-sky-600"
             />
           </>
@@ -895,200 +899,337 @@ export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
         </div>
         
         <div className="flex-1 bg-white border-x border-b border-slate-200 overflow-hidden rounded-b-xl">
-          <div className="overflow-x-auto">
-            {activeTab === 'customer' ? (
-              <table className="w-full text-left border-collapse">
-                <thead className="bg-slate-50 text-[11px] font-bold text-slate-500 uppercase">
-                  <tr>
-                    <th className="px-6 py-3 border-b border-slate-200">Order Ref</th>
-                    <th className="px-6 py-3 border-b border-slate-200">Customer</th>
-                    <th className="px-6 py-3 border-b border-slate-200">Total Amount</th>
-                    <th className="px-6 py-3 border-b border-slate-200">Remaining Amount</th>
-                    <th className="px-6 py-3 border-b border-slate-200">Order Date</th>
-                    <th className="px-6 py-3 border-b border-slate-200">Status</th>
-                    <th className="px-6 py-3 border-b border-slate-200 text-right">Payment Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredOrders.map((order, i) => {
-                    const summary = getOrderPaymentSummary(order, customerPayments);
-                    const displayStatus = summary.isFullyPaid ? 'Dispatched' : order.status;
+          {activeTab === 'customer' ? (
+            <>
+              {/* MOBILE CUSTOMER PAYMENT CARDS (< md) */}
+              <div className="md:hidden">
+                {filteredOrders.length === 0 ? (
+                  <div className="p-8 text-center text-sm text-slate-500">
+                    <AlertCircle className="w-7 h-7 text-slate-400 mx-auto mb-2" />
+                    <p className="font-semibold text-slate-700">No orders found matching the filter.</p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-100 bg-slate-50/40 p-2.5 space-y-2.5">
+                    {filteredOrders.map((order) => {
+                      const summary = getOrderPaymentSummary(order, customerPayments);
+                      const displayStatus = summary.isFullyPaid ? 'Dispatched' : order.status;
 
-                    return (
-                    <motion.tr 
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ delay: 0.05 + i * 0.02 }}
-                      key={`${order.docId || order.id || 'k'}-${i}`} 
-                      className="hover:bg-slate-50 transition-colors"
-                    >
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-indigo-600">{order.id}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-800 font-semibold">{order.customer}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-800 font-bold">₹{summary.displayTotalAmt.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        {summary.remainingAmount > 0 ? (
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-bold text-amber-600">
-                              ₹{summary.remainingAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
-                            </span>
-                            <span className="text-[10px] font-bold bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded border border-amber-200">
-                              Pending
-                            </span>
+                      return (
+                        <div key={order.docId || order.id} className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-2xs space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-sm text-indigo-600">#{order.id}</span>
+                            <Badge variant={displayStatus === 'Dispatched' ? 'success' : (displayStatus === 'Completed' ? 'success' : 'default')}>
+                              {displayStatus}
+                            </Badge>
                           </div>
-                        ) : (
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-bold text-emerald-600">₹0.00</span>
-                            <span className="text-[10px] font-bold bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded border border-emerald-200">
-                              Settled
-                            </span>
+                          <div>
+                            <p className="font-bold text-slate-900 text-sm truncate">{order.customer}</p>
+                            <p className="text-xs text-slate-500 mt-0.5">Order Date: {order.date}</p>
                           </div>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 font-medium">{order.date}</td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <Badge variant={displayStatus === 'Dispatched' ? 'success' : (displayStatus === 'Completed' ? 'success' : 'default')}>
-                          {displayStatus}
-                        </Badge>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right flex items-center justify-end gap-2">
-                        <button 
-                          onClick={() => {
-                            generatePaymentReminderPDF(order, summary.paymentRecord);
-                          }}
-                          className="inline-flex items-center px-2.5 py-1.5 text-xs font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-md transition-colors cursor-pointer"
-                          title="Download Payment Reminder Notice"
-                        >
-                          <Download className="w-3.5 h-3.5 mr-1 text-amber-600" /> Reminder Notice
-                        </button>
-                        <button 
-                          onClick={() => {
-                            setSelectedOrder(order);
-                            setIsModalOpen(true);
-                          }}
-                          className="inline-flex items-center px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-md transition-colors cursor-pointer"
-                        >
-                          <Edit className="w-3.5 h-3.5 mr-1.5" /> Manage Payments
-                        </button>
-                      </td>
-                    </motion.tr>
-                  )})}
-                  {filteredOrders.length === 0 && (
-                    <tr>
-                      <td colSpan={7} className="px-6 py-12 text-center text-sm text-slate-500">
-                        <div className="flex flex-col items-center justify-center gap-2">
-                          <AlertCircle className="w-8 h-8 text-slate-400" />
-                          <p className="font-semibold text-slate-700">
-                            No orders found matching the {paymentFilter === 'remaining' ? 'Remaining Amount' : paymentFilter === 'unpaid' ? 'Unpaid' : paymentFilter === 'paid' ? 'Fully Paid' : ''} filter.
-                          </p>
-                          {paymentFilter !== 'all' && (
+                          <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-100 text-xs">
+                            <div>
+                              <span className="text-slate-500 block text-[10px] uppercase font-bold">Total Amount</span>
+                              <span className="font-bold text-slate-800">₹{summary.displayTotalAmt.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</span>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-slate-500 block text-[10px] uppercase font-bold">Remaining</span>
+                              {summary.remainingAmount > 0 ? (
+                                <span className="font-black text-amber-600">₹{summary.remainingAmount.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</span>
+                              ) : (
+                                <span className="font-black text-emerald-600">Settled (₹0)</span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 pt-1 border-t border-slate-100">
                             <button
-                              onClick={() => setPaymentFilter('all')}
-                              className="mt-1 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-lg text-xs cursor-pointer"
+                              onClick={() => {
+                                setSelectedOrder(order);
+                                setIsModalOpen(true);
+                              }}
+                              className="flex-1 py-2 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-lg text-center transition-colors cursor-pointer flex items-center justify-center gap-1.5"
                             >
-                              Reset to All Orders
+                              <Edit className="w-3.5 h-3.5" />
+                              <span>Manage Payments</span>
                             </button>
-                          )}
+                            <button
+                              onClick={() => generatePaymentReminderPDF(order, summary.paymentRecord)}
+                              className="py-2 px-2.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                              title="Download Reminder Notice"
+                            >
+                              <Download className="w-3.5 h-3.5 text-amber-600" />
+                            </button>
+                          </div>
                         </div>
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            ) : (
-              <table className="w-full text-left border-collapse">
-                <thead className="bg-slate-50 text-[11px] font-bold text-slate-500 uppercase">
-                  <tr>
-                    <th className="px-6 py-3 border-b border-slate-200">Project</th>
-                    <th className="px-6 py-3 border-b border-slate-200">Vendor</th>
-                    <th className="px-6 py-3 border-b border-slate-200">Project Total Amount</th>
-                    <th className="px-6 py-3 border-b border-slate-200">Remaining Amount</th>
-                    <th className="px-6 py-3 border-b border-slate-200">Status</th>
-                    <th className="px-6 py-3 border-b border-slate-200 text-right">Payment Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredAggregatedProjects.map((po, i) => {
-                    const summary = getVendorPoPaymentSummary(po, vendorPayments);
-                    const displayStatus = summary.isFullyPaid ? 'Dispatched' : 'Pending';
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
 
-                    return (
-                    <motion.tr 
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ delay: 0.05 + i * 0.02 }}
-                      key={`${po.projectVendorId}-${i}`} 
-                      className="hover:bg-slate-50 transition-colors"
-                    >
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-blue-600">{po.projectName}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-800 font-semibold">{po.vendorName}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-800 font-bold">₹{po.totalAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        {summary.remainingAmount > 0 ? (
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-bold text-amber-600">
-                              ₹{summary.remainingAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
-                            </span>
-                            <span className="text-[10px] font-bold bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded border border-amber-200">
-                              Pending
-                            </span>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-bold text-emerald-600">₹0.00</span>
-                            <span className="text-[10px] font-bold bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded border border-emerald-200">
-                              Settled
-                            </span>
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <Badge variant={displayStatus === 'Dispatched' ? 'success' : 'default'}>
-                          {displayStatus}
-                        </Badge>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right flex items-center justify-end gap-2">
-                        <button 
-                          onClick={() => {
-                            setSelectedPO(po);
-                            setIsVendorModalOpen(true);
-                          }}
-                          className="inline-flex items-center px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors cursor-pointer"
-                        >
-                          <Edit className="w-3.5 h-3.5 mr-1.5" /> Manage Vendor Payments
-                        </button>
-                        <button 
-                          onClick={() => setVendorToDelete(po)}
-                          className="inline-flex items-center px-3 py-1.5 text-xs font-bold text-red-700 bg-red-50 hover:bg-red-100 rounded-md transition-colors cursor-pointer"
-                        >
-                          <Trash className="w-3.5 h-3.5 mr-1.5" /> Delete
-                        </button>
-                      </td>
-                    </motion.tr>
-                  )})}
-                  {filteredAggregatedProjects.length === 0 && (
+              {/* DESKTOP CUSTOMER PAYMENTS TABLE (md+) */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-slate-50 text-[11px] font-bold text-slate-500 uppercase">
                     <tr>
-                      <td colSpan={6} className="px-6 py-12 text-center text-sm text-slate-500">
-                        <div className="flex flex-col items-center justify-center gap-2">
-                          <AlertCircle className="w-8 h-8 text-slate-400" />
-                          <p className="font-semibold text-slate-700">
-                            No vendor purchase orders found matching the {paymentFilter === 'remaining' ? 'Remaining Amount' : paymentFilter === 'unpaid' ? 'Unpaid' : paymentFilter === 'paid' ? 'Fully Paid' : ''} filter.
-                          </p>
-                          {paymentFilter !== 'all' && (
-                            <button
-                              onClick={() => setPaymentFilter('all')}
-                              className="mt-1 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-lg text-xs cursor-pointer"
-                            >
-                              Reset to All Projects
-                            </button>
-                          )}
-                        </div>
-                      </td>
+                      <th className="px-6 py-3 border-b border-slate-200">Order Ref</th>
+                      <th className="px-6 py-3 border-b border-slate-200">Customer</th>
+                      <th className="px-6 py-3 border-b border-slate-200">Total Amount</th>
+                      <th className="px-6 py-3 border-b border-slate-200">Remaining Amount</th>
+                      <th className="px-6 py-3 border-b border-slate-200">Order Date</th>
+                      <th className="px-6 py-3 border-b border-slate-200">Status</th>
+                      <th className="px-6 py-3 border-b border-slate-200 text-right">Payment Action</th>
                     </tr>
-                  )}
-                </tbody>
-              </table>
-            )}
-          </div>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredOrders.map((order, i) => {
+                      const summary = getOrderPaymentSummary(order, customerPayments);
+                      const displayStatus = summary.isFullyPaid ? 'Dispatched' : order.status;
+
+                      return (
+                      <motion.tr 
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ delay: 0.05 + i * 0.02 }}
+                        key={`${order.docId || order.id || 'k'}-${i}`} 
+                        className="hover:bg-slate-50 transition-colors"
+                      >
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-indigo-600">{order.id}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-800 font-semibold">{order.customer}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-800 font-bold">₹{summary.displayTotalAmt.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm">
+                          {summary.remainingAmount > 0 ? (
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-bold text-amber-600">
+                                ₹{summary.remainingAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                              </span>
+                              <span className="text-[10px] font-bold bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded border border-amber-200">
+                                Pending
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-bold text-emerald-600">₹0.00</span>
+                              <span className="text-[10px] font-bold bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded border border-emerald-200">
+                                Settled
+                              </span>
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 font-medium">{order.date}</td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <Badge variant={displayStatus === 'Dispatched' ? 'success' : (displayStatus === 'Completed' ? 'success' : 'default')}>
+                            {displayStatus}
+                          </Badge>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right flex items-center justify-end gap-2">
+                          <button 
+                            onClick={() => {
+                              generatePaymentReminderPDF(order, summary.paymentRecord);
+                            }}
+                            className="inline-flex items-center px-2.5 py-1.5 text-xs font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-md transition-colors cursor-pointer"
+                            title="Download Payment Reminder Notice"
+                          >
+                            <Download className="w-3.5 h-3.5 mr-1 text-amber-600" /> Reminder Notice
+                          </button>
+                          <button 
+                            onClick={() => {
+                              setSelectedOrder(order);
+                              setIsModalOpen(true);
+                            }}
+                            className="inline-flex items-center px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-md transition-colors cursor-pointer"
+                          >
+                            <Edit className="w-3.5 h-3.5 mr-1.5" /> Manage Payments
+                          </button>
+                        </td>
+                      </motion.tr>
+                    )})}
+                    {filteredOrders.length === 0 && (
+                      <tr>
+                        <td colSpan={7} className="px-6 py-12 text-center text-sm text-slate-500">
+                          <div className="flex flex-col items-center justify-center gap-2">
+                            <AlertCircle className="w-8 h-8 text-slate-400" />
+                            <p className="font-semibold text-slate-700">
+                              No orders found matching the {paymentFilter === 'remaining' ? 'Remaining Amount' : paymentFilter === 'unpaid' ? 'Unpaid' : paymentFilter === 'paid' ? 'Fully Paid' : ''} filter.
+                            </p>
+                            {paymentFilter !== 'all' && (
+                              <button
+                                onClick={() => setPaymentFilter('all')}
+                                className="mt-1 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-lg text-xs cursor-pointer"
+                              >
+                                Reset to All Orders
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : (
+            <>
+              {/* MOBILE VENDOR PAYMENTS CARDS (< md) */}
+              <div className="md:hidden">
+                {filteredAggregatedProjects.length === 0 ? (
+                  <div className="p-8 text-center text-sm text-slate-500">
+                    <AlertCircle className="w-7 h-7 text-slate-400 mx-auto mb-2" />
+                    <p className="font-semibold text-slate-700">No vendor POs found matching the filter.</p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-100 bg-slate-50/40 p-2.5 space-y-2.5">
+                    {filteredAggregatedProjects.map((po) => {
+                      const summary = getVendorPoPaymentSummary(po, vendorPayments);
+                      const displayStatus = summary.isFullyPaid ? 'Dispatched' : 'Pending';
+
+                      return (
+                        <div key={po.projectVendorId} className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-2xs space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-sm text-blue-600 truncate">{po.projectName}</span>
+                            <Badge variant={displayStatus === 'Dispatched' ? 'success' : 'default'}>
+                              {displayStatus}
+                            </Badge>
+                          </div>
+                          <div>
+                            <p className="font-bold text-slate-900 text-sm truncate">{po.vendorName}</p>
+                          </div>
+                          <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-100 text-xs">
+                            <div>
+                              <span className="text-slate-500 block text-[10px] uppercase font-bold">Total Amount</span>
+                              <span className="font-bold text-slate-800">₹{po.totalAmount.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</span>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-slate-500 block text-[10px] uppercase font-bold">Remaining</span>
+                              {summary.remainingAmount > 0 ? (
+                                <span className="font-black text-amber-600">₹{summary.remainingAmount.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</span>
+                              ) : (
+                                <span className="font-black text-emerald-600">Settled (₹0)</span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 pt-1 border-t border-slate-100">
+                            <button
+                              onClick={() => {
+                                setSelectedPO(po);
+                                setIsVendorModalOpen(true);
+                              }}
+                              className="flex-1 py-2 px-3 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold rounded-lg text-center transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                              <span>Manage Vendor Payments</span>
+                            </button>
+                            <button
+                              onClick={() => setVendorToDelete(po)}
+                              className="py-2 px-2.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                              title="Delete"
+                            >
+                              <Trash className="w-3.5 h-3.5 text-red-600" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* DESKTOP VENDOR PAYMENTS TABLE (md+) */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-slate-50 text-[11px] font-bold text-slate-500 uppercase">
+                    <tr>
+                      <th className="px-6 py-3 border-b border-slate-200">Project</th>
+                      <th className="px-6 py-3 border-b border-slate-200">Vendor</th>
+                      <th className="px-6 py-3 border-b border-slate-200">Project Total Amount</th>
+                      <th className="px-6 py-3 border-b border-slate-200">Remaining Amount</th>
+                      <th className="px-6 py-3 border-b border-slate-200">Status</th>
+                      <th className="px-6 py-3 border-b border-slate-200 text-right">Payment Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredAggregatedProjects.map((po, i) => {
+                      const summary = getVendorPoPaymentSummary(po, vendorPayments);
+                      const displayStatus = summary.isFullyPaid ? 'Dispatched' : 'Pending';
+
+                      return (
+                      <motion.tr 
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ delay: 0.05 + i * 0.02 }}
+                        key={`${po.projectVendorId}-${i}`} 
+                        className="hover:bg-slate-50 transition-colors"
+                      >
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-blue-600">{po.projectName}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-800 font-semibold">{po.vendorName}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-800 font-bold">₹{po.totalAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm">
+                          {summary.remainingAmount > 0 ? (
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-bold text-amber-600">
+                                ₹{summary.remainingAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                              </span>
+                              <span className="text-[10px] font-bold bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded border border-amber-200">
+                                Pending
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-bold text-emerald-600">₹0.00</span>
+                              <span className="text-[10px] font-bold bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded border border-emerald-200">
+                                Settled
+                              </span>
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <Badge variant={displayStatus === 'Dispatched' ? 'success' : 'default'}>
+                            {displayStatus}
+                          </Badge>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right flex items-center justify-end gap-2">
+                          <button 
+                            onClick={() => {
+                              setSelectedPO(po);
+                              setIsVendorModalOpen(true);
+                            }}
+                            className="inline-flex items-center px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors cursor-pointer"
+                          >
+                            <Edit className="w-3.5 h-3.5 mr-1.5" /> Manage Vendor Payments
+                          </button>
+                          <button 
+                            onClick={() => setVendorToDelete(po)}
+                            className="inline-flex items-center px-3 py-1.5 text-xs font-bold text-red-700 bg-red-50 hover:bg-red-100 rounded-md transition-colors cursor-pointer"
+                          >
+                            <Trash className="w-3.5 h-3.5 mr-1.5" /> Delete
+                          </button>
+                        </td>
+                      </motion.tr>
+                    )})}
+                    {filteredAggregatedProjects.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="px-6 py-12 text-center text-sm text-slate-500">
+                          <div className="flex flex-col items-center justify-center gap-2">
+                            <AlertCircle className="w-8 h-8 text-slate-400" />
+                            <p className="font-semibold text-slate-700">
+                              No vendor purchase orders found matching the {paymentFilter === 'remaining' ? 'Remaining Amount' : paymentFilter === 'unpaid' ? 'Unpaid' : paymentFilter === 'paid' ? 'Fully Paid' : ''} filter.
+                            </p>
+                            {paymentFilter !== 'all' && (
+                              <button
+                                onClick={() => setPaymentFilter('all')}
+                                className="mt-1 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-lg text-xs cursor-pointer"
+                              >
+                                Reset to All Projects
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
         </div>
       </motion.div>
 

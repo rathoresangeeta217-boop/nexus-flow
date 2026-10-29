@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { BottomNav } from './components/BottomNav';
 import { Header } from './components/Header';
+import { MobileDrawer } from './components/MobileDrawer';
 import { OrdersTab } from './tabs/OrdersTab';
 import { PurchaseTab } from './tabs/PurchaseTab';
 import { ProductsTab } from './tabs/ProductsTab';
@@ -20,6 +21,7 @@ import { AdminApprovalView } from './components/AdminApprovalView';
 import { useAuth } from './contexts/AuthContext';
 import { AuthView } from './components/AuthView';
 import { UsersTab } from './tabs/UsersTab';
+import { subscribeToOrders, Order } from './lib/orders';
 
 export default function App() {
   const { user, profile, loading, authError } = useAuth();
@@ -37,6 +39,13 @@ export default function App() {
   const [quoteId, setQuoteId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [approvalOrderId, setApprovalOrderId] = useState<string | null>(null);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [orders, setOrders] = useState<Order[]>([]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToOrders(setOrders);
+    return () => unsubscribe();
+  }, []);
   
 
   useEffect(() => {
@@ -112,8 +121,15 @@ export default function App() {
         </div>
       )}
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
-        {currentTab !== 'Storefront' && <Header activeTab={currentTab} searchQuery={searchQuery} onSearchChange={setSearchQuery} />}
-        <main className={`flex-1 overflow-y-auto ${currentTab === 'Storefront' ? 'p-0 pb-12' : 'p-4 md:p-6 lg:p-8 pb-24 lg:pb-8'} custom-scrollbar`}>
+        {currentTab !== 'Storefront' && (
+          <Header 
+            activeTab={currentTab} 
+            searchQuery={searchQuery} 
+            onSearchChange={setSearchQuery} 
+            onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
+          />
+        )}
+        <main className={`flex-1 overflow-y-auto ${currentTab === 'Storefront' ? 'p-0 pb-12' : 'p-3 sm:p-5 lg:p-8 pb-24 lg:pb-8'} custom-scrollbar`}>
           <div className={`${currentTab === 'Storefront' ? 'w-full' : 'max-w-[1600px] mx-auto'} min-h-full`}>
             {currentTab === 'Orders' && (profile?.role === 'super_admin' || profile?.role === 'admin' || profile?.role === 'sales_executive') && <OrdersTab searchQuery={searchQuery} />}
             {currentTab === 'Purchase' && (profile?.role === 'super_admin' || profile?.role === 'admin') && <PurchaseTab searchQuery={searchQuery} />}
@@ -147,9 +163,24 @@ export default function App() {
           </div>
         </main>
         <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200">
-          {currentTab !== 'Storefront' && <BottomNav activeTab={currentTab} setActiveTab={setActiveTab} />}
+          {currentTab !== 'Storefront' && (
+            <BottomNav 
+              activeTab={currentTab} 
+              setActiveTab={setActiveTab} 
+              onOpenMenu={() => setIsMobileMenuOpen(true)}
+            />
+          )}
         </div>
       </div>
+
+      {/* Slide-out Mobile Navigation Drawer */}
+      <MobileDrawer
+        isOpen={isMobileMenuOpen}
+        onClose={() => setIsMobileMenuOpen(false)}
+        activeTab={currentTab}
+        setActiveTab={setActiveTab}
+        orders={orders}
+      />
     </div>
   );
 }
