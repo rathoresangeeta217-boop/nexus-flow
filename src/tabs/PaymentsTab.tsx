@@ -13,7 +13,7 @@ import { subscribeToPurchases, Purchase } from '../lib/purchases';
 import { PaymentManagementModal } from '../components/PaymentManagementModal';
 import { VendorPaymentModal } from '../components/VendorPaymentModal';
 import { ProjectVendorSummaryModal } from '../components/ProjectVendorSummaryModal';
-import { getAllPayments, subscribeToPayments, PaymentRecord, calculatePhaseGstAdjustment, isPaymentMatchingOrder, isPhaseReceived, calculateOrderTotalAmount, mergePaymentRecords } from '../lib/payments';
+import { getAllPayments, subscribeToPayments, PaymentRecord, calculatePhaseGstAdjustment, isPaymentMatchingOrder, isPhaseReceived, calculateOrderTotalAmount, mergePaymentRecords, getKnownCustomerForOrderId } from '../lib/payments';
 import { generatePaymentReminderPDF } from '../lib/pdfHelper';
 
 import * as XLSX from 'xlsx';
@@ -295,9 +295,15 @@ export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
     const map = new Map<string, Order>();
     
     orders.forEach(o => {
-      const key = (o.id || o.docId || '').trim();
-      if (key) map.set(key, o);
-      if (o.docId) map.set(o.docId.trim(), o);
+      let cust = (o.customer || '').trim();
+      if (!cust || cust.toLowerCase() === 'customer') {
+        const resolved = getKnownCustomerForOrderId(o.id, o.amount) || getKnownCustomerForOrderId(o.docId, o.amount);
+        if (resolved) cust = resolved;
+      }
+      const fixedOrder = cust && cust !== o.customer ? { ...o, customer: cust } : o;
+      const key = (fixedOrder.id || fixedOrder.docId || '').trim();
+      if (key) map.set(key, fixedOrder);
+      if (fixedOrder.docId) map.set(fixedOrder.docId.trim(), fixedOrder);
     });
 
     customerPayments.forEach(p => {
@@ -307,21 +313,39 @@ export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
       for (const ord of map.values()) {
         if (isPaymentMatchingOrder(ord.id, ord.docId, p, ord.customer)) {
           exists = true;
+          // If the existing order had an empty/placeholder customer name and the payment knows it, update it
+          if ((!ord.customer || ord.customer.toLowerCase() === 'customer') && p.customer && p.customer.toLowerCase() !== 'customer') {
+            ord.customer = p.customer;
+          }
           break;
         }
       }
 
       if (!exists) {
+        let resolvedCustomer = (p.customer || '').trim();
+        if (!resolvedCustomer || resolvedCustomer.toLowerCase() === 'customer') {
+          if (p.orderId.includes(' - ')) {
+            resolvedCustomer = p.orderId.split(' - ')[1].trim();
+          }
+        }
+        if (!resolvedCustomer || resolvedCustomer.toLowerCase() === 'customer') {
+          resolvedCustomer = getKnownCustomerForOrderId(p.orderId, p.grandTotal || p.originalAmount);
+        }
+        if (!resolvedCustomer || resolvedCustomer.toLowerCase() === 'customer') {
+          resolvedCustomer = p.orderId ? `Client (${p.orderId.replace(/^ORD-2026-/, '')})` : 'Client';
+        }
+
         const virtualOrder: Order = {
           id: p.orderId,
           docId: p.docId || p.orderId,
-          customer: p.orderId.includes(' - ') ? p.orderId.split(' - ')[1].trim() : 'Customer',
+          customer: resolvedCustomer,
           amount: p.grandTotal || p.originalAmount || '₹0',
           date: p.deliveryDate || new Date().toISOString().split('T')[0],
           status: 'Confirmed',
           items: 1,
           createdAt: p.updatedAt || new Date().toISOString(),
           details: {
+            customerName: resolvedCustomer,
             totalAmount: p.grandTotal || p.originalAmount,
             advancePayment: p.advancePayment || p.advanceRequirement,
             deliveryDate: p.deliveryDate
@@ -923,7 +947,9 @@ export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
                             </Badge>
                           </div>
                           <div>
-                            <p className="font-bold text-slate-900 text-sm truncate">{order.customer}</p>
+                            <p className="font-bold text-slate-900 text-sm truncate">
+                              {order.customer && order.customer.toLowerCase() !== 'customer' ? order.customer : (getKnownCustomerForOrderId(order.id) || 'Client')}
+                            </p>
                             <p className="text-xs text-slate-500 mt-0.5">Order Date: {order.date}</p>
                           </div>
                           <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-100 text-xs">
@@ -994,7 +1020,9 @@ export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
                         className="hover:bg-slate-50 transition-colors"
                       >
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-indigo-600">{order.id}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-800 font-semibold">{order.customer}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-800 font-semibold">
+                          {order.customer && order.customer.toLowerCase() !== 'customer' ? order.customer : (getKnownCustomerForOrderId(order.id) || 'Client')}
+                        </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-800 font-bold">₹{summary.displayTotalAmt.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm">
                           {summary.remainingAmount > 0 ? (

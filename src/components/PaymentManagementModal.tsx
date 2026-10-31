@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { X, Plus, Save, Upload, CheckCircle2, AlertCircle, Lock, Unlock, Download, Clock, ChevronRight, Calendar, Check, ShieldAlert, Trash2, Receipt } from 'lucide-react';
 import { Order, saveOrder } from '../lib/orders';
 import * as XLSX from 'xlsx';
-import { PaymentRecord, PaymentPhase, getPaymentForOrder, savePaymentRecord, calculatePhaseGstAdjustment, calculateOrderTotalAmount } from '../lib/payments';
+import { PaymentRecord, PaymentPhase, getPaymentForOrder, savePaymentRecord, calculatePhaseGstAdjustment, calculateOrderTotalAmount, getKnownCustomerForOrderId } from '../lib/payments';
 import { generatePaymentReminderPDF } from '../lib/pdfHelper';
 
 interface PaymentManagementModalProps {
@@ -220,7 +220,13 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
     });
 
     const orderIdToUse = order?.id || order?.docId || record.orderId || '';
-    const customerToUse = order?.customer || order?.details?.customerName || (order?.details as any)?.companyName || record.customer || '';
+    const customerToUse = (order?.customer && order.customer.toLowerCase() !== 'customer') 
+      ? order.customer 
+      : (order?.details?.customerName && order.details.customerName.toLowerCase() !== 'customer'
+        ? order.details.customerName
+        : (record.customer && record.customer.toLowerCase() !== 'customer'
+          ? record.customer
+          : getKnownCustomerForOrderId(orderIdToUse)));
 
     let recordToSave: Partial<PaymentRecord> = { 
       ...record,
@@ -512,7 +518,9 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
           <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
             <div>
               <h2 className="text-xl font-bold text-slate-800">Manage Payments</h2>
-              <p className="text-sm text-slate-500">Order: {order.id} - {order.customer}</p>
+              <p className="text-sm text-slate-500">
+                Order: {order.id} - {order.customer && order.customer.toLowerCase() !== 'customer' ? order.customer : (record.customer && record.customer.toLowerCase() !== 'customer' ? record.customer : (getKnownCustomerForOrderId(order.id) || 'Client'))}
+              </p>
             </div>
             <div className="flex items-center gap-2">
               <button 

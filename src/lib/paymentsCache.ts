@@ -37,7 +37,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     "installationCharges": "",
     "transportationCharges": "Rs. 2,000",
     "originalGst": "₹5,673.97 (18%)",
-    "originalAmount": "₹31,522.03"
+    "originalAmount": "₹31,522.03",
+    "customer": "MANISH KUMAWAT"
   },
   {
     "docId": "1QnvUMeIuBBTf6LuhuFS",
@@ -77,7 +78,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
       }
     ],
     "originalGst": "₹4,410 (18%)",
-    "originalAmount": "₹24,500"
+    "originalAmount": "₹24,500",
+    "customer": "CHANDRA PAL MEENA"
   },
   {
     "docId": "5dTql77EKI6w6k30aA0r",
@@ -95,7 +97,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     "transportationCharges": "extra as applicable",
     "advancePayment": "50% advance payment required at the time of order",
     "originalAmount": "₹47,000",
-    "installationCharges": "extra as applicable"
+    "installationCharges": "extra as applicable",
+    "customer": "NAHIM KHAN"
   },
   {
     "docId": "7kOOS9h5CdYGo5rmEfvX",
@@ -124,7 +127,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     "installationCharges": "extra as applicable",
     "grandTotal": "₹13,570",
     "transportationCharges": "extra as applicable",
-    "originalAmount": "₹11,500"
+    "originalAmount": "₹11,500",
+    "customer": "SHIKHA HEALTHCARE"
   },
   {
     "docId": "7xNymtfQwyqT028Nc650",
@@ -172,7 +176,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     ],
     "transportationCharges": "Extra as applicable",
     "originalGst": "₹17,514 (18%)",
-    "orderId": "ORD-2026-878"
+    "orderId": "ORD-2026-878",
+    "customer": "Ganpati Infa"
   },
   {
     "docId": "87rk0pC40vmwuvemFQv7",
@@ -192,7 +197,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
         "title": "dispatch day "
       }
     ],
-    "originalAmount": "₹13,000"
+    "originalAmount": "₹13,000",
+    "customer": "SIMRAT DESIGNS BY AMC PVT LTD INDIA"
   },
   {
     "docId": "BbhiGZSPaTuOVFVWCRHe",
@@ -230,7 +236,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     "originalAmount": "₹1,34,250",
     "installationCharges": "1000",
     "grandTotal": "₹1,58,415",
-    "advancePayment": "50%"
+    "advancePayment": "50%",
+    "customer": "Southern grand hotels pvt. ltd."
   },
   {
     "docId": "BuNrsGtN7ftNuyjNbgVY",
@@ -258,7 +265,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     "grandTotal": "₹53,035",
     "advancePayment": "50% advance payment required at the time of order",
     "originalAmount": "₹44,944.92",
-    "installationCharges": "Extra as applicable"
+    "installationCharges": "Extra as applicable",
+    "customer": "monilek Hospital and research center"
   },
   {
     "docId": "F0GcBeR2GUDI37ko16K8",
@@ -280,7 +288,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     "originalAmount": "₹25.44",
     "grandTotal": "₹2,22,000",
     "advancePayment": "50% advance payment required at the time of order.",
-    "transportationCharges": "Inclusive"
+    "transportationCharges": "Inclusive",
+    "customer": "Srk Modular furniture co."
   },
   {
     "docId": "F2hPR3XNrvDJxOQ1GoRr",
@@ -316,7 +325,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     "advancePayment": "50% advance payment required at the time of order.",
     "transportationCharges": "Rs. 2,000",
     "grandTotal": "₹1,91,294",
-    "originalAmount": "₹1,62,113.56"
+    "originalAmount": "₹1,62,113.56",
+    "customer": "Aryam Pvt Ltd"
   },
   {
     "docId": "HnQ8SBWDOlAxsxTVXDeF",
@@ -344,7 +354,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     "transportationCharges": "Transportation, unloading, packing and installation charges extra as applicable.",
     "originalAmount": "₹1,750",
     "advancePayment": "50% advance payment required at the time of order.",
-    "grandTotal": "₹2,065"
+    "grandTotal": "₹2,065",
+    "customer": "harsh ji"
   },
   {
     "docId": "IlR5aEqaef6O2B6QkwTh",
@@ -374,7 +385,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
         "bankName": "SBI",
         "date": "2026-08-25"
       }
-    ]
+    ],
+    "customer": "DIGITAL WEBSITE"
   },
   {
     "docId": "J5582pHGeoiXJKNbX2cK",
@@ -422,7 +434,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
         "title": "Dispatch day",
         "date": "2026-09-05"
       }
-    ]
+    ],
+    "customer": "Afcons Infrastructure Limited"
   },
   {
     "docId": "KiPFimtL6078yIRtp6b9",
@@ -440,7 +453,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     "originalAmount": "₹16,400",
     "originalGst": "₹2,952 (18%)",
     "orderId": "ORD-2026-550",
-    "grandTotal": "₹19,352"
+    "grandTotal": "₹19,352",
+    "customer": "TBR Industries Pvt. Ltd"
   },
   {
     "docId": "LNNFo6WLNOt22N7qnaBg",
@@ -460,7 +474,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     "installationCharges": "installation charges extra as applicable.",
     "originalAmount": "₹14,800",
     "orderId": "ORD-2026-788",
-    "transportationCharges": "Transportation, unloading, packing charges extra as applicable."
+    "transportationCharges": "Transportation, unloading, packing charges extra as applicable.",
+    "customer": "KIHAA FOODS AND HOSPITALITY PRIVATE LIMITED"
   },
   {
     "docId": "MFNoyuV6vQo3jwgQAhJ4",
@@ -489,7 +504,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     ],
     "advancePayment": "50% advance payment required at the time of order.",
     "grandTotal": "₹74,623",
-    "installationCharges": "extra as applicable"
+    "installationCharges": "extra as applicable",
+    "customer": "Remotus Services LLP"
   },
   {
     "docId": "MdqXDOX8ALDGimiANyEZ",
@@ -564,7 +580,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     "advancePayment": "50% advance payment required at the time of order.",
     "installationCharges": "extra as applicable",
     "transportationCharges": "extra as applicable",
-    "grandTotal": "₹1,32,219"
+    "grandTotal": "₹1,32,219",
+    "customer": "Ganpati Infa"
   },
   {
     "docId": "MtYc8eSOU6IGx5B4QCBz",
@@ -594,7 +611,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
         "date": "2026-09-13"
       }
     ],
-    "orderId": "ORD-2026-618"
+    "orderId": "ORD-2026-618",
+    "customer": "Subh Aangan"
   },
   {
     "docId": "NX93VRs8tBULhYVBLFGB",
@@ -614,7 +632,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     ],
     "transportationCharges": "Transportation, unloading, packing and installation charges extra as applicable.",
     "originalGst": "₹540 (18%)",
-    "orderId": "ORD-2026-127"
+    "orderId": "ORD-2026-127",
+    "customer": "Srk Modular furniture co."
   },
   {
     "docId": "OtVv9A5hCmZZ3t7YPpCN",
@@ -676,7 +695,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
       }
     ],
     "originalAmount": "₹1,06,200",
-    "orderId": "ORD-2026-9502384"
+    "orderId": "ORD-2026-9502384",
+    "customer": "Ganpati Infra"
   },
   {
     "docId": "PFhGvhih8HsyJoH9FcBj",
@@ -716,7 +736,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     "originalAmount": "₹21,000",
     "transportationCharges": "Transportation, unloading, packing and installation charges extra as applicable.",
     "orderId": "ORD-2026-636",
-    "installationCharges": "Transportation, unloading, packing and installation charges extra as applicable."
+    "installationCharges": "Transportation, unloading, packing and installation charges extra as applicable.",
+    "customer": "RAGHUDEEP EYE HOSPITAL"
   },
   {
     "docId": "QybNLYJgrtxmI7azzk2R",
@@ -737,7 +758,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     ],
     "originalAmount": "₹39,600",
     "grandTotal": "₹46,728",
-    "advancePayment": "50% advance payment required at the time of order"
+    "advancePayment": "50% advance payment required at the time of order",
+    "customer": "NAHIM KHAN"
   },
   {
     "docId": "S54MiZn5jLyvA07Pxji7",
@@ -767,7 +789,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     "orderId": "ORD-2026-1457577",
     "grandTotal": "₹22,184",
     "transportationCharges": "extra as applicable",
-    "installationCharges": "extra as applicable"
+    "installationCharges": "extra as applicable",
+    "customer": "Shanti & Sons"
   },
   {
     "docId": "SONiqh1jSKMX3sXb7GEY",
@@ -796,7 +819,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
       }
     ],
     "orderId": "ORD-2026-319",
-    "installationCharges": "Rs. 1,500"
+    "installationCharges": "Rs. 1,500",
+    "customer": "RATHORE JWELLERS"
   },
   {
     "docId": "StL55nyab4Ja4vmxIfhr",
@@ -851,7 +875,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     "originalAmount": "₹2,69,500",
     "grandTotal": "₹3,18,010",
     "orderId": "ORD-2026-293",
-    "installationCharges": "Transportation, unloading, packing and installation charges extra as applicable."
+    "installationCharges": "Transportation, unloading, packing and installation charges extra as applicable.",
+    "customer": "EMERALD ENTERPRISES"
   },
   {
     "docId": "Ugdexx348kkGqQQG4lk5",
@@ -872,7 +897,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
         "sourceType": "Bank"
       }
     ],
-    "originalAmount": "₹19,500"
+    "originalAmount": "₹19,500",
+    "customer": "SIMRAT DESIGNS BY AMC PVT LTD INDIA"
   },
   {
     "docId": "V5EWZ63jpydq0MhOTVHa",
@@ -893,7 +919,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     "orderId": "ORD-2026-7774001",
     "installationCharges": "extra as applicable",
     "transportationCharges": "extra as applicable",
-    "originalAmount": "₹12,500"
+    "originalAmount": "₹12,500",
+    "customer": "Aryam Pvt Ltd"
   },
   {
     "docId": "Ve0NOhYdVvnX4VcN3sfA",
@@ -923,7 +950,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     "originalGst": "₹3,942 (18%)",
     "orderId": "ORD-2026-110",
     "installationCharges": "Transportation, unloading, packing and installation charges extra as applicable.",
-    "transportationCharges": "Transportation, unloading, packing and installation charges extra as applicable."
+    "transportationCharges": "Transportation, unloading, packing and installation charges extra as applicable.",
+    "customer": "Netgleam Consulting Pvt Ltd"
   },
   {
     "docId": "Vyfr78BNgKuBr04JYjsX",
@@ -987,7 +1015,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     ],
     "advancePayment": "50% advance payment required at the time of order.",
     "originalGst": "₹17,226 (18%)",
-    "originalAmount": "₹95,700"
+    "originalAmount": "₹95,700",
+    "customer": "Ganpati Infra"
   },
   {
     "docId": "WjB1Q3s6OO60ZKCOGxVy",
@@ -1035,7 +1064,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     "installationCharges": "",
     "originalAmount": "₹30,097.46",
     "transportationCharges": "Rs. 1,000",
-    "grandTotal": "₹35,515"
+    "grandTotal": "₹35,515",
+    "customer": "V biolife science"
   },
   {
     "docId": "X1m2wQNJp0BMzzpCjEsQ",
@@ -1062,7 +1092,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     "grandTotal": "₹46,728",
     "originalGst": "₹7,128 (18%)",
     "deliveryDate": "2026-10-27",
-    "installationCharges": "extra as applicable"
+    "installationCharges": "extra as applicable",
+    "customer": "NAHIM KHAN"
   },
   {
     "docId": "XOuwM8QPpkVlO8QN3Avj",
@@ -1093,7 +1124,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
         "amount": "70832",
         "status": "Received"
       }
-    ]
+    ],
+    "customer": "Uday waldorf school"
   },
   {
     "docId": "YNp5rnA94V53giKEVhpm",
@@ -1134,7 +1166,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
         "bankName": "SBI"
       }
     ],
-    "deliveryDate": "2026-10-23"
+    "deliveryDate": "2026-10-23",
+    "customer": "CLOTHIQ SOLUTIONS PVT LTD"
   },
   {
     "docId": "YYAobInoCSTow7xqO7Et",
@@ -1181,7 +1214,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     ],
     "advancePayment": "50% advance payment required at the time of order.",
     "transportationCharges": "extra as applicable",
-    "originalAmount": "60,250"
+    "originalAmount": "60,250",
+    "customer": "Uday waldorf school"
   },
   {
     "docId": "Ylb55kMc9C0zrHuxabFd",
@@ -1217,7 +1251,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     "originalGst": "₹66,982.29 (868931%)",
     "orderId": "ORD-2026-930",
     "transportationCharges": "Rs. 1,500",
-    "installationCharges": ""
+    "installationCharges": "",
+    "customer": "KIHAA FOODS AND HOSPITALITY PRIVATE LIMITED"
   },
   {
     "docId": "a22GU7pRiMDgBAiSID4J",
@@ -1238,7 +1273,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     "advancePayment": "50% advance payment required at the time of order.",
     "installationCharges": "Transportation, unloading, packing and installation charges extra as applicable.",
     "originalAmount": "₹13,000",
-    "originalGst": "₹2,340 (18%)"
+    "originalGst": "₹2,340 (18%)",
+    "customer": "SIMRAT DESIGNS BY AMC PVT LTD INDIA"
   },
   {
     "docId": "asrICqjmBfoFjNrCMTS3",
@@ -1301,7 +1337,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     "installationCharges": "extra as applicable",
     "originalAmount": "₹1,51,500",
     "transportationCharges": "extra as applicable",
-    "originalGst": "₹27,270 (18%)"
+    "originalGst": "₹27,270 (18%)",
+    "customer": "Abhishek ji tambi"
   },
   {
     "docId": "bVo6OfsPtyZkguHqT7Xu",
@@ -1331,7 +1368,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     ],
     "advancePayment": "50% advance payment required at the time of order.",
     "orderId": "ORD-2026-6744061",
-    "installationCharges": "extra as applicable"
+    "installationCharges": "extra as applicable",
+    "customer": "PAANDER INFRA SOLUTION PVT LTD"
   },
   {
     "docId": "cxJ5GQoFMkAMO5v6wb0w",
@@ -1370,7 +1408,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     "originalGst": "₹14,213.9 (18%)",
     "advancePayment": "50% advance payment required at the time of order.",
     "transportationCharges": "Rs. 3,500",
-    "originalAmount": "₹78,966.1"
+    "originalAmount": "₹78,966.1",
+    "customer": "Kadellabs pvt limited"
   },
   {
     "docId": "dV9vIIFymIWzrb2S5Y5m",
@@ -1398,7 +1437,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
         "id": "qg3tle6zw"
       }
     ],
-    "transportationCharges": "extra as applicable"
+    "transportationCharges": "extra as applicable",
+    "customer": "ANKIT JAYSWAL"
   },
   {
     "docId": "emn07XxS2IV4r1wyzCBB",
@@ -1426,7 +1466,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     "transportationCharges": "extra as applicable",
     "grandTotal": "₹1,58,120",
     "advancePayment": "50% advance payment required at the time of order.",
-    "installationCharges": "included"
+    "installationCharges": "included",
+    "customer": "Southern grand hotels pvt. ltd."
   },
   {
     "docId": "emzqCjH9xezzwAtqYwfS",
@@ -1466,7 +1507,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     "orderId": "ORD-2026-639",
     "advancePayment": "0",
     "grandTotal": "₹41,064",
-    "originalAmount": "₹34,800"
+    "originalAmount": "₹34,800",
+    "customer": "SIMRAT DESIGNS BY AMC PVT LTD INDIA"
   },
   {
     "docId": "fPxto3NhP1eNwAiGCYuB",
@@ -1502,7 +1544,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     "orderId": "ORD-2026-934",
     "grandTotal": "₹58,317",
     "advancePayment": "50% advance payment required at the time of order.",
-    "installationCharges": ""
+    "installationCharges": "",
+    "customer": "Shri Bhagwandas todi college"
   },
   {
     "docId": "gjoJAZczrDpPpHVqPh5b",
@@ -1549,7 +1592,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
       }
     ],
     "installationCharges": "Rs. 1,500",
-    "orderId": "ORD-2026-4470109"
+    "orderId": "ORD-2026-4470109",
+    "customer": "FEB TELE INDIA"
   },
   {
     "docId": "gltGAB5jWzPRhljWJnsm",
@@ -1606,7 +1650,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     "installationCharges": "extra as applicable",
     "originalAmount": "₹2,09,750",
     "transportationCharges": "extra as applicable",
-    "advancePayment": "50% advance payment required at the time of order."
+    "advancePayment": "50% advance payment required at the time of order.",
+    "customer": "CHANDRATAAL ENTERPRISES"
   },
   {
     "docId": "j08vVNqYsttoHhUc1m1R",
@@ -1664,7 +1709,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
         "amount": "7068"
       }
     ],
-    "editReason": ""
+    "editReason": "",
+    "customer": "MANISH KUMAWAT"
   },
   {
     "docId": "jfaGxU5wqYUQjvEqaWiJ",
@@ -1685,7 +1731,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     "transportationCharges": "extra as applicable",
     "originalAmount": "₹9,79,279.66",
     "installationCharges": "extra as applicable",
-    "advancePayment": "50% advance payment required at the time of order"
+    "advancePayment": "50% advance payment required at the time of order",
+    "customer": "Dr. Sunil Beniwal"
   },
   {
     "docId": "jqrG3FQhXF3Imhu0o0BA",
@@ -1721,7 +1768,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     "advancePayment": "50% advance payment required at the time of order.",
     "orderId": "ORD-2026-0106457",
     "grandTotal": "₹87,398",
-    "originalAmount": "₹74,066.1"
+    "originalAmount": "₹74,066.1",
+    "customer": "Kohinoor Lifts Pvt. Ltd"
   },
   {
     "docId": "l6T3rSw8bmPrrMZGBXO7",
@@ -1756,21 +1804,33 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     "installationCharges": "",
     "deliveryDate": "2026-10-28",
     "originalGst": "₹2,735.08 (18%)",
-    "transportationCharges": "2,000"
+    "transportationCharges": "2,000",
+    "customer": "Bhartiya Skill Development University"
   },
   {
     "docId": "lC5oKUWKMS8X8EVbvaWN",
-    "transportationCharges": "Rs. 2,000",
-    "originalGst": "₹37,511.08 (18%)",
+    "orderId": "ORD-2026-6200679",
+    "customer": "Gosimplify pvt ltd",
     "grandTotal": "₹2,45,906",
+    "originalAmount": "₹2,08,394.92",
+    "originalGst": "₹37,511.08 (18%)",
     "installationCharges": "Extra as applicable (2 FLOOR)",
-    "orderId": "ORD-2026-3585537",
+    "transportationCharges": "Rs. 2,000",
     "advancePayment": "50% advance payment required at the time of order",
+    "deliveryDate": "2026-10-28",
+    "aliases": [
+      "ORD-2026-6200679",
+      "ORD-2026-3585537",
+      "XyVmjpl11I20adRDys53",
+      "lC5oKUWKMS8X8EVbvaWN",
+      "Gosimplify pvt ltd",
+      "Rekha Sharma"
+    ],
     "phases": [
       {
         "bankName": "SBI",
         "date": "2026-10-07",
-        "title": "Advance ",
+        "title": "Advance 1",
         "status": "Received",
         "amount": "90000",
         "sourceType": "Bank",
@@ -1781,12 +1841,27 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
         "date": "2026-10-09",
         "status": "Received",
         "amount": "10000",
-        "title": "Advance ",
+        "title": "Advance 2",
         "id": "h0twfic7w",
         "bankName": "SBI"
+      },
+      {
+        "id": "disp_90906",
+        "title": "Dispatch / Part Payment",
+        "amount": "90906",
+        "status": "Received",
+        "sourceType": "Bank",
+        "bankName": "SBI",
+        "date": "2026-10-15"
+      },
+      {
+        "id": "bal_55000",
+        "title": "Remaining Balance",
+        "amount": "55000",
+        "status": "Pending",
+        "date": "2026-10-28"
       }
-    ],
-    "originalAmount": "₹2,08,394.92"
+    ]
   },
   {
     "docId": "mOdB59JuwTHiOTGmxnpJ",
@@ -1813,7 +1888,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
         "title": "GST ADJUSTMENT"
       }
     ],
-    "transportationCharges": "Transportation, unloading, packing and installation charges extra as applicable."
+    "transportationCharges": "Transportation, unloading, packing and installation charges extra as applicable.",
+    "customer": "MANISH SHARMA"
   },
   {
     "docId": "meFgiXCKvnKSwLAwOWow",
@@ -1843,7 +1919,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
       }
     ],
     "originalGst": "₹3,420 (18%)",
-    "grandTotal": "₹22,420"
+    "grandTotal": "₹22,420",
+    "customer": "MADAN LAL SHARMA"
   },
   {
     "docId": "nJDiSAZ5CbLHAXOVsDRK",
@@ -1862,7 +1939,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     "orderId": "ORD-2026-605",
     "originalGst": "₹657 (18%)",
     "transportationCharges": "extra as applicable",
-    "grandTotal": "₹4,307"
+    "grandTotal": "₹4,307",
+    "customer": "Abhishek Ji Mumbai"
   },
   {
     "docId": "pCeMvD9TOnJO9Yi01h5P",
@@ -1889,7 +1967,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
         "amount": "2000",
         "status": "Received"
       }
-    ]
+    ],
+    "customer": "RATHORE JWELLERS"
   },
   {
     "docId": "tqCpGXuqBk0UVMDG7BU7",
@@ -1936,7 +2015,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     "orderId": "ORD-2026-042",
     "originalGst": "₹68,337 (18%)",
     "installationCharges": "Transportation, unloading, packing and installation charges extra as applicable.",
-    "grandTotal": "₹4,47,987"
+    "grandTotal": "₹4,47,987",
+    "customer": "Akhil Agarwal"
   },
   {
     "docId": "vNWKG7pU8W1sTnnBz4El",
@@ -1957,7 +2037,8 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     "orderId": "ORD-2026-6568403",
     "originalGst": "₹990 (18%)",
     "transportationCharges": "Extra as applicable",
-    "grandTotal": "₹6,490"
+    "grandTotal": "₹6,490",
+    "customer": "TERRANOVA FOODS PVT LTD"
   },
   {
     "docId": "wg9x9eTwcluZlawdHSrI",
@@ -1978,14 +2059,20 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
         "status": "Received",
         "sourceType": "Bank"
       }
-    ]
+    ],
+    "customer": "TBR Industries Pvt. Ltd"
   },
   {
     "docId": "xJcsSW4su0NNE0AckCeh",
     "originalGst": "₹50,134.58 (18%)",
     "orderId": "ORD-2026-4809459",
     "customer": "subhas sir",
-    "aliases": ["ORD-2026-4809459", "ORD-2026-3285735", "hVM3ohG3hwlJX7sSphTu", "ord_3285735"],
+    "aliases": [
+      "ORD-2026-4809459",
+      "ORD-2026-3285735",
+      "hVM3ohG3hwlJX7sSphTu",
+      "ord_3285735"
+    ],
     "installationCharges": "Rs. 16,000",
     "grandTotal": "₹3,28,660",
     "originalAmount": "₹2,78,525.42",
@@ -2053,7 +2140,12 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     "originalGst": "₹50,134.58 (18%)",
     "orderId": "ORD-2026-3285735",
     "customer": "subhas sir",
-    "aliases": ["ORD-2026-4809459", "ORD-2026-3285735", "hVM3ohG3hwlJX7sSphTu", "ord_3285735"],
+    "aliases": [
+      "ORD-2026-4809459",
+      "ORD-2026-3285735",
+      "hVM3ohG3hwlJX7sSphTu",
+      "ord_3285735"
+    ],
     "installationCharges": "Rs. 16,000",
     "grandTotal": "₹3,28,660",
     "originalAmount": "₹2,78,525.42",
@@ -2145,43 +2237,44 @@ export const BASELINE_PAYMENTS: PaymentRecord[] = [
     ],
     "installationCharges": "Rs. 4,500",
     "orderId": "ORD-2026-7288846",
-    "grandTotal": "₹2,32,781"
+    "grandTotal": "₹2,32,781",
+    "customer": "KRISHA business process"
   }
 ];
 
 export async function getCachedPayments(): Promise<PaymentRecord[]> {
   try {
-    if (typeof window !== 'undefined') {
-      const idbPayments = await get<PaymentRecord[]>(PAYMENTS_CACHE_KEY);
-      if (idbPayments && idbPayments.length > 0) {
-        return idbPayments;
-      }
-      const lsRaw = localStorage.getItem(PAYMENTS_BACKUP_LS_KEY);
-      if (lsRaw) {
-        const parsed = JSON.parse(lsRaw);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed;
-        }
-      }
+    const val = await get(PAYMENTS_CACHE_KEY);
+    if (val && Array.isArray(val) && val.length > 0) {
+      return val;
     }
-  } catch (err) {
-    console.warn("Cached payments retrieval notice:", err);
+  } catch (e) {
+    console.warn("IndexedDB read error for payments cache:", e);
   }
+
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      const backup = localStorage.getItem(PAYMENTS_BACKUP_LS_KEY);
+      if (backup) {
+        const parsed = JSON.parse(backup);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+  }
+
   return BASELINE_PAYMENTS;
 }
 
 export async function setCachedPayments(payments: PaymentRecord[]): Promise<void> {
-  if (!payments || payments.length === 0) return;
   try {
-    if (typeof window !== 'undefined') {
-      await set(PAYMENTS_CACHE_KEY, payments);
-      try {
-        localStorage.setItem(PAYMENTS_BACKUP_LS_KEY, JSON.stringify(payments));
-      } catch (lsErr) {
-        console.warn("LocalStorage payment backup warning:", lsErr);
-      }
-    }
-  } catch (err) {
-    console.warn("Error caching payments locally:", err);
+    await set(PAYMENTS_CACHE_KEY, payments);
+  } catch (e) {
+    console.warn("IndexedDB write error for payments cache:", e);
+  }
+
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      localStorage.setItem(PAYMENTS_BACKUP_LS_KEY, JSON.stringify(payments));
+    } catch (e) {}
   }
 }
