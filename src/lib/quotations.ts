@@ -26,6 +26,7 @@ export interface SavedQuotationItem {
   productName: string;
   productId?: string;
   variantId?: string;
+  variantIds?: string[];
   variantLabel?: string;
   defaultSpecs: string;
   optionalSpecs?: Record<string, string>;
@@ -60,8 +61,38 @@ export interface SavedQuotation {
   notes?: string;
   status: QuotationStatus;
   createdBy?: string;
+  signedByName?: string;
+  signedByEmail?: string;
+  signedByRole?: string;
+  signedAt?: string;
   createdAt: any;
   updatedAt?: any;
+}
+
+export function resolveSignerInfo(
+  profile?: { displayName?: string; email?: string; role?: string } | null,
+  user?: { displayName?: string | null; email?: string | null } | null
+): { name: string; email: string; role: string } {
+  const email = (profile?.email || user?.email || '').trim();
+  const rawName = (profile?.displayName || user?.displayName || '').trim();
+
+  let name = rawName;
+  if (!name && email) {
+    const prefix = email.split('@')[0] || '';
+    name = prefix
+      .replace(/[._-]+/g, ' ')
+      .trim()
+      .replace(/\b\w/g, (ch) => ch.toUpperCase());
+  }
+  if (!name) {
+    name = 'SRK Authorised Signatory';
+  }
+
+  return {
+    name,
+    email,
+    role: profile?.role || 'staff'
+  };
 }
 
 enum OperationType {

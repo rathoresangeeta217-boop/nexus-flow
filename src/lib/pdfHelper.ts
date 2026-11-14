@@ -1026,9 +1026,13 @@ export interface QuotationData {
   customerAddress?: string;
   customerMobile: string;
   customerEmail?: string;
+  signedByName?: string;
+  signedByEmail?: string;
+  signedAt?: string;
   items: Array<{
     product: any;
     selectedVariant?: any;
+    variantIds?: string[];
     selectedOptionsSummary?: string;
     imageSrc?: string;
     unitPrice: number;
@@ -1072,27 +1076,91 @@ export const generateQuotationPDF = async (quote: QuotationData) => {
     const item = quote.items[i];
     if (item.imageSrc) {
       images[i] = item.imageSrc;
-    } else if (item.selectedVariant?.imageData) {
+      continue;
+    }
+    if (item.selectedVariant?.imageData) {
       images[i] = item.selectedVariant.imageData;
-    } else if (item.product?.details?.productImageData) {
-      images[i] = item.product.details.productImageData;
-    } else {
-      try {
-        if (item.selectedVariant?.id) {
-          const vImg = await getVariantFile(item.selectedVariant.id);
+      continue;
+    }
+
+    try {
+      let resolvedImg: string | undefined;
+
+      // 1. Direct selected variant file (e.g., explicitly chosen Chrome base or variant)
+      if (item.selectedVariant?.id) {
+        const vImg = await getVariantFile(item.selectedVariant.id);
+        if (vImg) resolvedImg = vImg;
+      }
+
+      // 2. Check all selected variantIds (reverse order prioritizes later custom option like Base)
+      if (!resolvedImg && Array.isArray(item.variantIds) && item.variantIds.length > 0) {
+        const prodVariants: any[] = Array.isArray(item.product?.variants) ? item.product.variants : [];
+        for (let k = item.variantIds.length - 1; k >= 0; k--) {
+          const vid = item.variantIds[k];
+          if (!vid) continue;
+          const inlineMatch = prodVariants.find((pv) => pv && pv.id === vid && pv.imageData);
+          if (inlineMatch?.imageData) {
+            resolvedImg = inlineMatch.imageData;
+            break;
+          }
+          const vImg = await getVariantFile(vid);
           if (vImg) {
-            images[i] = vImg;
-            continue;
+            resolvedImg = vImg;
+            break;
           }
         }
+      }
+
+      // 3. Fallback: match variants mentioned in selectedOptionsSummary (prefer non-color custom/base variants first)
+      if (!resolvedImg && item.selectedOptionsSummary && Array.isArray(item.product?.variants)) {
+        const summaryLower = item.selectedOptionsSummary.toLowerCase();
+        const matchingVars = item.product.variants.filter((pv: any) => {
+          if (!pv) return false;
+          const vName = (pv.name || pv.size || pv.color || '').toLowerCase().trim();
+          const gName = (pv.groupName || '').toLowerCase().trim();
+          if (!vName) return false;
+          if (gName) {
+            return (
+              summaryLower.includes(`${gName}: ${vName}`) ||
+              summaryLower.includes(vName)
+            );
+          }
+          return summaryLower.includes(vName);
+        });
+        // Check in reverse order so structural options (e.g., Base: Chrome) beat generic Color if both exist
+        for (let k = matchingVars.length - 1; k >= 0; k--) {
+          const mv = matchingVars[k];
+          if (mv.imageData) {
+            resolvedImg = mv.imageData;
+            break;
+          }
+          if (mv.id) {
+            const vImg = await getVariantFile(mv.id);
+            if (vImg) {
+              resolvedImg = vImg;
+              break;
+            }
+          }
+        }
+      }
+
+      // 4. Fallback to product base image
+      if (!resolvedImg && item.product?.details?.productImageData) {
+        resolvedImg = item.product.details.productImageData;
+      }
+      if (!resolvedImg) {
         const idToFetch = item.product?.docId || item.product?.id;
         if (idToFetch) {
           const imgData = await getProductFile(idToFetch);
-          if (imgData) images[i] = imgData;
+          if (imgData) resolvedImg = imgData;
         }
-      } catch (e) {
-        console.error('Could not fetch quotation item image', e);
       }
+
+      if (resolvedImg) {
+        images[i] = resolvedImg;
+      }
+    } catch (e) {
+      console.error('Could not fetch quotation item image', e);
     }
   }
 
@@ -1318,16 +1386,37 @@ export const generateQuotationPDF = async (quote: QuotationData) => {
   const hasDiscount = (quote.discountTotal || 0) > 0;
   const totalsBoxH = hasDiscount ? 36 : 30;
 
+  // Prepare E-Sign Verification Seal text before page-break check
+  const signerDisplayName = (quote.signedByName || 'SRK Authorised Signatory').trim();
+  const signerVerifyText = `E-Signed & Verified by ${signerDisplayName}`;
+  doc.setFontSize(7.4);
+  const signerVerifyLines = doc.splitTextToSize(signerVerifyText, totalsBoxW - 14);
+  const signedTimestampLabel = quote.signedAt
+    ? new Date(quote.signedAt).toLocaleString('en-IN', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      })
+    : quote.quotationDate || new Date().toLocaleDateString('en-GB');
+  const signerMetaLine = quote.signedByEmail
+    ? `ID: ${quote.signedByEmail}  |  ${signedTimestampLabel}`
+    : `Verified: ${signedTimestampLabel}`;
+  doc.setFontSize(6.4);
+  const signerMetaLines = doc.splitTextToSize(signerMetaLine, totalsBoxW - 14);
+  const sealH = 7.5 + signerVerifyLines.length * 3.5 + signerMetaLines.length * 3.1 + 2;
+
   doc.setFontSize(7.8);
   const defaultNotes =
     quote.notes ||
     '1. Prices are valid until the specified expiry date.\n2. Standard GST applicable as quoted.\n3. Delivery timeframe: 10-15 business days from order confirmation & advance.\n4. Warranty: 1 Year Manufacturing Defect Warranty.';
   const notesLines = doc.splitTextToSize(defaultNotes, 100);
   const leftBlockH = 3 + 4.5 + notesLines.length * 3.8 + 4 + 9;
-  const rightBlockH = totalsBoxH + 6 + 30;
+  const rightBlockH = totalsBoxH + 4 + 27 + sealH;
   const neededBottomH = Math.max(leftBlockH, rightBlockH);
 
-  // Ensure bottom summary, bank details, and signatory fit cleanly above footer (footer starts at y=281)
+  // Ensure bottom summary, bank details, and e-sign seal fit cleanly above footer (footer starts at y=281)
   if (finalY + neededBottomH > 276) {
     doc.addPage();
     finalY = 16;
@@ -1416,20 +1505,50 @@ export const generateQuotationPDF = async (quote: QuotationData) => {
   doc.text('A/C Name: Srk Modular furniture co.  |  Bank: State Bank of India', 12, afterNotesY + 4.2);
   doc.text('A/C No: 31766643906  |  IFSC: SBIN0060229', 12, afterNotesY + 8.2);
 
-  // Right Column: Authorised Signatory below Totals Box
-  const sigY = finalY + totalsBoxH + 6;
-  await addSignatureToPDF(doc, 134, sigY);
+  // Right Column: Authorised Signatory & E-Signed Verification Seal
+  const sigY = finalY + totalsBoxH + 4;
+  await addSignatureToPDF(doc, 134, sigY - 1);
   doc.setDrawColor(148, 163, 184);
   doc.setLineWidth(0.3);
-  doc.line(130, sigY + 21, 196, sigY + 21);
+  doc.line(126, sigY + 18, 194, sigY + 18);
   doc.setFontSize(8);
   doc.setFont('helvetica', 'bold');
   setBlackText();
-  doc.text('Authorised Signatory', 163, sigY + 25, { align: 'center' });
+  doc.text('Authorised Signatory', 160, sigY + 21.8, { align: 'center' });
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.2);
+  doc.setFontSize(7);
   setGrayText();
-  doc.text('For SRK Modular Furniture Co.', 163, sigY + 28.5, { align: 'center' });
+  doc.text('For SRK Modular Furniture Co.', 160, sigY + 25.1, { align: 'center' });
+
+  // E-Signed & Verified Digital Document Stamp
+  const sealY = sigY + 27.5;
+  doc.setFillColor(236, 253, 245);
+  doc.setDrawColor(16, 185, 129);
+  doc.setLineWidth(0.4);
+  doc.roundedRect(totalsBoxX, sealY, totalsBoxW, sealH, 1.5, 1.5, 'FD');
+
+  // Vector green verification badge checkmark
+  doc.setFillColor(5, 150, 105);
+  doc.circle(totalsBoxX + 6, sealY + 6, 3.1, 'F');
+  doc.setDrawColor(255, 255, 255);
+  doc.setLineWidth(0.6);
+  doc.line(totalsBoxX + 4.7, sealY + 6.1, totalsBoxX + 5.7, sealY + 7.1);
+  doc.line(totalsBoxX + 5.7, sealY + 7.1, totalsBoxX + 7.4, sealY + 4.9);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.6);
+  doc.setTextColor(4, 120, 87);
+  doc.text('DIGITALLY E-SIGNED DOCUMENT', totalsBoxX + 11.2, sealY + 4.5);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.4);
+  doc.setTextColor(6, 78, 59);
+  doc.text(signerVerifyLines, totalsBoxX + 11.2, sealY + 8.3);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.4);
+  doc.setTextColor(51, 65, 85);
+  doc.text(signerMetaLines, totalsBoxX + 11.2, sealY + 8.3 + signerVerifyLines.length * 3.5);
 
   // Page Border & Footer across all pages
   addPageBorder(doc);

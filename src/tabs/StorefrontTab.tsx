@@ -19,6 +19,8 @@ export interface StorefrontCartItem {
   quantity: number;
   workstationSetup?: any;
   selectedVariant?: ProductVariant;
+  selectedVariantIds?: string[];
+  imageSrc?: string;
   configuredPrice?: number;
   selectedOptionsSummary?: string;
 }
@@ -40,6 +42,8 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
   const [selectedColorVariantId, setSelectedColorVariantId] = useState<string | null>(null);
   const [selectedCustomVariantIds, setSelectedCustomVariantIds] = useState<Record<string, string>>({});
   const [lastTotalSelectionKey, setLastTotalSelectionKey] = useState<string | null>(null);
+  const [lastSelectedVariantId, setLastSelectedVariantId] = useState<string | null>(null);
+  const [lastImageVariantId, setLastImageVariantId] = useState<string | null>(null);
   const [activeImageSrc, setActiveImageSrc] = useState<string | null>(null);
   const [currentWorkstationSetup, setCurrentWorkstationSetup] = useState<any>(null);
   const [visualizerView, setVisualizerView] = useState<'3d' | 'photo'>('3d');
@@ -54,6 +58,8 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
   const [isQuotationModalOpen, setIsQuotationModalOpen] = useState(false);
   const [quotationProduct, setQuotationProduct] = useState<Product | null>(null);
   const [quotationVariant, setQuotationVariant] = useState<ProductVariant | null>(null);
+  const [quotationImageSrc, setQuotationImageSrc] = useState<string | null>(null);
+  const [quotationVariantIds, setQuotationVariantIds] = useState<string[] | undefined>(undefined);
   const [quotationCartItems, setQuotationCartItems] = useState<QuotationCheckoutCartItem[] | null>(null);
   const [checkoutSuccessToast, setCheckoutSuccessToast] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -226,7 +232,11 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
 
   // Synchronize active variants and preselect 1 default option in each section when product changes
   useEffect(() => {
+    let cancelled = false;
     setLastTotalSelectionKey(null);
+    setLastSelectedVariantId(null);
+    setLastImageVariantId(null);
+
     if (selectedProduct) {
       setVisualizerView('3d');
       if (selectedProduct.variants && selectedProduct.variants.length > 0) {
@@ -251,25 +261,46 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
 
         const initialCustomMap: Record<string, string> = {};
         const groupNames = Array.from(new Set(customVars.map(v => v.groupName || 'Additional Options')));
+        const defaultCustomVars: ProductVariant[] = [];
         for (const gName of groupNames) {
           const gItem = customVars.find(v => (v.groupName || 'Additional Options') === gName);
-          if (gItem) initialCustomMap[gName] = gItem.id;
+          if (gItem) {
+            initialCustomMap[gName] = gItem.id;
+            defaultCustomVars.push(gItem);
+          }
         }
         setSelectedCustomVariantIds(initialCustomMap);
 
-        const firstVar = firstSize || firstStorage || firstElectric || firstColor || all[0];
+        const firstVar = firstSize || firstStorage || firstElectric || firstColor || defaultCustomVars[0] || all[0];
         setSelectedVariantId(firstVar ? firstVar.id : null);
 
-        if (firstVar && firstVar.imageData) {
-          setActiveImageSrc(firstVar.imageData);
-        } else if (firstVar) {
-          getVariantFile(firstVar.id).then(data => {
-            if (data) setActiveImageSrc(data);
-            else setActiveImageSrc(null);
-          });
-        } else {
-          setActiveImageSrc(null);
-        }
+        const initCandidates = [
+          firstVar,
+          ...defaultCustomVars,
+          firstColor,
+          firstSize,
+          firstStorage,
+          firstElectric,
+          all[0]
+        ].filter((v): v is ProductVariant => Boolean(v));
+
+        (async () => {
+          for (const candidate of initCandidates) {
+            if (cancelled) return;
+            if (candidate.imageData) {
+              setLastImageVariantId(candidate.id);
+              setActiveImageSrc(candidate.imageData);
+              return;
+            }
+            const data = await getVariantFile(candidate.id);
+            if (!cancelled && data) {
+              setLastImageVariantId(candidate.id);
+              setActiveImageSrc(data);
+              return;
+            }
+          }
+          if (!cancelled) setActiveImageSrc(null);
+        })();
       } else {
         setSelectedVariantId(null);
         setSelectedSizeVariantId(null);
@@ -288,30 +319,39 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
       setSelectedCustomVariantIds({});
       setActiveImageSrc(null);
     }
+
+    return () => {
+      cancelled = true;
+    };
   }, [selectedProduct]);
 
-  const handleSelectVariant = async (variant: ProductVariant) => {
+  const activateVariantImage = async (variant: ProductVariant) => {
     setSelectedVariantId(variant.id);
+    setLastSelectedVariantId(variant.id);
     if (variant.imageData) {
+      setLastImageVariantId(variant.id);
       setActiveImageSrc(variant.imageData);
-    } else {
+      return;
+    }
+    try {
       const storedImage = await getVariantFile(variant.id);
       if (storedImage) {
+        setLastImageVariantId(variant.id);
         setActiveImageSrc(storedImage);
-      } else {
-        setActiveImageSrc(null);
       }
+    } catch (e) {
+      console.warn('Could not load variant image', e);
     }
   };
-
-
 
   const addToCart = (
     product: Product, 
     workstationSetup?: any, 
     variant?: ProductVariant,
     configuredPrice?: number,
-    selectedOptionsSummary?: string
+    selectedOptionsSummary?: string,
+    imageSrc?: string,
+    selectedVariantIds?: string[]
   ) => {
     setCart(prev => {
       const isWorkstation = isCategoryMatch(product.category, "Workstation");
@@ -328,7 +368,11 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
       const cartItemId = `${product.docId || product.id}_${variant?.id || 'base'}${setupKey}`;
       const existing = prev.find(item => item.id === cartItemId);
       if (existing) {
-        return prev.map(item => item.id === cartItemId ? { ...item, quantity: item.quantity + 1 } : item);
+        return prev.map(item =>
+          item.id === cartItemId
+            ? { ...item, quantity: item.quantity + 1, imageSrc: imageSrc || item.imageSrc }
+            : item
+        );
       }
       return [...prev, { 
         id: cartItemId, 
@@ -336,6 +380,8 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
         quantity: 1, 
         workstationSetup: workstationSetup ? { ...workstationSetup, calculatedPrice: finalPrice } : undefined, 
         selectedVariant: variant,
+        selectedVariantIds,
+        imageSrc: imageSrc || variant?.imageData,
         configuredPrice: finalPrice,
         selectedOptionsSummary: selectedOptionsSummary || (variant ? (variant.size || variant.name) : undefined)
       }];
@@ -760,11 +806,26 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                   summaryParts.push(`${gName}: ${variant.name}`);
                 });
                 const optionsSummary = summaryParts.join(' | ');
-                const quotationResolvedVariant: ProductVariant | null = activeVariant
+                const allSelectedVariants = [
+                  activeColorVar,
+                  ...selectedCustomEntries.map(e => e.variant),
+                  activeSizeVar,
+                  activeStorageVar,
+                  activeElectricVar
+                ].filter((v): v is ProductVariant => Boolean(v));
+                const selectedVariantIds = Array.from(new Set(allSelectedVariants.map(v => v.id).filter(Boolean)));
+                const imageVariant =
+                  allSelectedVariants.find(v => v.id === lastImageVariantId) ||
+                  allSelectedVariants.find(v => v.id === lastSelectedVariantId) ||
+                  allSelectedVariants.find(v => Boolean(v.imageData)) ||
+                  activeVariant;
+                const resolvedCurrentImageSrc = activeImageSrc || imageVariant?.imageData || undefined;
+                const quotationResolvedVariant: ProductVariant | null = imageVariant
                   ? {
-                      ...activeVariant,
-                      name: optionsSummary || activeVariant.name,
-                      price: currentPrice
+                      ...imageVariant,
+                      name: optionsSummary || imageVariant.name,
+                      price: currentPrice,
+                      ...(resolvedCurrentImageSrc ? { imageData: resolvedCurrentImageSrc } : {})
                     }
                   : null;
 
@@ -1081,6 +1142,8 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                             setQuotationCartItems(null);
                             setQuotationProduct(selectedProduct);
                             setQuotationVariant(quotationResolvedVariant);
+                            setQuotationImageSrc(resolvedCurrentImageSrc || null);
+                            setQuotationVariantIds(selectedVariantIds);
                             setIsQuotationModalOpen(true);
                           }}
                           className="text-xs font-medium text-rose-600 border border-rose-300 bg-rose-50/50 hover:bg-rose-50 rounded-full px-3.5 py-1 transition-colors cursor-pointer whitespace-nowrap"
@@ -1152,6 +1215,8 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                             setQuotationCartItems(null);
                             setQuotationProduct(selectedProduct);
                             setQuotationVariant(quotationResolvedVariant);
+                            setQuotationImageSrc(resolvedCurrentImageSrc || null);
+                            setQuotationVariantIds(selectedVariantIds);
                             setIsQuotationModalOpen(true);
                           }}
                           className="shrink-0 bg-[#1A2024] hover:bg-black text-white text-[11px] font-bold px-3 py-1.5 rounded uppercase tracking-wide transition-colors cursor-pointer whitespace-nowrap"
@@ -1188,7 +1253,7 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                                             if (parsePriceNumber(v.price) > 0 && resolveVariantPriceMode(v, baseProductPrice) === 'total') {
                                               setLastTotalSelectionKey('color');
                                             }
-                                            setActiveImageSrc(v.imageData!);
+                                            void activateVariantImage(v);
                                           }}
                                           title={colorLabel}
                                           className={`flex flex-col items-center gap-1 p-1.5 rounded-xl bg-white cursor-pointer transition-colors ${
@@ -1212,7 +1277,7 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                                           if (parsePriceNumber(v.price) > 0 && resolveVariantPriceMode(v, baseProductPrice) === 'total') {
                                             setLastTotalSelectionKey('color');
                                           }
-                                          if (v.imageData) setActiveImageSrc(v.imageData);
+                                          void activateVariantImage(v);
                                         }}
                                         title={colorLabel}
                                         className={`px-3.5 py-2 rounded-lg border text-xs sm:text-[13px] font-medium flex items-center gap-2 cursor-pointer transition-colors ${
@@ -1273,7 +1338,7 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                                                 if (vPrice > 0 && vMode === 'total') {
                                                   setLastTotalSelectionKey(`custom:${gName}`);
                                                 }
-                                                setActiveImageSrc(v.imageData!);
+                                                void activateVariantImage(v);
                                               }}
                                               title={`${v.name}${vPrice > 0 ? ` (${pricePrefix}${vPrice.toLocaleString()})` : ''}`}
                                               className={`flex flex-col items-center gap-1 p-1.5 rounded-xl bg-white cursor-pointer transition-colors ${
@@ -1297,7 +1362,7 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                                               if (vPrice > 0 && vMode === 'total') {
                                                 setLastTotalSelectionKey(`custom:${gName}`);
                                               }
-                                              if (v.imageData) setActiveImageSrc(v.imageData);
+                                              void activateVariantImage(v);
                                             }}
                                             title={`${v.name}${vPrice > 0 ? ` (${pricePrefix}${vPrice.toLocaleString()})` : ''}`}
                                             className={`px-3.5 py-2 rounded-lg border text-xs sm:text-[13px] font-medium flex items-center gap-2 cursor-pointer transition-colors ${
@@ -1335,7 +1400,7 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                                             if (vPrice > 0 && vMode === 'total') {
                                               setLastTotalSelectionKey(`custom:${gName}`);
                                             }
-                                            if (v.imageData) setActiveImageSrc(v.imageData);
+                                            void activateVariantImage(v);
                                           }}
                                           className={`px-3 py-2 rounded-lg border text-xs font-semibold transition-colors flex items-center gap-2 text-left cursor-pointer ${
                                             isSel
@@ -1378,7 +1443,7 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                                       onClick={() => {
                                         setSelectedSizeVariantId(v.id);
                                         if (vPrice > 0) setLastTotalSelectionKey('size');
-                                        if (v.imageData) setActiveImageSrc(v.imageData);
+                                        void activateVariantImage(v);
                                       }}
                                       className={`px-3 py-2 rounded-lg border text-xs font-semibold transition-colors flex items-center justify-between gap-2 text-left cursor-pointer ${
                                         isSelected
@@ -1433,7 +1498,7 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                                       type="button"
                                       onClick={() => {
                                         setSelectedSideStorageVariantId(v.id);
-                                        if (v.imageData) setActiveImageSrc(v.imageData);
+                                        void activateVariantImage(v);
                                       }}
                                       className={`px-3 py-2 rounded-lg border text-xs font-semibold transition-colors flex items-center justify-between gap-2 text-left cursor-pointer ${
                                         isSelected
@@ -1473,7 +1538,7 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                                       type="button"
                                       onClick={() => {
                                         setSelectedElectricVariantId(selectedElectricVariantId === v.id ? null : v.id);
-                                        if (v.imageData) setActiveImageSrc(v.imageData);
+                                        void activateVariantImage(v);
                                       }}
                                       className={`px-3 py-2 rounded-lg border text-xs font-semibold transition-colors flex items-center justify-between gap-2 text-left cursor-pointer ${
                                         isSelected
@@ -1547,7 +1612,7 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                                   type="button"
                                   onClick={() => {
                                     for (let i = 0; i < offer.qty; i++) {
-                                      addToCart(selectedProduct, currentWorkstationSetup, activeVariant, currentPrice, optionsSummary);
+                                      addToCart(selectedProduct, currentWorkstationSetup, quotationResolvedVariant || activeVariant, currentPrice, optionsSummary, resolvedCurrentImageSrc, selectedVariantIds);
                                     }
                                     setIsCartOpen(true);
                                   }}
@@ -1576,7 +1641,7 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                           onSelectVariant={(v) => {
                             if (v.variantType === 'size' || v.size) setSelectedSizeVariantId(v.id);
                             if (v.variantType === 'color' || v.color) setSelectedColorVariantId(v.id);
-                            if (v.imageData) setActiveImageSrc(v.imageData);
+                            void activateVariantImage(v);
                           }}
                           onColorChange={() => {}}
                           externalMiddlePartition={storeMiddlePartition}
@@ -1587,7 +1652,7 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                       {/* Action Buttons */}
                       <div className="mt-auto pt-2 grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <button 
-                          onClick={() => addToCart(selectedProduct, currentWorkstationSetup, activeVariant, currentPrice, optionsSummary)}
+                          onClick={() => addToCart(selectedProduct, currentWorkstationSetup, quotationResolvedVariant || activeVariant, currentPrice, optionsSummary, resolvedCurrentImageSrc, selectedVariantIds)}
                           className="h-12 px-4 rounded-xl bg-[#1A2024] text-white font-semibold hover:bg-black transition-colors flex items-center justify-center gap-2 cursor-pointer text-sm whitespace-nowrap"
                         >
                           <ShoppingCart className="w-4 h-4 shrink-0" />
@@ -1595,7 +1660,7 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                         </button>
                         <button 
                           onClick={() => {
-                            addToCart(selectedProduct, currentWorkstationSetup, activeVariant, currentPrice, optionsSummary);
+                            addToCart(selectedProduct, currentWorkstationSetup, quotationResolvedVariant || activeVariant, currentPrice, optionsSummary, resolvedCurrentImageSrc, selectedVariantIds);
                             setIsCartOpen(true);
                           }}
                           className="h-12 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-900 font-semibold transition-colors flex items-center justify-center cursor-pointer text-sm whitespace-nowrap"
@@ -1607,6 +1672,8 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                             setQuotationCartItems(null);
                             setQuotationProduct(selectedProduct);
                             setQuotationVariant(quotationResolvedVariant);
+                            setQuotationImageSrc(resolvedCurrentImageSrc || null);
+                            setQuotationVariantIds(selectedVariantIds);
                             setIsQuotationModalOpen(true);
                           }}
                           className="h-12 px-4 rounded-xl border border-slate-300 bg-white text-slate-900 font-semibold hover:bg-slate-50 transition-colors flex items-center justify-center gap-2 cursor-pointer text-sm whitespace-nowrap"
@@ -1924,6 +1991,8 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                                     setQuotationCartItems(null);
                                     setQuotationProduct(product);
                                     setQuotationVariant(hasVariants ? product.variants![0] : null);
+                                    setQuotationImageSrc(null);
+                                    setQuotationVariantIds(hasVariants && product.variants![0]?.id ? [product.variants![0].id] : undefined);
                                     setIsQuotationModalOpen(true);
                                   }}
                                   className="w-full py-2.5 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs transition-colors flex items-center justify-center gap-2 shadow-sm"
@@ -2000,7 +2069,7 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                           <div className="w-24 h-24 bg-slate-100 rounded-xl overflow-hidden flex shrink-0 p-2">
                              <StorefrontProductImage 
                                variantId={item.selectedVariant?.id} 
-                               customSrc={item.selectedVariant?.imageData} 
+                               customSrc={item.imageSrc || item.selectedVariant?.imageData} 
                                productId={item.product.id} 
                                productName={item.selectedVariant?.name || item.product.name} 
                              />
@@ -2157,9 +2226,13 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
         onClose={() => {
           setIsQuotationModalOpen(false);
           setQuotationCartItems(null);
+          setQuotationImageSrc(null);
+          setQuotationVariantIds(undefined);
         }}
         initialProduct={quotationProduct}
         initialVariant={quotationVariant}
+        initialImageSrc={quotationImageSrc}
+        initialVariantIds={quotationVariantIds}
         initialCartItems={quotationCartItems}
         allProducts={products}
         onSaved={() => {

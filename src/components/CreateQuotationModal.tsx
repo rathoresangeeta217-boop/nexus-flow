@@ -21,17 +21,20 @@ import {
   Archive,
   Table2,
   Image as ImageIcon,
-  Edit3
+  Edit3,
+  ShieldCheck
 } from 'lucide-react';
 import { Product, ProductVariant, parsePriceNumber, resolveVariantPriceMode } from '../lib/products';
 import { generateQuotationPDF, QuotationData } from '../lib/pdfHelper';
 import { getProductFile, getVariantFile } from '../lib/fileStorage';
+import { useAuth } from '../contexts/AuthContext';
 import {
   QUOTATION_CATEGORIES,
   QuotationCategory,
   QuotationStatus,
   SavedQuotation,
   SavedQuotationItem,
+  resolveSignerInfo,
   saveQuotation,
   updateQuotation
 } from '../lib/quotations';
@@ -40,6 +43,8 @@ export interface QuotationCheckoutCartItem {
   product: Product;
   quantity: number;
   selectedVariant?: ProductVariant | null;
+  selectedVariantIds?: string[];
+  imageSrc?: string;
   configuredPrice?: number;
   selectedOptionsSummary?: string;
   workstationSetup?: any;
@@ -50,6 +55,8 @@ export interface CreateQuotationModalProps {
   onClose: () => void;
   initialProduct?: Product | null;
   initialVariant?: ProductVariant | null;
+  initialImageSrc?: string | null;
+  initialVariantIds?: string[];
   initialCartItems?: QuotationCheckoutCartItem[] | null;
   allProducts?: Product[];
   editingQuotation?: SavedQuotation | null;
@@ -63,6 +70,7 @@ interface QuotationItemState {
   product?: Product | null;
   productId?: string;
   selectedVariant?: ProductVariant | null;
+  variantIds?: string[];
   selectedOptionsSummary: string;
   optionalSpecs: Record<string, string>;
   remarks: string;
@@ -197,11 +205,15 @@ export function CreateQuotationModal({
   onClose,
   initialProduct,
   initialVariant,
+  initialImageSrc,
+  initialVariantIds,
   initialCartItems,
   allProducts = [],
   editingQuotation = null,
   onSaved
 }: CreateQuotationModalProps) {
+  const { user, profile } = useAuth();
+  const signer = resolveSignerInfo(profile, user);
   // Buyer Details (Required: buyerName, mobileNumber; Optional: companyName, email, gstNumber, address)
   const [buyerName, setBuyerName] = useState('');
   const [mobileNumber, setMobileNumber] = useState('');
@@ -257,6 +269,36 @@ export function CreateQuotationModal({
     if (preserveOpen) setIsAddProductOpen(true);
   };
 
+  const resolveBestItemImage = async (
+    prod?: Product | null,
+    variant?: ProductVariant | null,
+    variantIds?: string[],
+    explicitSrc?: string | null
+  ): Promise<string | undefined> => {
+    if (explicitSrc) return explicitSrc;
+    if (variant?.imageData) return variant.imageData;
+    if (variant?.id) {
+      const vImg = await getVariantFile(variant.id);
+      if (vImg) return vImg;
+    }
+    if (Array.isArray(variantIds) && variantIds.length > 0) {
+      for (let k = variantIds.length - 1; k >= 0; k--) {
+        const vid = variantIds[k];
+        if (!vid) continue;
+        const inlineMatch = prod?.variants?.find((pv) => pv && pv.id === vid && pv.imageData);
+        if (inlineMatch?.imageData) return inlineMatch.imageData;
+        const vImg = await getVariantFile(vid);
+        if (vImg) return vImg;
+      }
+    }
+    if (prod?.details?.productImageData) return prod.details.productImageData;
+    if (prod && (prod.docId || prod.id)) {
+      const pImg = await getProductFile(prod.docId || prod.id);
+      if (pImg) return pImg;
+    }
+    return undefined;
+  };
+
   // Initialize modal state whenever opened
   useEffect(() => {
     if (!isOpen) return;
@@ -281,21 +323,35 @@ export function CreateQuotationModal({
         editingQuotation.notes ||
           '1. Prices are valid until expiry date.\n2. Standard GST applicable as quoted.\n3. Delivery timeframe: 10-15 business days from order confirmation & advance.\n4. Warranty: 1 Year Manufacturing Defect Warranty.'
       );
-      setItems(
-        (editingQuotation.items || []).map((it) => ({
-          id: it.id || `item_${Date.now()}_${Math.random()}`,
-          category: it.category || 'Workstation',
-          productName: it.productName,
-          productId: it.productId,
-          product: allProducts.find((p) => p.id === it.productId || p.docId === it.productId) || null,
-          selectedOptionsSummary: it.defaultSpecs || '',
-          optionalSpecs: it.optionalSpecs || {},
-          remarks: it.remarks || '',
-          unitPrice: it.unitPrice || 0,
-          quantity: it.quantity || 1,
-          discountPct: it.discountPct || 0
-        }))
-      );
+      const hydrateEditingItems = async () => {
+        const hydrated = await Promise.all(
+          (editingQuotation.items || []).map(async (it) => {
+            const matchedProd =
+              allProducts.find((p) => p.id === it.productId || p.docId === it.productId) || null;
+            const matchedVariant =
+              matchedProd?.variants?.find((v) => v && v.id === it.variantId) || null;
+            const imgData = await resolveBestItemImage(matchedProd, matchedVariant, it.variantIds);
+            return {
+              id: it.id || `item_${Date.now()}_${Math.random()}`,
+              category: it.category || 'Workstation',
+              productName: it.productName,
+              productId: it.productId,
+              product: matchedProd,
+              selectedVariant: matchedVariant,
+              variantIds: it.variantIds,
+              selectedOptionsSummary: it.defaultSpecs || '',
+              optionalSpecs: it.optionalSpecs || {},
+              remarks: it.remarks || '',
+              unitPrice: it.unitPrice || 0,
+              quantity: it.quantity || 1,
+              discountPct: it.discountPct || 0,
+              imageSrc: imgData
+            } as QuotationItemState;
+          })
+        );
+        setItems(hydrated);
+      };
+      hydrateEditingItems();
       setIsAddProductOpen(false);
       return;
     }
@@ -322,13 +378,13 @@ export function CreateQuotationModal({
       setupInitialCartItems(initialCartItems);
       setIsAddProductOpen(false);
     } else if (initialProduct) {
-      setupInitialProductItem(initialProduct, initialVariant);
+      setupInitialProductItem(initialProduct, initialVariant, initialImageSrc, initialVariantIds);
       setIsAddProductOpen(false);
     } else {
       setItems([]);
       resetDraftForCategory('Workstation', true);
     }
-  }, [isOpen, initialProduct, initialVariant, initialCartItems, editingQuotation]);
+  }, [isOpen, initialProduct, initialVariant, initialImageSrc, initialVariantIds, initialCartItems, editingQuotation]);
 
   const setupInitialCartItems = async (cartItems: QuotationCheckoutCartItem[]) => {
     const builtItems = await Promise.all(
@@ -372,13 +428,12 @@ export function CreateQuotationModal({
               variant.name
             : prod.specification || 'Standard Spec');
 
-        let imgData: string | undefined = variant?.imageData || prod.details?.productImageData;
-        if (!imgData && variant?.id) {
-          imgData = (await getVariantFile(variant.id)) || undefined;
-        }
-        if (!imgData && (prod.docId || prod.id)) {
-          imgData = (await getProductFile(prod.docId || prod.id)) || undefined;
-        }
+        const imgData = await resolveBestItemImage(
+          prod,
+          variant,
+          ci.selectedVariantIds,
+          ci.imageSrc
+        );
 
         return {
           id: `item_${Date.now()}_${idx + 1}`,
@@ -387,6 +442,7 @@ export function CreateQuotationModal({
           product: prod,
           productId: prod.docId || prod.id,
           selectedVariant: variant,
+          variantIds: ci.selectedVariantIds,
           selectedOptionsSummary: summary,
           optionalSpecs: {},
           remarks: '',
@@ -401,7 +457,12 @@ export function CreateQuotationModal({
     setItems(builtItems);
   };
 
-  const setupInitialProductItem = async (prod: Product, variant?: ProductVariant | null) => {
+  const setupInitialProductItem = async (
+    prod: Product,
+    variant?: ProductVariant | null,
+    explicitImgSrc?: string | null,
+    variantIds?: string[]
+  ) => {
     const baseProdPrice =
       prod.salesRate ||
       parsePriceNumber(prod.price || prod.details?.perUnitPrice || prod.details?.totalUnitPrice) ||
@@ -420,13 +481,7 @@ export function CreateQuotationModal({
         variant.name
       : prod.specification || 'Standard Spec';
 
-    let imgData: string | undefined;
-    if (variant?.id) {
-      imgData = (await getVariantFile(variant.id)) || undefined;
-    }
-    if (!imgData && (prod.docId || prod.id)) {
-      imgData = (await getProductFile(prod.docId || prod.id)) || undefined;
-    }
+    const imgData = await resolveBestItemImage(prod, variant, variantIds, explicitImgSrc);
 
     setItems([
       {
@@ -436,6 +491,7 @@ export function CreateQuotationModal({
         product: prod,
         productId: prod.docId || prod.id,
         selectedVariant: variant || null,
+        variantIds,
         selectedOptionsSummary: summary,
         optionalSpecs: {},
         remarks: '',
@@ -609,13 +665,14 @@ export function CreateQuotationModal({
     return true;
   };
 
-  const buildFirestorePayload = (): Omit<SavedQuotation, 'id' | 'docId' | 'createdAt' | 'updatedAt'> => {
+  const buildFirestorePayload = (signedTimestamp: string): Omit<SavedQuotation, 'id' | 'docId' | 'createdAt' | 'updatedAt'> => {
     const savedItems: SavedQuotationItem[] = items.map((i) => ({
       id: i.id,
       category: i.category,
       productName: i.productName,
       ...(i.productId ? { productId: i.productId } : {}),
       ...(i.selectedVariant?.id ? { variantId: i.selectedVariant.id } : {}),
+      ...(i.variantIds && i.variantIds.length > 0 ? { variantIds: i.variantIds } : {}),
       defaultSpecs: i.selectedOptionsSummary || 'Standard Specification',
       optionalSpecs: i.optionalSpecs || {},
       ...(i.remarks ? { remarks: i.remarks } : {}),
@@ -643,12 +700,16 @@ export function CreateQuotationModal({
       grandTotal: totals.grandTotal,
       paymentTerms: paymentTerms.trim(),
       notes: notes.trim(),
-      status
+      status,
+      signedByName: signer.name,
+      signedByEmail: signer.email,
+      signedByRole: signer.role,
+      signedAt: signedTimestamp
     };
   };
 
-  const persistQuotationToFirestore = async (): Promise<string | null> => {
-    const payload = buildFirestorePayload();
+  const persistQuotationToFirestore = async (signedTimestamp: string): Promise<string | null> => {
+    const payload = buildFirestorePayload(signedTimestamp);
     if (editingQuotation?.docId || editingQuotation?.id) {
       const targetId = editingQuotation.docId || editingQuotation.id;
       await updateQuotation(targetId, payload);
@@ -662,8 +723,9 @@ export function CreateQuotationModal({
     if (!validateQuotationForm()) return;
     setIsSaving(true);
     try {
-      const savedId = await persistQuotationToFirestore();
-      setSuccessMessage('Quotation saved and added to the Quotations tab!');
+      const signedTimestamp = new Date().toISOString();
+      const savedId = await persistQuotationToFirestore(signedTimestamp);
+      setSuccessMessage(`Quotation saved & e-signed by ${signer.name}!`);
       if (savedId && onSaved) onSaved(savedId);
       setTimeout(() => {
         onClose();
@@ -680,7 +742,8 @@ export function CreateQuotationModal({
     if (!validateQuotationForm()) return;
     setIsGeneratingPdf(true);
     try {
-      const savedId = await persistQuotationToFirestore();
+      const signedTimestamp = new Date().toISOString();
+      const savedId = await persistQuotationToFirestore(signedTimestamp);
 
       const quotationPdfData: QuotationData = {
         quotationNo: quotationNo.trim(),
@@ -696,9 +759,13 @@ export function CreateQuotationModal({
         customerAddress: address.trim(),
         customerMobile: mobileNumber.trim(),
         customerEmail: email.trim(),
+        signedByName: signer.name,
+        signedByEmail: signer.email,
+        signedAt: signedTimestamp,
         items: items.map((i) => ({
           product: i.product || { name: i.productName, category: i.category },
           selectedVariant: i.selectedVariant,
+          variantIds: i.variantIds,
           selectedOptionsSummary: `[${i.category}] ${i.selectedOptionsSummary}`.trim(),
           imageSrc: i.imageSrc,
           unitPrice: i.unitPrice,
@@ -716,7 +783,7 @@ export function CreateQuotationModal({
       };
 
       await generateQuotationPDF(quotationPdfData);
-      setSuccessMessage('Quotation saved and A4 Commercial PDF downloaded!');
+      setSuccessMessage(`Quotation saved, e-signed by ${signer.name} & PDF downloaded!`);
       if (savedId && onSaved) onSaved(savedId);
     } catch (err) {
       console.error('Error saving or generating PDF:', err);
@@ -1449,6 +1516,20 @@ export function CreateQuotationModal({
                 </div>
               </div>
             </div>
+          </div>
+          {/* Digital E-Signature Verification Strip */}
+          <div className="px-4 py-3 bg-emerald-50/90 border border-emerald-200 rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="flex items-center gap-2.5 text-emerald-900">
+              <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span className="font-semibold">
+                E-Signed &amp; Verified by <strong className="font-bold">{signer.name}</strong>
+              </span>
+            </div>
+            {signer.email && (
+              <span className="text-[11px] font-mono text-emerald-700 bg-white/80 px-2.5 py-0.5 rounded-md border border-emerald-200">
+                {signer.email}
+              </span>
+            )}
           </div>
         </div>
 

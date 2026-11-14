@@ -8,15 +8,18 @@ import {
   Phone,
   Mail,
   Building,
-  AlertTriangle
+  AlertTriangle,
+  ShieldCheck
 } from 'lucide-react';
 import { Badge } from '../components/Badge';
 import { CreateQuotationModal } from '../components/CreateQuotationModal';
 import { subscribeToProducts, Product } from '../lib/products';
+import { useAuth } from '../contexts/AuthContext';
 import {
   subscribeToQuotations,
   SavedQuotation,
   QuotationStatus,
+  resolveSignerInfo,
   updateQuotation,
   deleteQuotation
 } from '../lib/quotations';
@@ -29,6 +32,8 @@ export function QuotationsTab({
   searchQuery?: string;
   setActiveTab?: (tab: any) => void;
 }) {
+  const { user, profile } = useAuth();
+  const currentSigner = resolveSignerInfo(profile, user);
   const [quotations, setQuotations] = useState<SavedQuotation[]>([]);
   const [isCreateQuotationModalOpen, setIsCreateQuotationModalOpen] = useState(false);
   const [editingQuotation, setEditingQuotation] = useState<SavedQuotation | null>(null);
@@ -89,12 +94,20 @@ export function QuotationsTab({
         customerAddress: q.address || '',
         customerMobile: q.mobileNumber,
         customerEmail: q.email || '',
+        signedByName: q.signedByName || currentSigner.name,
+        signedByEmail: q.signedByEmail || currentSigner.email,
+        signedAt: q.signedAt,
         items: (q.items || []).map((it) => {
           const matchedProduct = products.find(
             (p) => p.id === it.productId || p.docId === it.productId
           );
+          const matchedVariant = matchedProduct?.variants?.find(
+            (v) => v && v.id === it.variantId
+          );
           return {
             product: matchedProduct || { name: it.productName, category: it.category },
+            selectedVariant: matchedVariant,
+            variantIds: it.variantIds,
             selectedOptionsSummary: `[${it.category}] ${it.defaultSpecs || ''}`.trim(),
             unitPrice: it.unitPrice,
             quantity: it.quantity,
@@ -231,6 +244,12 @@ export function QuotationsTab({
                         {q.validTillDate && (
                           <div className="text-[11px] text-slate-400">
                             Valid till {q.validTillDate}
+                          </div>
+                        )}
+                        {q.signedByName && (
+                          <div className="inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-[10px] font-semibold text-emerald-700">
+                            <ShieldCheck className="w-3 h-3 shrink-0" />
+                            <span>E-Signed: {q.signedByName}</span>
                           </div>
                         )}
                       </td>

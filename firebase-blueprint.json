@@ -42,6 +42,10 @@
         "notes": { "type": "string", "maxLength": 2000 },
         "status": { "type": "string", "enum": ["draft", "sent", "approved", "converted"] },
         "createdBy": { "type": "string", "maxLength": 160 },
+        "signedByName": { "type": "string", "maxLength": 160 },
+        "signedByEmail": { "type": "string", "maxLength": 160 },
+        "signedByRole": { "type": "string", "maxLength": 64 },
+        "signedAt": { "type": "string", "maxLength": 64 },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
