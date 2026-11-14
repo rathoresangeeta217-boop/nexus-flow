@@ -1,6 +1,6 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { getProductFile } from './fileStorage';
+import { getProductFile, getVariantFile } from './fileStorage';
 import { calculatePhaseGstAdjustment, getPaymentForOrder } from './payments';
 
 
@@ -312,7 +312,7 @@ export const generateDispatchPDF = async (order: any, showFare: boolean, docType
   doc.setFont("helvetica", "normal");
   
   const prefix = docType === 'Challan' ? 'CHL' : (docType === 'Packing List' ? 'PKL' : 'DSN');
-  const challanNo = `${prefix}-${order.id || order.docId}`;
+  const challanNo = order.challanNumber || `${prefix}-${order.id || order.docId}`;
   doc.text(`${docType} No: ${challanNo}`, 196, 68, { align: 'right' });
   doc.text(`Date: ${new Date().toLocaleDateString('en-GB')}`, 196, 74, { align: 'right' });
   
@@ -342,15 +342,42 @@ export const generateDispatchPDF = async (order: any, showFare: boolean, docType
 
   let startY = Math.max(105, rightY + 10);
   
-  const dispatchedProducts = (order.details?.products || []).filter((p: any) => p && p.isDispatched);
-  const items = dispatchedProducts.length > 0 ? dispatchedProducts : (order.details?.products || []);
+  // For Delivery Challan: ONLY include items actively selected for this challan.
+  // Items that are already fully scheduled in previous challans or not dispatched must NOT be included!
+  let items: any[] = [];
+  if (order.challanItems && Array.isArray(order.challanItems) && order.challanItems.length > 0) {
+    items = order.challanItems;
+  } else {
+    const rawProds = order.details?.products || [];
+    const activeDispatched = rawProds.filter((p: any) => {
+      if (!p || !p.isDispatched) return false;
+      const scheduled = Number(p.scheduledQuantity) || 0;
+      const total = Number(p.quantity) || 1;
+      const isAlreadyFull = total > 0 && scheduled >= total;
+      if (isAlreadyFull) return false; // Exclude already fully scheduled items
+      const rawQty = (p.dispatchedQuantity !== undefined && p.dispatchedQuantity !== null) 
+        ? Number(p.dispatchedQuantity) 
+        : Math.max(0, total - scheduled);
+      return rawQty > 0;
+    });
+
+    if (activeDispatched.length > 0) {
+      items = activeDispatched;
+    } else if (docType !== 'Challan') {
+      items = rawProds;
+    } else {
+      items = [];
+    }
+  }
 
   const tableBody: any[][] = [];
   if (items && items.length > 0) {
     items.forEach((item: any, index: number) => {
+      const scheduled = Number(item?.scheduledQuantity) || 0;
+      const total = Number(item?.quantity) || 1;
       const rawQty = (item?.dispatchedQuantity !== undefined && item?.dispatchedQuantity !== null && Number(item?.dispatchedQuantity) > 0)
         ? item.dispatchedQuantity
-        : (item?.quantity ?? 1);
+        : Math.max(1, total - scheduled);
       const qtyStr = String(rawQty ?? 1);
       const nameStr = String(item?.name || item?.productName || item?.description || `Item ${index + 1}`);
       const sizeStr = String(item?.size || item?.spec || '-');
@@ -994,10 +1021,11 @@ export interface QuotationData {
   quotationDate: string;
   validTillDate: string;
   customerName: string;
-  companyName: string;
-  gstNumber: string;
-  customerAddress: string;
+  companyName?: string;
+  gstNumber?: string;
+  customerAddress?: string;
   customerMobile: string;
+  customerEmail?: string;
   items: Array<{
     product: any;
     selectedVariant?: any;
@@ -1018,107 +1046,202 @@ export interface QuotationData {
 }
 
 export const generateQuotationPDF = async (quote: QuotationData) => {
-  // A4 Landscape orientation: 297mm width x 210mm height
-  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-  const setBlackText = () => doc.setTextColor(0, 0, 0);
-  const setGrayText = () => doc.setTextColor(100, 100, 100);
+  // A4 Portrait orientation: 210mm width x 297mm height
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const setBlackText = () => doc.setTextColor(15, 23, 42);
+  const setGrayText = () => doc.setTextColor(100, 116, 139);
 
-  // Fetch images for all items in the quotation
-  const images: Record<string, string> = {};
+  // Fetch company logo & item images cleanly
+  let logoBase64: string | null = null;
+  try {
+    const logoResp = await fetch('/logo.png');
+    if (logoResp.ok) {
+      const logoBlob = await logoResp.blob();
+      logoBase64 = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.readAsDataURL(logoBlob);
+      });
+    }
+  } catch {
+    logoBase64 = null;
+  }
+
+  const images: Record<number, string> = {};
   for (let i = 0; i < quote.items.length; i++) {
     const item = quote.items[i];
     if (item.imageSrc) {
       images[i] = item.imageSrc;
+    } else if (item.selectedVariant?.imageData) {
+      images[i] = item.selectedVariant.imageData;
     } else if (item.product?.details?.productImageData) {
       images[i] = item.product.details.productImageData;
-    } else if (item.product?.docId || item.product?.id) {
+    } else {
       try {
-        const idToFetch = item.product.docId || item.product.id;
-        const imgData = await getProductFile(idToFetch);
-        if (imgData) images[i] = imgData;
+        if (item.selectedVariant?.id) {
+          const vImg = await getVariantFile(item.selectedVariant.id);
+          if (vImg) {
+            images[i] = vImg;
+            continue;
+          }
+        }
+        const idToFetch = item.product?.docId || item.product?.id;
+        if (idToFetch) {
+          const imgData = await getProductFile(idToFetch);
+          if (imgData) images[i] = imgData;
+        }
       } catch (e) {
-        console.error("Could not fetch quotation item image", e);
+        console.error('Could not fetch quotation item image', e);
       }
     }
   }
 
-  // Header Background Banner
+  // 1. Header Letterhead Band (inside border: x=7..203, y=7..36)
   doc.setFillColor(248, 250, 252);
-  doc.rect(0, 0, 297, 38, 'F');
+  doc.rect(7, 7, 196, 29, 'F');
 
-  // Company Name & Info Header
-  doc.setFontSize(20);
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(139, 69, 19);
-  doc.text('Srk Modular furniture co.', 148.5, 15, { align: 'center' });
+  const textStartX = logoBase64 ? 38 : 105;
+  const textAlign: 'left' | 'center' = logoBase64 ? 'left' : 'center';
 
-  doc.setFontSize(9);
-  doc.setFont("helvetica", "normal");
-  setGrayText();
-  doc.text('7 Km, Behind Halt Restaurant, Agra Road, Jaipur, Rajasthan - 302031, India', 148.5, 21, { align: 'center' });
-  doc.text('Mobile: +91-7878590209 | Email: Sales@srkmodular.com | Website: https://srkmodular.com/', 148.5, 26, { align: 'center' });
-  doc.text('GSTIN: 08AAIPM7265R1ZR', 148.5, 31, { align: 'center' });
-
-  // Top Accent Border Line
-  doc.setDrawColor(139, 69, 19);
-  doc.setLineWidth(0.8);
-  doc.line(14, 36, 283, 36);
-
-  // Title Banner
-  doc.setFillColor(245, 247, 250);
-  doc.rect(14, 39, 269, 8, 'F');
-  doc.setFontSize(12);
-  doc.setFont("helvetica", "bold");
-  setBlackText();
-  doc.text('COMMERCIAL QUOTATION', 148.5, 45, { align: 'center' });
-
-  // Customer & Quotation Information
-  const boxY = 50;
-  doc.setFontSize(9.5);
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(139, 69, 19);
-  doc.text('CUSTOMER DETAILS:', 16, boxY + 4);
-
-  doc.setFont("helvetica", "bold");
-  setBlackText();
-  doc.text(`Customer Name: ${quote.customerName || 'N/A'}`, 16, boxY + 10);
-
-  doc.setFont("helvetica", "normal");
-  if (quote.companyName) doc.text(`Company: ${quote.companyName}`, 16, boxY + 15);
-  if (quote.customerMobile) doc.text(`Mobile: ${quote.customerMobile}`, 16, boxY + 20);
-  if (quote.gstNumber) doc.text(`GSTIN: ${quote.gstNumber}`, 16, boxY + 25);
-  if (quote.customerAddress) {
-    const addrLines = doc.splitTextToSize(`Address: ${quote.customerAddress}`, 125);
-    doc.text(addrLines, 16, boxY + (quote.gstNumber ? 30 : 25));
+  if (logoBase64) {
+    try {
+      doc.addImage(logoBase64, 'PNG', 12, 10.5, 21, 21);
+    } catch {
+      // Fallback gracefully if logo fails to render
+    }
   }
 
-  // Right Column: Quotation Meta
-  doc.setFont("helvetica", "bold");
+  doc.setFontSize(17);
+  doc.setFont('helvetica', 'bold');
   doc.setTextColor(139, 69, 19);
-  doc.text('QUOTATION DETAILS:', 160, boxY + 4);
+  doc.text('SRK MODULAR FURNITURE CO.', textStartX, 16, { align: textAlign });
 
-  doc.setFont("helvetica", "normal");
-  setBlackText();
-  doc.text(`Quotation No: ${quote.quotationNo}`, 160, boxY + 10);
-  doc.text(`Date: ${quote.quotationDate}`, 160, boxY + 15);
-  doc.text(`Valid Until: ${quote.validTillDate}`, 160, boxY + 20);
-  doc.text(`Payment Terms: ${quote.paymentTerms || '50% Advance, 50% Before Dispatch'}`, 160, boxY + 25);
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+  setGrayText();
+  doc.text(
+    '7 Km, Behind Halt Restaurant, Agra Road, Jaipur, Rajasthan - 302031, India',
+    textStartX,
+    21.5,
+    { align: textAlign }
+  );
+  doc.text(
+    'Mobile: +91-7878590209  |  Email: Sales@srkmodular.com  |  Web: srkmodular.com',
+    textStartX,
+    26,
+    { align: textAlign }
+  );
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(51, 65, 85);
+  doc.text('GSTIN: 08AAIPM7265R1ZR', textStartX, 30.8, { align: textAlign });
 
-  // Table Data Preparation
+  // Accent Rule
+  doc.setDrawColor(139, 69, 19);
+  doc.setLineWidth(0.7);
+  doc.line(12, 36.5, 198, 36.5);
+
+  // 2. Title Ribbon
+  doc.setFillColor(139, 69, 19);
+  doc.roundedRect(12, 39, 186, 8.5, 1.5, 1.5, 'F');
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(255, 255, 255);
+  doc.text('COMMERCIAL QUOTATION', 105, 44.7, { align: 'center' });
+
+  // 3. Two-Column Symmetrical Info Cards (186mm total width: 90.5 + 5 + 90.5)
+  const cardTopY = 50.5;
+  const leftCardX = 12;
+  const rightCardX = 107.5;
+  const cardW = 90.5;
+
+  // Pre-calculate wrapped lines for both cards so heights stay balanced
+  const custLines: Array<{ text: string; bold?: boolean }> = [];
+  const pushWrapped = (
+    target: Array<{ text: string; bold?: boolean }>,
+    text: string,
+    bold?: boolean
+  ) => {
+    const wrapped = doc.splitTextToSize(text, cardW - 8);
+    wrapped.forEach((ln: string, idx: number) =>
+      target.push({ text: ln, bold: bold && idx === 0 })
+    );
+  };
+
+  pushWrapped(custLines, `Buyer: ${quote.customerName || 'N/A'}`, true);
+  if (quote.companyName) pushWrapped(custLines, `Company: ${quote.companyName}`);
+  if (quote.customerMobile) pushWrapped(custLines, `Mobile: ${quote.customerMobile}`);
+  if (quote.customerEmail) pushWrapped(custLines, `Email: ${quote.customerEmail}`);
+  if (quote.gstNumber) pushWrapped(custLines, `GSTIN: ${quote.gstNumber}`);
+  if (quote.customerAddress) pushWrapped(custLines, `Address: ${quote.customerAddress}`);
+
+  const metaLines: Array<{ text: string; bold?: boolean }> = [];
+  pushWrapped(metaLines, `Quotation No: ${quote.quotationNo}`, true);
+  pushWrapped(metaLines, `Date: ${quote.quotationDate}`);
+  pushWrapped(metaLines, `Valid Until: ${quote.validTillDate || '15 Days'}`);
+  pushWrapped(
+    metaLines,
+    `Payment: ${quote.paymentTerms || '50% Advance, 50% Before Dispatch'}`
+  );
+
+  const maxLines = Math.max(custLines.length, metaLines.length);
+  const cardH = Math.max(34, 12 + maxLines * 4.5 + 3);
+
+  // Draw Left Card (Customer Details)
+  doc.setFillColor(255, 255, 255);
+  doc.setDrawColor(226, 232, 240);
+  doc.setLineWidth(0.35);
+  doc.roundedRect(leftCardX, cardTopY, cardW, cardH, 1.5, 1.5, 'FD');
+  doc.setFillColor(248, 250, 252);
+  doc.rect(leftCardX + 0.2, cardTopY + 0.2, cardW - 0.4, 7, 'F');
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(139, 69, 19);
+  doc.text('CUSTOMER DETAILS', leftCardX + 4, cardTopY + 5);
+
+  let cy = cardTopY + 12;
+  doc.setFontSize(8.5);
+  custLines.forEach((line) => {
+    doc.setFont('helvetica', line.bold ? 'bold' : 'normal');
+    setBlackText();
+    doc.text(line.text, leftCardX + 4, cy);
+    cy += 4.5;
+  });
+
+  // Draw Right Card (Quotation Details)
+  doc.setFillColor(255, 255, 255);
+  doc.setDrawColor(226, 232, 240);
+  doc.roundedRect(rightCardX, cardTopY, cardW, cardH, 1.5, 1.5, 'FD');
+  doc.setFillColor(248, 250, 252);
+  doc.rect(rightCardX + 0.2, cardTopY + 0.2, cardW - 0.4, 7, 'F');
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(139, 69, 19);
+  doc.text('QUOTATION DETAILS', rightCardX + 4, cardTopY + 5);
+
+  let my = cardTopY + 12;
+  doc.setFontSize(8.5);
+  metaLines.forEach((line) => {
+    doc.setFont('helvetica', line.bold ? 'bold' : 'normal');
+    setBlackText();
+    doc.text(line.text, rightCardX + 4, my);
+    my += 4.5;
+  });
+
+  // 4. Items Table (186mm exact total width: 9 + 20 + 80 + 12 + 26 + 12 + 27 = 186mm)
   const tableBody: any[][] = [];
   quote.items.forEach((item, index) => {
     const prodName = item.product?.name || item.product?.productName || 'Custom Modular Product';
-    const specStr = item.selectedOptionsSummary || item.product?.specification || item.selectedVariant?.size || '-';
+    const rawSpec = item.selectedOptionsSummary || item.product?.specification || item.selectedVariant?.size || '';
+    const specLine = rawSpec && rawSpec !== '-' ? `\n${rawSpec}` : '';
     const unitP = item.unitPrice || 0;
     const discPct = item.discountPct || 0;
     const qty = item.quantity || 1;
-    const amt = item.amount || (unitP * qty * (1 - discPct / 100));
+    const amt = typeof item.amount === 'number' ? item.amount : unitP * qty * (1 - discPct / 100);
 
     tableBody.push([
       (index + 1).toString(),
-      '', // Image cell
-      `${prodName}\n${specStr !== '-' ? `Spec: ${specStr}` : ''}`.trim(),
-      specStr,
+      '', // Thumbnail slot
+      `${prodName}${specLine}`,
       qty.toString(),
       `INR ${unitP.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
       discPct > 0 ? `${discPct}%` : '-',
@@ -1126,29 +1249,42 @@ export const generateQuotationPDF = async (quote: QuotationData) => {
     ]);
   });
 
-  const tableStartY = boxY + 36;
+  const tableStartY = cardTopY + cardH + 5;
 
   autoTable(doc, {
     startY: tableStartY,
-    head: [['Sl.', 'Image', 'Product Details', 'Size / Configuration', 'Qty', 'Unit Price', 'Disc', 'Amount']],
+    margin: { left: 12, right: 12, top: 14, bottom: 22 },
+    head: [['Sl.', 'Image', 'Product & Specification', 'Qty', 'Unit Price', 'Disc', 'Amount']],
     body: tableBody,
+    theme: 'grid',
     headStyles: {
       fillColor: [139, 69, 19],
       textColor: 255,
       fontStyle: 'bold',
       fontSize: 8.5,
+      halign: 'left',
+      cellPadding: 2.5
     },
-    styles: { fontSize: 8, cellPadding: 2.5, valign: 'middle' },
+    styles: {
+      fontSize: 8,
+      cellPadding: 2.5,
+      valign: 'middle',
+      lineColor: [226, 232, 240],
+      lineWidth: 0.25,
+      textColor: [30, 41, 59]
+    },
+    alternateRowStyles: {
+      fillColor: [250, 251, 252]
+    },
     bodyStyles: { minCellHeight: 18 },
     columnStyles: {
-      0: { cellWidth: 10, halign: 'center' },
-      1: { cellWidth: 24, halign: 'center' },
-      2: { cellWidth: 100 },
-      3: { cellWidth: 50 },
-      4: { cellWidth: 15, halign: 'center' },
-      5: { cellWidth: 28, halign: 'right' },
-      6: { cellWidth: 15, halign: 'center' },
-      7: { cellWidth: 27, halign: 'right' }
+      0: { cellWidth: 9, halign: 'center' },
+      1: { cellWidth: 20, halign: 'center' },
+      2: { cellWidth: 80, halign: 'left' },
+      3: { cellWidth: 12, halign: 'center' },
+      4: { cellWidth: 26, halign: 'right' },
+      5: { cellWidth: 12, halign: 'center' },
+      6: { cellWidth: 27, halign: 'right', fontStyle: 'bold' }
     },
     didDrawCell: (data) => {
       if (data.section === 'body' && data.column.index === 1) {
@@ -1170,79 +1306,150 @@ export const generateQuotationPDF = async (quote: QuotationData) => {
     }
   });
 
-  const finalY = (doc as any).lastAutoTable.finalY + 6;
-  const subtotal = quote.subtotal || 0;
-  const gstAmount = quote.gstAmount || (subtotal * (quote.gstRate || 18) / 100);
-  const grandTotal = quote.grandTotal || (subtotal + gstAmount);
+  let finalY = (doc as any).lastAutoTable.finalY + 6;
+  const subtotal = typeof quote.subtotal === 'number' ? quote.subtotal : 0;
+  const gstRate = typeof quote.gstRate === 'number' ? quote.gstRate : 18;
+  const gstAmount =
+    typeof quote.gstAmount === 'number' ? quote.gstAmount : (subtotal * gstRate) / 100;
+  const grandTotal =
+    typeof quote.grandTotal === 'number' ? quote.grandTotal : subtotal + gstAmount;
 
-  // Totals Box (Right Side)
-  const totalsBoxX = 205;
-  const totalsBoxW = 78;
+  const totalsBoxW = 80;
+  const hasDiscount = (quote.discountTotal || 0) > 0;
+  const totalsBoxH = hasDiscount ? 36 : 30;
 
-  doc.setFillColor(248, 250, 252);
-  doc.rect(totalsBoxX, finalY, totalsBoxW, 30, 'F');
-  doc.setDrawColor(226, 232, 240);
-  doc.rect(totalsBoxX, finalY, totalsBoxW, 30, 'S');
+  doc.setFontSize(7.8);
+  const defaultNotes =
+    quote.notes ||
+    '1. Prices are valid until the specified expiry date.\n2. Standard GST applicable as quoted.\n3. Delivery timeframe: 10-15 business days from order confirmation & advance.\n4. Warranty: 1 Year Manufacturing Defect Warranty.';
+  const notesLines = doc.splitTextToSize(defaultNotes, 100);
+  const leftBlockH = 3 + 4.5 + notesLines.length * 3.8 + 4 + 9;
+  const rightBlockH = totalsBoxH + 6 + 30;
+  const neededBottomH = Math.max(leftBlockH, rightBlockH);
 
-  doc.setFontSize(8.5);
-  doc.setFont("helvetica", "normal");
-  setBlackText();
-  doc.text('Subtotal:', totalsBoxX + 4, finalY + 7);
-  doc.text(`INR ${subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, totalsBoxX + totalsBoxW - 4, finalY + 7, { align: 'right' });
-
-  if (quote.discountTotal > 0) {
-    doc.text('Discount:', totalsBoxX + 4, finalY + 13);
-    doc.text(`-INR ${quote.discountTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, totalsBoxX + totalsBoxW - 4, finalY + 13, { align: 'right' });
+  // Ensure bottom summary, bank details, and signatory fit cleanly above footer (footer starts at y=281)
+  if (finalY + neededBottomH > 276) {
+    doc.addPage();
+    finalY = 16;
   }
 
-  doc.text(`GST (${quote.gstRate || 18}%):`, totalsBoxX + 4, finalY + 19);
-  doc.text(`INR ${gstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, totalsBoxX + totalsBoxW - 4, finalY + 19, { align: 'right' });
+  // 5. Totals Card (Right Side: x=118..198, w=80mm) & Terms/Bank (Left Side: x=12..112, w=100mm)
+  const totalsBoxX = 118;
 
-  doc.setFont("helvetica", "bold");
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(203, 213, 225);
+  doc.setLineWidth(0.35);
+  doc.roundedRect(totalsBoxX, finalY, totalsBoxW, totalsBoxH, 1.5, 1.5, 'FD');
+
+  let ty = finalY + 7;
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'normal');
+  setBlackText();
+  doc.text('Subtotal:', totalsBoxX + 4, ty);
+  doc.text(
+    `INR ${subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    totalsBoxX + totalsBoxW - 4,
+    ty,
+    { align: 'right' }
+  );
+
+  if (hasDiscount) {
+    ty += 6;
+    doc.setTextColor(5, 150, 105);
+    doc.text('Discount:', totalsBoxX + 4, ty);
+    doc.text(
+      `-INR ${quote.discountTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      totalsBoxX + totalsBoxW - 4,
+      ty,
+      { align: 'right' }
+    );
+  }
+
+  ty += 6;
+  setBlackText();
+  doc.text(`GST (${gstRate}%):`, totalsBoxX + 4, ty);
+  doc.text(
+    `INR ${gstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    totalsBoxX + totalsBoxW - 4,
+    ty,
+    { align: 'right' }
+  );
+
+  // Highlighted Grand Total row
+  const grandRowY = finalY + totalsBoxH - 10;
+  doc.setFillColor(253, 244, 236);
+  doc.rect(totalsBoxX + 0.3, grandRowY, totalsBoxW - 0.6, 9.7, 'F');
+  doc.setDrawColor(226, 232, 240);
+  doc.line(totalsBoxX, grandRowY, totalsBoxX + totalsBoxW, grandRowY);
+
+  doc.setFont('helvetica', 'bold');
   doc.setFontSize(9.5);
   doc.setTextColor(139, 69, 19);
-  doc.text('Grand Total:', totalsBoxX + 4, finalY + 26);
-  doc.text(`INR ${grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, totalsBoxX + totalsBoxW - 4, finalY + 26, { align: 'right' });
+  doc.text('Grand Total:', totalsBoxX + 4, grandRowY + 6.4);
+  doc.text(
+    `INR ${grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    totalsBoxX + totalsBoxW - 4,
+    grandRowY + 6.4,
+    { align: 'right' }
+  );
 
-  // Notes & Signatory Section
-  let notesY = finalY + 4;
+  // Left Column: Terms & Bank Details
+  const notesY = finalY + 3;
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(139, 69, 19);
+  doc.text('TERMS & CONDITIONS:', 12, notesY);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.8);
+  setGrayText();
+  doc.text(notesLines, 12, notesY + 4.5);
+
+  const afterNotesY = notesY + 4.5 + notesLines.length * 3.8 + 4;
   doc.setFontSize(8);
-  doc.setFont("helvetica", "bold");
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(139, 69, 19);
+  doc.text('BANK DETAILS FOR TRANSFER:', 12, afterNotesY);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.8);
   setBlackText();
-  doc.text('Terms & Notes:', 14, notesY);
-  doc.setFont("helvetica", "normal");
+  doc.text('A/C Name: Srk Modular furniture co.  |  Bank: State Bank of India', 12, afterNotesY + 4.2);
+  doc.text('A/C No: 31766643906  |  IFSC: SBIN0060229', 12, afterNotesY + 8.2);
+
+  // Right Column: Authorised Signatory below Totals Box
+  const sigY = finalY + totalsBoxH + 6;
+  await addSignatureToPDF(doc, 134, sigY);
+  doc.setDrawColor(148, 163, 184);
+  doc.setLineWidth(0.3);
+  doc.line(130, sigY + 21, 196, sigY + 21);
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'bold');
+  setBlackText();
+  doc.text('Authorised Signatory', 163, sigY + 25, { align: 'center' });
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.2);
   setGrayText();
-  const defaultNotes = quote.notes || '1. Prices are valid until the specified expiry date.\n2. Standard 18% GST applicable.\n3. Delivery timeframe: 10-15 business days from order confirmation & advance.\n4. Warranty: 1 Year Manufacturing Defect Warranty.';
-  const notesLines = doc.splitTextToSize(defaultNotes, 185);
-  doc.text(notesLines, 14, notesY + 4);
+  doc.text('For SRK Modular Furniture Co.', 163, sigY + 28.5, { align: 'center' });
 
-  // Authorised Signatory
-  await addSignatureToPDF(doc, 220, finalY + 34);
+  // Page Border & Footer across all pages
+  addPageBorder(doc);
+  const totalPages = (doc as any).internal.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    doc.setDrawColor(139, 69, 19);
+    doc.setLineWidth(0.4);
+    doc.line(12, 281, 198, 281);
 
-  // Footer text
-  const footerY = 195;
-  doc.setDrawColor(139, 69, 19);
-  doc.setLineWidth(0.5);
-  doc.line(14, footerY - 4, 283, footerY - 4);
-
-  doc.setFontSize(7.5);
-  setGrayText();
-  doc.text('Thank you for choosing Srk Modular furniture co. For any queries, please reach us at +91-7878590209 or Sales@srkmodular.com', 148.5, footerY, { align: 'center' });
-
-  // Page Border for Landscape A4 (297x210)
-  const addLandscapePageBorder = (d: any) => {
-    const pageCount = (d as any).internal.getNumberOfPages();
-    for (let i = 1; i <= pageCount; i++) {
-      d.setPage(i);
-      d.setDrawColor(139, 69, 19);
-      d.setLineWidth(0.5);
-      d.rect(5, 5, 287, 200);
-      d.setLineWidth(0.2);
-      d.rect(6.5, 6.5, 284, 197);
-    }
-  };
-
-  addLandscapePageBorder(doc);
+    doc.setFontSize(7.5);
+    doc.setFont('helvetica', 'normal');
+    setGrayText();
+    doc.text(
+      'Thank you for choosing SRK Modular Furniture Co.  |  +91-7878590209  |  Sales@srkmodular.com',
+      12,
+      285.5
+    );
+    doc.text(`Page ${i} of ${totalPages}`, 198, 285.5, { align: 'right' });
+  }
 
   const cleanCustomerName = (quote.customerName || 'Customer').replace(/[^a-zA-Z0-9]/g, '_');
   const fileName = `Quotation-${quote.quotationNo}-${cleanCustomerName}.pdf`;

@@ -163,7 +163,7 @@ You have a new dispatch scheduled.\n\nOrder ID: ${order.id}\n${items}\n${vehicle
       setFiles({});
       Promise.all([
         getOrderFiles(order.id || order.docId),
-        getPaymentForOrder(order.id, order.docId, order.customer)
+        getPaymentForOrder(order.id, order.docId)
       ])
         .then(([fileData, paymentData]) => {
           setFiles(fileData || {});
@@ -495,54 +495,56 @@ You have a new dispatch scheduled.\n\nOrder ID: ${order.id}\n${items}\n${vehicle
                      <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Bank Details</p>
                      <p className="text-sm font-semibold text-slate-800">{order.details?.bankDetails || 'N/A'}</p>
                   </div>
-                  <div className="md:col-span-4 bg-amber-50/90 p-3.5 rounded-xl border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 mt-2 shadow-2xs">
-                    <div className="flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                      <div>
-                        <p className="text-xs font-bold text-amber-950">Reason Order is Scheduled</p>
-                        <p className="text-[11px] text-amber-800">Select reason if order is scheduled and unconfirmed:</p>
+                  {order.status === 'Scheduled Dispatched' && (
+                    <div className="md:col-span-4 bg-amber-50/90 p-3.5 rounded-xl border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 mt-2 shadow-2xs">
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                        <div>
+                          <p className="text-xs font-bold text-amber-950">Reason Order is Scheduled</p>
+                          <p className="text-[11px] text-amber-800">Select reason if order is scheduled and unconfirmed:</p>
+                        </div>
+                      </div>
+                      <div className="w-full sm:w-64">
+                        <select
+                          value={currentScheduledReason}
+                          disabled={isSavingReason}
+                          onChange={async (e) => {
+                            const val = e.target.value;
+                            setCurrentScheduledReason(val);
+                            setIsSavingReason(true);
+                            try {
+                              const updated = {
+                                ...order,
+                                docId: order.docId || order.id,
+                                details: {
+                                  ...(order.details || {}),
+                                  scheduledReason: val
+                                }
+                              };
+                              if (val && (!order.status || order.status === 'New Order' || order.status === 'New')) {
+                                updated.status = 'Scheduled Dispatched';
+                              }
+                              await saveOrder(updated);
+                              if (order.details) {
+                                order.details.scheduledReason = val;
+                              }
+                            } catch (err) {
+                              console.error('Failed to update scheduled reason:', err);
+                            } finally {
+                              setIsSavingReason(false);
+                            }
+                          }}
+                          className="w-full px-3 py-1.5 bg-white border border-amber-300 rounded-lg text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer shadow-2xs"
+                        >
+                          <option value="">-- Select Scheduled Reason --</option>
+                          <option value="CUSTOMER ISSUE">1. CUSTOMER ISSUE</option>
+                          <option value="LOGISTIC ISSUE">2. LOGISTIC ISSUE</option>
+                          <option value="PAYMENT DELAY">3. PAYMENT DELAY</option>
+                          <option value="UNSATISFACTION">4. UNSATISFACTION</option>
+                        </select>
                       </div>
                     </div>
-                    <div className="w-full sm:w-64">
-                      <select
-                        value={currentScheduledReason}
-                        disabled={isSavingReason}
-                        onChange={async (e) => {
-                          const val = e.target.value;
-                          setCurrentScheduledReason(val);
-                          setIsSavingReason(true);
-                          try {
-                            const updated = {
-                              ...order,
-                              docId: order.docId || order.id,
-                              details: {
-                                ...(order.details || {}),
-                                scheduledReason: val
-                              }
-                            };
-                            if (val && (!order.status || order.status === 'New Order' || order.status === 'New')) {
-                              updated.status = 'Scheduled Dispatched';
-                            }
-                            await saveOrder(updated);
-                            if (order.details) {
-                              order.details.scheduledReason = val;
-                            }
-                          } catch (err) {
-                            console.error('Failed to update scheduled reason:', err);
-                          } finally {
-                            setIsSavingReason(false);
-                          }
-                        }}
-                        className="w-full px-3 py-1.5 bg-white border border-amber-300 rounded-lg text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer shadow-2xs"
-                      >
-                        <option value="">-- Select Scheduled Reason --</option>
-                        <option value="CUSTOMER ISSUE">1. CUSTOMER ISSUE</option>
-                        <option value="LOGISTIC ISSUE">2. LOGISTIC ISSUE</option>
-                        <option value="PAYMENT DELAY">3. PAYMENT DELAY</option>
-                        <option value="UNSATISFACTION">4. UNSATISFACTION</option>
-                      </select>
-                    </div>
-                  </div>
+                  )}
                 </div>
                 
                 {paymentRecord?.phases && paymentRecord.phases.length > 0 && (
@@ -634,10 +636,24 @@ You have a new dispatch scheduled.\n\nOrder ID: ${order.id}\n${items}\n${vehicle
                   </h4>
                   <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm bg-white">
                     <div className="divide-y divide-slate-100">
-                      {order.details.products.map((p, i) => (
-                        <div key={i} className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors gap-4">
+                      {order.details.products.map((p, i) => {
+                        const sched = Number(p.scheduledQuantity) || (p.isDispatched ? (Number(p.dispatchedQuantity) || Number(p.quantity) || 1) : 0);
+                        const total = Number(p.quantity) || 1;
+                        const isFullySched = sched >= total && total > 0;
+
+                        return (
+                        <div key={i} className={`p-4 flex items-center justify-between transition-colors gap-4 ${isFullySched ? 'bg-slate-100/70 opacity-70' : 'hover:bg-slate-50'}`}>
                           <div className="flex-1 min-w-0">
-                            <h4 className="text-sm font-semibold text-slate-800 truncate">{p.name || 'Unknown Product'}</h4>
+                            <div className="flex items-center gap-2">
+                              <h4 className={`text-sm font-semibold truncate ${isFullySched ? 'text-slate-500' : 'text-slate-800'}`}>
+                                {p.name || 'Unknown Product'}
+                              </h4>
+                              {isFullySched && (
+                                <span className="text-[10px] font-bold uppercase bg-slate-200 text-slate-600 px-2 py-0.5 rounded border border-slate-300">
+                                  ✓ Full Qty Scheduled
+                                </span>
+                              )}
+                            </div>
                             {p.size && (
                               <p className="text-xs text-slate-500 mt-1 line-clamp-1">{p.size}</p>
                             )}
@@ -652,16 +668,25 @@ You have a new dispatch scheduled.\n\nOrder ID: ${order.id}\n${items}\n${vehicle
                           </div>
                           <div className="text-right whitespace-nowrap flex flex-col items-end gap-1">
                             <span className="text-sm font-medium text-slate-700 bg-slate-100 px-2.5 py-1 rounded-full">
-                              Qty: {p.quantity || 1}
+                              Qty: {total}
                             </span>
-                            {p.isDispatched && (
+                            {isFullySched ? (
+                              <span className="text-xs font-semibold text-slate-500 bg-slate-200/90 px-2.5 py-0.5 rounded-full border border-slate-300">
+                                Scheduled: {sched}/{total} (100%)
+                              </span>
+                            ) : sched > 0 ? (
+                              <span className="text-xs font-medium text-amber-800 bg-amber-100 px-2.5 py-0.5 rounded-full border border-amber-200">
+                                Scheduled: {sched}/{total}
+                              </span>
+                            ) : p.isDispatched ? (
                               <span className="text-xs font-medium text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
                                 Dispatched: {p.dispatchedQuantity || p.quantity || 1}
                               </span>
-                            )}
+                            ) : null}
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 </div>

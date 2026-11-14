@@ -41,23 +41,55 @@ export const WorkstationTechnicalInfographicModal: React.FC<WorkstationTechnical
     }
   }, [previewImageSrc, angleImages]);
 
-  // Parse dimensions
-  let widthMm = 1200;
-  let depthMm = 600;
+  const personQty = Math.max(1, setup?.personQuantity || 1);
+  const structStr = (setup?.workstationStructure || setup?.structure || '').toLowerCase();
+  const effectiveLayoutType: 'cluster' | 'linear' =
+    setup?.layoutType === 'linear' || setup?.layoutType === 'cluster'
+      ? setup.layoutType
+      : structStr.includes('face')
+        ? 'cluster'
+        : 'linear';
+  const isCluster = personQty > 1 && effectiveLayoutType === 'cluster';
+
+  // Parse dimensions (per-person or total)
+  let singleWidthMm = 1200;
+  let singleDepthMm = 600;
   const heightMm = 750;
-  if (setup?.dimensions) {
+
+  const parseFirstMm = (val?: string): number | null => {
+    if (!val) return null;
+    const m = val.match(/(\d{3,4})/);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (n > 0) return n;
+    }
+    return null;
+  };
+
+  const explicitW = parseFirstMm(setup?.widthPerPerson);
+  const explicitD = parseFirstMm(setup?.depthPerPerson);
+  if (explicitW && explicitD) {
+    singleWidthMm = explicitW;
+    singleDepthMm = explicitD;
+  } else if (setup?.dimensions) {
     const match = setup.dimensions.match(/(\d{3,4})\s*(?:mm|L|W)?\s*[xX*×-]\s*(\d{3,4})/);
     if (match) {
-      widthMm = parseInt(match[1], 10) || 1200;
-      depthMm = parseInt(match[2], 10) || 600;
+      singleWidthMm = parseInt(match[1], 10) || 1200;
+      singleDepthMm = parseInt(match[2], 10) || 600;
     }
   }
 
-  const personQty = setup?.personQuantity || 1;
-  const isCluster = personQty > 1 && setup?.layoutType !== 'linear';
+  const isPerPerson = setup?.sizeType === 'per_person' || Boolean(setup?.widthPerPerson);
+  const cols = isCluster ? Math.max(1, Math.ceil(personQty / 2)) : personQty;
+  const widthMm = isPerPerson && personQty > 1 ? singleWidthMm * cols : singleWidthMm;
+  const depthMm = isCluster ? singleDepthMm * 2 : singleDepthMm;
+
   const screenHVal = setup?.screenHeight ? parseInt(setup.screenHeight, 10) : 300;
   const thicknessVal = setup?.thickness ? parseInt(setup.thickness, 10) : 25;
   const legStyleStr = setup?.legStyle || 'Straight legs';
+  const legPipeRaw = setup?.legSize || setup?.metalPipeThickness || '40x40';
+  const legPipeLabel = legPipeRaw.includes('50') ? '50 × 50 mm' : '40 × 40 mm';
+  const legPipeCompact = legPipeRaw.includes('50') ? '50×50mm' : '40×40mm';
   const modestyStr = setup?.modesty || 'None';
   const electricStr = setup?.electricFunction || 'None';
   const materialStr = setup?.material ? `${setup.material} Board` : 'PLPB Board';
@@ -86,8 +118,8 @@ export const WorkstationTechnicalInfographicModal: React.FC<WorkstationTechnical
     )
   );
 
-  // 1. Understructure: 40 x 40 mm CRCA Metal
-  const understructureStr = `40 × 40 mm CRCA Metal (${legStyleStr})`;
+  // 1. Understructure: 40x40 / 50x50 mm CRCA Metal
+  const understructureStr = `${legPipeLabel} CRCA Metal (${legStyleStr})`;
   
   // 2. Table Top Edge Band: 0.8mm in 18mm table top, 1.0mm in 25mm
   const edgeBandMm = thicknessVal === 18 ? '0.8mm' : '1.0mm';
@@ -285,13 +317,13 @@ export const WorkstationTechnicalInfographicModal: React.FC<WorkstationTechnical
         margin: { left: margin, right: margin },
         head: [['PARAMETER / ITEM', 'CHOSEN QUOTATION SPECIFICATION', 'PARAMETER / ITEM', 'CHOSEN QUOTATION SPECIFICATION']],
         body: [
-          ['Overall Dimensions', `${widthMm}W × ${depthMm}D × ${heightMm}H mm`, 'Seating Capacity', `${personQty}-Person (${isCluster ? 'Face-to-Face Pod' : 'Linear Desk'})`],
+          ['Overall Dimensions', `${widthMm}W × ${depthMm}D × ${heightMm}H mm`, 'Seating Capacity', `${personQty}-Person (${isCluster ? 'Face-to-Face Pod' : 'Wall-Facing Linear Row'})`],
           ['Tabletop Core Substrate', `${materialStr} (${thicknessVal}mm Thickness)`, 'Tabletop Finish & Edge', `${topColorStr} (${edgeBandStr})`],
           ['Understructure & Legs', understructureStr, 'Frame Powder Coat', `${legColorStr} Finish (50-60µ Pure Epoxy)`],
-          ['Leg Frame Depth', `${depthMm - 50} mm Depth (25mm Front/Rear Overhang)`, 'Intermediate Center Leg', (widthMm >= 1800 || personQty > 1) ? '40×40mm Center Support Included' : 'N/A (Standard Single Span)'],
+          ['Leg Frame Depth', `${depthMm - 50} mm Depth (25mm Front/Rear Overhang)`, 'Intermediate Center Leg', (widthMm >= 1800 || personQty > 1) ? `${legPipeCompact} Center Support Included` : 'N/A (Standard Single Span)'],
           ['Privacy Partition Screen', hasScreen ? `${frontScreenStr} (${screenHVal}mm Height)` : 'None', 'Screen Color & Corner', hasScreen ? `${screenColorStr} (R40 Safety Corners)` : 'N/A'],
           ['Power & Cable Management', `${electricStr}`, 'Modesty Privacy Panel', `${modestyStr} (${modestyQty})`],
-          ['Understructure Spec', '40 × 40 mm CRCA Metal Tube', 'Configured Add-ons', `${addOnsStr}`]
+          ['Understructure Spec', `${legPipeLabel} CRCA Metal Tube`, 'Configured Add-ons', `${addOnsStr}`]
         ],
         theme: 'grid',
         headStyles: {
@@ -522,10 +554,10 @@ export const WorkstationTechnicalInfographicModal: React.FC<WorkstationTechnical
 
                 {/* Model & Configured Meta */}
                 <text x="585" y="38" fill={tColors.textPrimary} fontSize="13" fontWeight="800">
-                  MODEL: <tspan fill={tColors.accent}>{widthMm}W × {depthMm}D × {heightMm}H MM</tspan> ({personQty}P {isCluster ? 'CLUSTER POD' : 'WORKSTATION'})
+                  MODEL: <tspan fill={tColors.accent}>{widthMm}W × {depthMm}D × {heightMm}H MM</tspan> ({personQty}P {isCluster ? 'FACE-TO-FACE POD' : 'WALL-FACING ROW'})
                 </text>
                 <text x="585" y="58" fill={tColors.textMuted} fontSize="10.5" fontWeight="500">
-                  TOP: {topColorStr} ({materialStr} {thicknessVal}MM • {edgeBandMm} PVC EDGE) • UNDERSTRUCTURE: 40×40 MM CRCA METAL
+                  TOP: {topColorStr} ({materialStr} {thicknessVal}MM • {edgeBandMm} PVC EDGE) • UNDERSTRUCTURE: {legPipeCompact} CRCA METAL
                 </text>
                 <text x="585" y="78" fill={tColors.textMuted} fontSize="10" fontWeight="500">
                   FRAME COATING: {legColorStr} EPOXY • SCALE: 1:20 • DRAWING NO: CAD-SRK-{widthMm}x{depthMm}-{personQty}P
@@ -1031,9 +1063,30 @@ export const WorkstationTechnicalInfographicModal: React.FC<WorkstationTechnical
                   </g>
                 )}
 
+                {/* Wall-Facing Linear Row Station Dividers */}
+                {!isCluster && personQty > 1 && (
+                  <g id="topLinearStationDividers">
+                    {Array.from({ length: personQty - 1 }).map((_, idx) => {
+                      const divX = 30 + (440 / personQty) * (idx + 1);
+                      return (
+                        <line
+                          key={idx}
+                          x1={divX}
+                          y1="78"
+                          x2={divX}
+                          y2="273"
+                          stroke={tColors.accent}
+                          strokeWidth="1.2"
+                          strokeDasharray="4,3"
+                        />
+                      );
+                    })}
+                  </g>
+                )}
+
                 {/* User Seating Position Marking */}
                 <text x="250" y={isCluster ? 105 : 215} fill={tColors.textMuted} fontSize="10" fontWeight="700" textAnchor="middle">
-                  [ {personQty}-SEATED WORKSTATION AREA ]
+                  [ {personQty}-SEATED {isCluster ? 'FACE-TO-FACE POD' : 'WALL-FACING ROW'} ]
                 </text>
 
                 {/* Depth Dimension on Right */}
@@ -1190,7 +1243,7 @@ export const WorkstationTechnicalInfographicModal: React.FC<WorkstationTechnical
                       <td className="py-2 px-3 font-semibold text-slate-400">Overall Dimensions</td>
                       <td className="py-2 px-3 font-bold text-white">{widthMm}W × {depthMm}D × {heightMm}H mm</td>
                       <td className="py-2 px-3 font-semibold text-slate-400">Seating Capacity</td>
-                      <td className="py-2 px-3 font-bold text-white">{personQty}-Person ({isCluster ? 'Face-to-Face Pod' : 'Linear Desk'})</td>
+                      <td className="py-2 px-3 font-bold text-white">{personQty}-Person ({isCluster ? 'Face-to-Face Pod' : 'Wall-Facing Linear Row'})</td>
                     </tr>
                     <tr className="hover:bg-slate-800/40">
                       <td className="py-2 px-3 font-semibold text-slate-400">Tabletop Core Substrate</td>
@@ -1209,7 +1262,7 @@ export const WorkstationTechnicalInfographicModal: React.FC<WorkstationTechnical
                       <td className="py-2 px-3 text-slate-200 font-bold text-emerald-400">{depthMm - 50} mm Depth (25mm Front/Rear Overhang)</td>
                       <td className="py-2 px-3 font-semibold text-slate-400">Intermediate Center Leg</td>
                       <td className="py-2 px-3 text-slate-200 font-medium text-sky-300">
-                        {(widthMm >= 1800 || personQty > 1) ? '40×40mm Center Support Post Included' : 'N/A (Standard Single Span)'}
+                        {(widthMm >= 1800 || personQty > 1) ? `${legPipeCompact} Center Support Post Included` : 'N/A (Standard Single Span)'}
                       </td>
                     </tr>
                     <tr className="hover:bg-slate-800/40">
@@ -1226,7 +1279,7 @@ export const WorkstationTechnicalInfographicModal: React.FC<WorkstationTechnical
                     </tr>
                     <tr className="hover:bg-slate-800/40">
                       <td className="py-2 px-3 font-semibold text-slate-400">Understructure Spec</td>
-                      <td className="py-2 px-3 text-slate-200 font-medium">40 × 40 mm CRCA Metal Tube</td>
+                      <td className="py-2 px-3 text-slate-200 font-medium">{legPipeLabel} CRCA Metal Tube</td>
                       <td className="py-2 px-3 font-semibold text-slate-400">Configured Add-ons</td>
                       <td className="py-2 px-3 font-medium text-emerald-400">{addOnsStr}</td>
                     </tr>

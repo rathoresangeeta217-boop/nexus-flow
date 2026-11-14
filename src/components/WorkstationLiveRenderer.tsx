@@ -1,24 +1,40 @@
 import React from 'react';
 
 export interface WorkstationSetupData {
+  edgeOption?: string;
+  structure?: 'wall-facing' | 'face-to-face';
+  workstationStructure?: 'wall-facing' | 'face-to-face';
   sizeType?: 'per_person' | 'total';
   dimensions?: string;
+  widthPerPerson?: string;
+  depthPerPerson?: string;
   personQuantity?: number;
   layoutType?: 'cluster' | 'linear';
   material?: string;
   thickness?: string;
+  laminateFront?: boolean;
+  laminateBack?: boolean;
+  metalPipeThickness?: '40x40' | '50x50' | string;
   tableTopColor?: string;
   legMaterial?: 'metal' | 'wooden';
   legStyle?: string;
   legColor?: string;
   legSize?: string;
+  includeCncSheet?: boolean;
+  cncSheet?: boolean;
   frontScreen?: string;
   middlePartition?: 'Included' | 'None' | string;
   screenQuantity?: number;
   screenHeight?: string;
   screenColor?: string;
   modesty?: string;
+  wireManagement?: boolean;
+  wireRaceway?: boolean;
+  racewaySwitches?: '1 switch' | '2 switches' | '3 switches' | string;
   electricFunction?: string;
+  pedestal3Drawer?: boolean;
+  drawer?: boolean;
+  condrawer?: boolean;
   addons?: string[];
   calculatedPrice?: number;
   priceBreakdown?: any;
@@ -28,12 +44,16 @@ export const getLegHex = (color?: string, material?: 'metal' | 'wooden'): { main
   if (material === 'wooden') {
     switch (color?.toLowerCase()) {
       case 'beach wood':
+      case 'bavarian beech':
       case 'beach':
         return { main: '#d4a373', edge: '#b58351', text: '#451a03' };
+      case 'classic walnut':
       case 'walnut':
       case 'dark wenge':
         return { main: '#451a03', edge: '#2e1065', text: '#FFFFFF' };
+      case 'charcoal black':
       case 'black wood':
+      case 'black':
         return { main: '#1e293b', edge: '#0f172a', text: '#FFFFFF' };
       case 'natural teak':
       case 'teak':
@@ -44,17 +64,21 @@ export const getLegHex = (color?: string, material?: 'metal' | 'wooden'): { main
   switch (color?.toLowerCase()) {
     case 'white':
     case 'frosty white':
+    case 'pure white':
       return { main: '#f8fafc', edge: '#94a3b8', text: '#0f172a' };
     case 'silver / grey':
     case 'silver':
     case 'grey':
+    case 'gray':
       return { main: '#94a3b8', edge: '#64748b', text: '#0f172a' };
     case 'anthracite':
     case 'dark grey':
+    case 'graphite':
       return { main: '#334155', edge: '#1e293b', text: '#FFFFFF' };
     case 'custom colour':
       return { main: '#7c3aed', edge: '#6d28d9', text: '#FFFFFF' };
     case 'black':
+    case 'matte black':
     default:
       return { main: '#0f172a', edge: '#020617', text: '#FFFFFF' };
   }
@@ -63,14 +87,28 @@ export const getLegHex = (color?: string, material?: 'metal' | 'wooden'): { main
 export const getTableTopHex = (color?: string): { main: string; edge: string; text: string; isWood?: boolean } => {
   switch (color?.toLowerCase()) {
     case 'ghotic gray':
+    case 'gothic gray':
+    case 'slate grey':
+    case 'slate gray':
       return { main: '#475569', edge: '#334155', text: '#F8FAFC' };
+    case 'classic walnut':
+    case 'walnut':
+      return { main: '#3e2723', edge: '#23140b', text: '#FFFFFF', isWood: true };
+    case 'natural teak':
     case 'teak':
       return { main: '#854d0e', edge: '#713f12', text: '#FEF08A', isWood: true };
+    case 'bavarian beech':
     case 'beach':
       return { main: '#d4a373', edge: '#b58351', text: '#451a03', isWood: true };
+    case 'charcoal black':
+    case 'black':
+    case 'black wood':
+      return { main: '#1e293b', edge: '#0f172a', text: '#FFFFFF' };
     case 'custom colour':
       return { main: '#7c3aed', edge: '#6d28d9', text: '#FFFFFF' };
     case 'frosty white':
+    case 'white':
+    case 'swedish white':
     default:
       return { main: '#F8FAFC', edge: '#E2E8F0', text: '#1E293B' };
   }
@@ -79,16 +117,28 @@ export const getTableTopHex = (color?: string): { main: string; edge: string; te
 export const getScreenHex = (color?: string): { fill: string; stroke: string; glow: string } => {
   switch (color?.toLowerCase()) {
     case 'grey':
+    case 'gray':
+    case 'slate grey':
       return { fill: '#64748b', stroke: '#475569', glow: 'rgba(100, 116, 139, 0.4)' };
     case 'green':
+    case 'forest green':
+    case 'emerald green':
       return { fill: '#16a34a', stroke: '#15803d', glow: 'rgba(22, 163, 74, 0.4)' };
     case 'red':
+    case 'ruby red':
+    case 'crimson':
       return { fill: '#dc2626', stroke: '#b91c1c', glow: 'rgba(220, 38, 38, 0.4)' };
     case 'orange':
+    case 'sunset orange':
       return { fill: '#ea580c', stroke: '#c2410c', glow: 'rgba(234, 88, 12, 0.4)' };
+    case 'amber':
+    case 'tangerine amber':
+    case 'yellow':
+      return { fill: '#d97706', stroke: '#b45309', glow: 'rgba(217, 119, 6, 0.4)' };
     case 'custom colour':
       return { fill: '#9333ea', stroke: '#7e22ce', glow: 'rgba(147, 51, 234, 0.4)' };
     case 'blue':
+    case 'ocean blue':
     default:
       return { fill: '#2563eb', stroke: '#1d4ed8', glow: 'rgba(37, 99, 235, 0.4)' };
   }
@@ -100,10 +150,11 @@ export const WorkstationLiveRenderer: React.FC<{ setup?: WorkstationSetupData | 
   
   // Thickness height adjustment
   const thicknessVal = setup?.thickness || '25 mm';
-  const edgeDepth = thicknessVal === '36 mm' ? 16 : thicknessVal === '25 mm' ? 12 : 8;
+  const edgeDepth = thicknessVal === '36 mm' ? 16 : (thicknessVal === '25 mm' || thicknessVal === '25 g') ? 12 : 8;
 
   // Screen height scale
-  const screenH = setup?.screenHeight === '450MM' ? 70 : setup?.screenHeight === '400MM' ? 60 : 50;
+  const normScreenH = (setup?.screenHeight || '').toLowerCase();
+  const screenH = normScreenH.includes('450') ? 70 : normScreenH.includes('400') ? 60 : 50;
 
   // Leg styling
   const isWooden = setup?.legMaterial === 'wooden';
@@ -111,12 +162,13 @@ export const WorkstationLiveRenderer: React.FC<{ setup?: WorkstationSetupData | 
   const legColor = legHex.main;
   const legStroke = legHex.edge;
   const legStyle = setup?.legStyle || 'Straight legs';
-  const is50x50 = setup?.legSize === '50 x 50';
+  const is50x50 = setup?.legSize === '50 x 50' || setup?.metalPipeThickness === '50x50';
   const legBackWidth = isWooden ? (is50x50 ? 13 : 10) : (is50x50 ? 11 : 8);
   const legFrontWidth = isWooden ? (is50x50 ? 15 : 12) : (is50x50 ? 12 : 9);
 
   const isUShape = Boolean(
     legStyle && (
+      legStyle.toLowerCase().includes('u-shaped') ||
       legStyle.toLowerCase().includes('u shape') || 
       legStyle.toLowerCase().includes('u-shape') || 
       legStyle.toLowerCase().includes('loop') || 
@@ -136,12 +188,15 @@ export const WorkstationLiveRenderer: React.FC<{ setup?: WorkstationSetupData | 
     )
   );
 
-  // Modesty panel
-  const hasModesty = setup?.modesty ? setup.modesty !== 'None' : true;
+  // Modesty panel / CNC Sheet
+  const hasCncSheet = Boolean(setup?.includeCncSheet || setup?.cncSheet);
+  const hasModesty = hasCncSheet || (setup?.modesty ? setup.modesty !== 'None' : true);
 
-  // Addons
-  const hasPedestal = setup?.addons?.includes('3-Drawer Mobile Pedestal');
-  const hasKeyboard = setup?.addons?.includes('Keyboard Tray');
+  // Storage & Addons
+  const hasPedestal = Boolean(setup?.pedestal3Drawer || setup?.addons?.includes('3-Drawer Pedestal') || setup?.addons?.includes('3-Drawer Mobile Pedestal'));
+  const hasDrawer = Boolean(setup?.drawer || setup?.addons?.includes('Drawer'));
+  const hasCondrawer = Boolean(setup?.condrawer || setup?.addons?.includes('Condrawer'));
+  const hasKeyboard = false; // Keyboard tray removed as per user requirement
   const hasCpuStand = setup?.addons?.includes('CPU Stand');
 
   return (

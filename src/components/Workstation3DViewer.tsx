@@ -100,6 +100,233 @@ function createShadowTexture(): THREE.CanvasTexture {
   return new THREE.CanvasTexture(canvas);
 }
 
+// Procedural acoustic fabric texture for Pin up board
+function createAcousticFabricTexture(baseColorHex: string): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.fillStyle = baseColorHex;
+    ctx.fillRect(0, 0, 512, 512);
+
+    // Fine woven acoustic fabric grid
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.12)';
+    ctx.lineWidth = 1.2;
+    for (let x = 0; x < 512; x += 4) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, 512);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.14)';
+    ctx.lineWidth = 1.2;
+    for (let y = 0; y < 512; y += 4) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(512, y);
+      ctx.stroke();
+    }
+
+    // Acoustic pinboard flecks / pin-up tactile texture
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.18)';
+    for (let i = 0; i < 600; i++) {
+      const rx = (i * 37) % 512;
+      const ry = (i * 71) % 512;
+      ctx.fillRect(rx, ry, 1.5, 1.5);
+    }
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.16)';
+    for (let i = 0; i < 600; i++) {
+      const rx = (i * 83) % 512;
+      const ry = (i * 137) % 512;
+      ctx.fillRect(rx, ry, 1.5, 1.5);
+    }
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(4, 4);
+  return texture;
+}
+
+// Procedural decorative CNC laser-cut sheet texture with transparent see-through perforations
+function createCncSheetTexture(colorHex: string): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.clearRect(0, 0, 1024, 512);
+
+    // Solid powder-coated metal sheet background
+    ctx.fillStyle = colorHex || '#1e293b';
+    ctx.fillRect(0, 0, 1024, 512);
+
+    // Outer framing border
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+    ctx.lineWidth = 6;
+    ctx.strokeRect(18, 18, 1024 - 36, 512 - 36);
+
+    // Inner bevel line
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(26, 26, 1024 - 52, 512 - 52);
+
+    // Cutout laser perforations using destination-out to create real see-through holes
+    ctx.globalCompositeOperation = 'destination-out';
+
+    const stepX = 36;
+    const stepY = 36;
+    const marginX = 40;
+    const marginY = 40;
+
+    for (let y = marginY; y <= 512 - marginY; y += stepY) {
+      const isOddRow = (Math.round((y - marginY) / stepY) % 2) === 1;
+      const offsetX = isOddRow ? stepX / 2 : 0;
+
+      for (let x = marginX + offsetX; x <= 1024 - marginX; x += stepX) {
+        // Geometric diamond cutout
+        ctx.beginPath();
+        const r = 9;
+        ctx.moveTo(x, y - r);
+        ctx.lineTo(x + r, y);
+        ctx.lineTo(x, y + r);
+        ctx.lineTo(x - r, y);
+        ctx.closePath();
+        ctx.fill();
+
+        // Small circular perforation
+        ctx.beginPath();
+        ctx.arc(x + stepX / 2, y, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // Reset composite operation to draw metallic laser cut highlight edges
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.lineWidth = 1.2;
+
+    for (let y = marginY; y <= 512 - marginY; y += stepY) {
+      const isOddRow = (Math.round((y - marginY) / stepY) % 2) === 1;
+      const offsetX = isOddRow ? stepX / 2 : 0;
+
+      for (let x = marginX + offsetX; x <= 1024 - marginX; x += stepX) {
+        ctx.beginPath();
+        const r = 9;
+        ctx.moveTo(x, y - r);
+        ctx.lineTo(x + r, y);
+        ctx.lineTo(x, y + r);
+        ctx.lineTo(x - r, y);
+        ctx.closePath();
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(x + stepX / 2, y, 3.5, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(1, 1);
+  return texture;
+}
+
+// Procedural material for laser-cut CNC sheet with genuine transparency and metallic highlights
+function createCncMaterial(colorHex: string, repeatX = 1, repeatY = 1): THREE.MeshStandardMaterial {
+  const tex = createCncSheetTexture(colorHex);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(repeatX, repeatY);
+  return new THREE.MeshStandardMaterial({
+    map: tex,
+    transparent: true,
+    alphaTest: 0.2,
+    side: THREE.DoubleSide,
+    metalness: 0.65,
+    roughness: 0.35,
+  });
+}
+
+
+// Returns appropriate material according to selected front screen option
+function getScreenMaterial(
+  frontScreen: string, 
+  screenColorHex: { fill: string; stroke?: string; glow?: string },
+  tableTopColor?: string
+): THREE.Material {
+  const screenLower = (frontScreen || '').toLowerCase();
+  
+  if (screenLower.includes('pinna') || screenLower.includes('pin-up') || screenLower.includes('pin up')) {
+    // Acoustic Fabric Pin-up Board: Soft, tactile fabric weave, completely solid & matte
+    const fabricTex = createAcousticFabricTexture(screenColorHex.fill);
+    return new THREE.MeshStandardMaterial({
+      map: fabricTex,
+      roughness: 0.92,
+      metalness: 0.04,
+    });
+  }
+
+  if (screenLower.includes('wood')) {
+    const isWalnut = tableTopColor?.toLowerCase().includes('walnut');
+    const isBeech = tableTopColor?.toLowerCase().includes('beach') || tableTopColor?.toLowerCase().includes('beech');
+    const woodTex = isBeech
+      ? createWoodTexture('#d4a373', '#a16207')
+      : (isWalnut ? createWoodTexture('#3e2723', '#23140b') : createWoodTexture('#854d0e', '#582e08'));
+    return new THREE.MeshStandardMaterial({
+      map: woodTex,
+      roughness: 0.55,
+      metalness: 0.1,
+    });
+  }
+
+  if (screenLower.includes('magnetic') || screenLower.includes('marker')) {
+    // Magnetic Glass whiteboard: reflective, glossy
+    return new THREE.MeshPhysicalMaterial({
+      color: new THREE.Color(screenColorHex.fill),
+      roughness: 0.04,
+      metalness: 0.15,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.04,
+      reflectivity: 0.95,
+    });
+  }
+
+  if (screenLower.includes('lacquer') || screenLower.includes('6 mm')) {
+    // 6 mm Lacquer Glass: Deep high-gloss back-painted glass
+    return new THREE.MeshPhysicalMaterial({
+      color: new THREE.Color(screenColorHex.fill),
+      roughness: 0.02,
+      metalness: 0.2,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.02,
+      reflectivity: 0.98,
+    });
+  }
+
+  if (screenLower.includes('aluminum') || screenLower.includes('aluminium')) {
+    return new THREE.MeshStandardMaterial({
+      color: new THREE.Color(screenColorHex.fill),
+      roughness: 0.45,
+      metalness: 0.25,
+    });
+  }
+
+  // Default: Acrylic sheet: frosted translucent acrylic
+  return new THREE.MeshPhysicalMaterial({
+    color: new THREE.Color(screenColorHex.fill),
+    transmission: 0.72,
+    opacity: 0.86,
+    transparent: true,
+    roughness: 0.16,
+    ior: 1.48,
+    thickness: 0.012,
+  });
+}
+
 // Safe cross-browser rounded rectangle helper for canvas textures
 function drawRoundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   if (typeof ctx.roundRect === 'function') {
@@ -134,6 +361,10 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   const tableGroupRef = useRef<THREE.Group | null>(null);
+  const turntableMeshRef = useRef<THREE.Mesh | null>(null);
+  const ringMeshRef = useRef<THREE.Mesh | null>(null);
+  const shadowMeshRef = useRef<THREE.Mesh | null>(null);
+  const prevSpanRef = useRef<number>(0);
   const reqAnimRef = useRef<number | null>(null);
 
   const topCalloutRef = useRef<HTMLDivElement>(null);
@@ -176,7 +407,7 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
       setPreviewImageSrc(mainDataURL);
 
       // Capture 6 clean studio angle renders for the A4 PDF Checklist packet
-      const dist = 2.45;
+      const dist = Math.max(2.45, maxSpan * 1.08);
       const targetY = heightM / 2 + 0.05;
       controls.target.set(0, targetY, 0);
 
@@ -296,28 +527,79 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
     setTimeout(() => setSnapshotSuccess(false), 2200);
   };
 
+  const effectiveLayoutType: 'cluster' | 'linear' = useMemo(() => {
+    if (setup?.layoutType === 'linear' || setup?.layoutType === 'cluster') {
+      return setup.layoutType;
+    }
+    const structStr = (setup?.workstationStructure || setup?.structure || '').toLowerCase();
+    if (structStr.includes('wall')) return 'linear';
+    if (structStr.includes('face')) return 'cluster';
+    return 'linear';
+  }, [setup?.layoutType, setup?.workstationStructure, setup?.structure]);
+
   // Robust parsing of table dimensions (e.g. "1800 x 600", "1800 mm x 600 mm", "1800L x 600W mm", "1800mm")
-  const { widthM, depthM, heightM } = useMemo(() => {
-    let w = 1.2;
-    let d = 0.6;
+  const { perPersonWidthM, widthM, depthM, totalDepthM, maxSpan, heightM } = useMemo(() => {
+    let singleW = 1.2;
+    let singleD = 0.6;
     const h = 0.75; // Standard 750mm desk height
-    if (setup?.dimensions) {
+
+    const parseFirstMm = (val?: string): number | null => {
+      if (!val) return null;
+      const m = val.match(/(\d{3,4})/);
+      if (m) {
+        const n = parseInt(m[1], 10);
+        if (n > 0) return n / 1000;
+      }
+      return null;
+    };
+
+    const explicitW = parseFirstMm(setup?.widthPerPerson);
+    const explicitD = parseFirstMm(setup?.depthPerPerson);
+
+    if (explicitW && explicitD) {
+      singleW = explicitW;
+      singleD = explicitD;
+    } else if (setup?.dimensions) {
       const match = setup.dimensions.match(/(\d{3,4})\s*(?:mm|L|W)?\s*[xX*×-]\s*(\d{3,4})/);
       if (match) {
         const parsedW = parseInt(match[1], 10);
         const parsedD = parseInt(match[2], 10);
-        if (parsedW > 0) w = parsedW / 1000;
-        if (parsedD > 0) d = parsedD / 1000;
+        if (parsedW > 0) singleW = parsedW / 1000;
+        if (parsedD > 0) singleD = parsedD / 1000;
       } else {
         const single = setup.dimensions.match(/(\d{3,4})/);
         if (single) {
           const parsed = parseInt(single[1], 10);
-          if (parsed >= 600) w = parsed / 1000;
+          if (parsed >= 600) singleW = parsed / 1000;
         }
       }
     }
-    return { widthM: w, depthM: d, heightM: h };
-  }, [setup?.dimensions]);
+
+    const pQty = Math.max(1, setup?.personQuantity ?? 1);
+    const isPerPerson = setup?.sizeType === 'per_person' || Boolean(setup?.widthPerPerson);
+
+    let rowW = singleW;
+    if (isPerPerson && pQty > 1) {
+      if (effectiveLayoutType === 'linear') {
+        rowW = singleW * pQty; // Line-by-line seating: all seats side by side in 1 row
+      } else {
+        const cols = Math.max(1, Math.ceil(pQty / 2));
+        rowW = singleW * cols; // Face-to-face pod: cols per row across 2 facing rows
+      }
+    }
+
+    const totD = (pQty > 1 && effectiveLayoutType === 'cluster') ? singleD * 2 : singleD;
+    const span = Math.max(rowW, totD, 1.4);
+
+    return {
+      perPersonWidthM: singleW,
+      widthM: rowW,
+      depthM: singleD,
+      totalDepthM: totD,
+      maxSpan: span,
+      heightM: h
+    };
+  }, [setup?.dimensions, setup?.widthPerPerson, setup?.depthPerPerson, setup?.sizeType, setup?.personQuantity, effectiveLayoutType]);
 
   // Thickness in meters
   const thicknessM = useMemo(() => {
@@ -328,8 +610,9 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
 
   // Leg cross section (40x40 or 50x50)
   const legSizeM = useMemo(() => {
-    return setup?.legSize === '50 x 50' ? 0.05 : 0.04;
-  }, [setup?.legSize]);
+    const ls = (setup?.legSize || setup?.metalPipeThickness || '').replace(/\s+/g, '');
+    return ls.includes('50') ? 0.05 : 0.04;
+  }, [setup?.legSize, setup?.metalPipeThickness]);
 
   const electricFunction = setup?.electricFunction || 'None';
   const hasFlipBox = electricFunction !== 'None' && electricFunction !== 'Wire Raceway' && (electricFunction.includes('Flip Box') || setup?.addons?.includes('Flip Box'));
@@ -368,7 +651,7 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
     ];
 
     const zip = new JSZip();
-    const dist = 2.45;
+    const dist = Math.max(2.45, maxSpan * 1.08);
     const targetY = heightM / 2 + 0.05;
     controls.target.set(0, targetY, 0);
 
@@ -504,6 +787,7 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
 
   // Keep latest parameters in ref for animation frame tracking
   const dynamicParamsRef = useRef({
+    perPersonWidthM,
     widthM,
     depthM,
     heightM,
@@ -514,11 +798,12 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
     hasFlipBox,
     showHotspots,
     personQuantity: setup?.personQuantity ?? 1,
-    layoutType: setup?.layoutType ?? 'cluster'
+    layoutType: effectiveLayoutType
   });
 
   useEffect(() => {
     dynamicParamsRef.current = {
+      perPersonWidthM,
       widthM,
       depthM,
       heightM,
@@ -529,9 +814,9 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
       hasFlipBox,
       showHotspots,
       personQuantity: setup?.personQuantity ?? 1,
-      layoutType: setup?.layoutType ?? 'cluster'
+      layoutType: effectiveLayoutType
     };
-  }, [widthM, depthM, heightM, thicknessM, legSizeM, setup?.frontScreen, setup?.modesty, hasFlipBox, showHotspots, setup?.personQuantity, setup?.layoutType]);
+  }, [perPersonWidthM, widthM, depthM, heightM, thicknessM, legSizeM, setup?.frontScreen, setup?.modesty, hasFlipBox, showHotspots, setup?.personQuantity, effectiveLayoutType]);
 
   // Color hexes
   const topColorHex = useMemo(() => getTableTopHex(setup?.tableTopColor), [setup?.tableTopColor]);
@@ -629,6 +914,7 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
     turntableMesh.position.y = -0.01;
     turntableMesh.receiveShadow = true;
     scene.add(turntableMesh);
+    turntableMeshRef.current = turntableMesh;
 
     // Turntable accent ring
     const ringGeo = new THREE.TorusGeometry(3.12, 0.01, 16, 64);
@@ -641,6 +927,7 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
     ringMesh.rotation.x = Math.PI / 2;
     ringMesh.position.y = 0.001;
     scene.add(ringMesh);
+    ringMeshRef.current = ringMesh;
 
     // Subtle studio floor shadow (expanded)
     const shadowGeo = new THREE.PlaneGeometry(6.0, 4.4);
@@ -653,6 +940,7 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
     shadowMesh.rotation.x = -Math.PI / 2;
     shadowMesh.position.y = 0.002;
     scene.add(shadowMesh);
+    shadowMeshRef.current = shadowMesh;
 
     // Desk Group container
     const tableGroup = new THREE.Group();
@@ -681,15 +969,16 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
         const p = dynamicParamsRef.current;
         const legInset = p.legSizeM / 2 + 0.02;
         const personQty = p.personQuantity || 1;
-        const layoutType = p.layoutType || 'cluster';
-        const cols = Math.ceil(personQty / 2);
-        // Position of the primary front-left desk in the cluster/bench
-        const primaryDeskX = personQty > 1 ? (layoutType === 'cluster' ? (0 - (cols - 1) / 2) * p.widthM : (0 - (personQty - 1) / 2) * p.widthM) : 0;
-        const primaryDeskZ = personQty > 1 ? (layoutType === 'cluster' ? p.depthM / 2 : 0) : 0;
+        const layoutType = p.layoutType || 'linear';
+        const cols = layoutType === 'cluster' ? Math.max(1, Math.ceil(personQty / 2)) : personQty;
+        const stationW = p.widthM / Math.max(1, cols);
+        // Center of the primary front-left seat in world coordinates
+        const primaryDeskX = -p.widthM / 2 + stationW / 2;
+        const primaryDeskZ = (personQty > 1 && layoutType === 'cluster') ? p.depthM / 2 : 0;
 
         // 1. Table Top Callout (Pointing directly on table top surface)
         if (topCalloutRef.current) {
-          const v = new THREE.Vector3(primaryDeskX - p.widthM * 0.18, p.heightM, primaryDeskZ + p.depthM * 0.08);
+          const v = new THREE.Vector3(primaryDeskX - stationW * 0.18, p.heightM, primaryDeskZ + p.depthM * 0.08);
           v.project(camera);
           if (v.z < 1) {
             topCalloutRef.current.style.display = 'flex';
@@ -704,7 +993,7 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
         // 2. Privacy Screen Callout (Pointing directly on screen)
         if (screenCalloutRef.current) {
           if (p.hasScreen) {
-            const v = new THREE.Vector3(primaryDeskX + p.widthM * 0.22, p.heightM + 0.18, primaryDeskZ - p.depthM / 2 + 0.02);
+            const v = new THREE.Vector3(primaryDeskX + stationW * 0.22, p.heightM + 0.18, primaryDeskZ - p.depthM / 2 + 0.02);
             v.project(camera);
             if (v.z < 1) {
               screenCalloutRef.current.style.display = 'flex';
@@ -757,7 +1046,7 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
 
         // 5. Legs Callout (Pointing directly on front leg)
         if (legCalloutRef.current) {
-          const v = new THREE.Vector3(primaryDeskX - p.widthM / 2 + legInset, p.heightM * 0.45, primaryDeskZ + p.depthM / 2 - legInset);
+          const v = new THREE.Vector3(-p.widthM / 2 + legInset, p.heightM * 0.45, primaryDeskZ + p.depthM / 2 - legInset);
           v.project(camera);
           if (v.z < 1) {
             legCalloutRef.current.style.display = 'flex';
@@ -827,20 +1116,53 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
       if ((obj as THREE.Mesh).geometry) (obj as THREE.Mesh).geometry.dispose();
     }
 
+    // Dynamically scale turntable & camera framing when workstation footprint changes
+    const platformRadius = Math.max(3.1, maxSpan * 0.72);
+    const platformScale = platformRadius / 3.1;
+    if (turntableMeshRef.current) {
+      turntableMeshRef.current.scale.set(platformScale, 1, platformScale);
+    }
+    if (ringMeshRef.current) {
+      ringMeshRef.current.scale.set(platformScale, platformScale, 1);
+    }
+    if (shadowMeshRef.current) {
+      shadowMeshRef.current.scale.set(Math.max(0.5, widthM / 3.0), Math.max(0.5, totalDepthM / 2.2), 1);
+    }
+    if (controlsRef.current && cameraRef.current) {
+      controlsRef.current.maxDistance = Math.max(6.5, maxSpan * 2.5);
+      if (Math.abs(prevSpanRef.current - maxSpan) > 0.15) {
+        const idealDist = Math.max(2.45, maxSpan * 1.12);
+        const dir = cameraRef.current.position.clone().sub(controlsRef.current.target);
+        if (dir.lengthSq() > 0.001) {
+          dir.normalize().multiplyScalar(idealDist);
+          cameraRef.current.position.copy(controlsRef.current.target).add(dir);
+          controlsRef.current.update();
+        }
+        prevSpanRef.current = maxSpan;
+      }
+    }
+
     const isWoodenLegs = setup?.legMaterial === 'wooden';
     const legStyle = setup?.legStyle || 'Straight legs';
     const hasModesty = setup?.modesty ? setup.modesty !== 'None' : true;
     const frontScreen = setup?.frontScreen || 'Acrylic Screen';
     const hasScreen = frontScreen !== 'No Screen';
-    const hasPedestal = setup?.addons?.includes('3-Drawer Mobile Pedestal');
+    const hasPedestal = Boolean(
+      setup?.pedestal3Drawer ||
+      setup?.addons?.some(a => a.toLowerCase().includes('pedestal'))
+    );
+    const hasDrawer = Boolean(setup?.drawer || setup?.addons?.includes('Drawer'));
+    const hasCondrawer = Boolean(setup?.condrawer || setup?.addons?.includes('Condrawer'));
     const hasKeyboard = setup?.addons?.includes('Keyboard Tray');
     const hasCpuStand = setup?.addons?.includes('CPU Stand');
     const electricFunctionVal = setup?.electricFunction || 'None';
     const hasFlipBoxMesh = electricFunctionVal !== 'None' && electricFunctionVal !== 'Wire Raceway' && (electricFunctionVal.includes('Flip Box') || setup?.addons?.includes('Flip Box'));
-    const hasRacewayMesh = electricFunctionVal !== 'None';
+    const hasRacewayMesh = electricFunctionVal !== 'None' && electricFunctionVal !== 'Wire Management';
+    const hasWireMgmtMesh = Boolean(setup?.wireManagement || electricFunctionVal.toLowerCase().includes('wire management'));
+    const hasCncSheet = Boolean(setup?.includeCncSheet || setup?.cncSheet);
 
     const personQty = setup?.personQuantity ?? 1;
-    const layoutType = setup?.layoutType ?? 'cluster';
+    const layoutType = effectiveLayoutType;
 
     const halfW = widthM / 2;
     const halfD = depthM / 2;
@@ -849,9 +1171,11 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
     // Shared materials
     let topMat: THREE.Material;
     if (topColorHex.isWood) {
-      const woodTex = setup?.tableTopColor === 'Beach' 
+      const isWalnut = setup?.tableTopColor?.toLowerCase().includes('walnut');
+      const isBeech = setup?.tableTopColor?.toLowerCase().includes('beach') || setup?.tableTopColor?.toLowerCase().includes('beech');
+      const woodTex = isBeech 
         ? createWoodTexture('#d4a373', '#a16207')
-        : createWoodTexture('#854d0e', '#582e08');
+        : (isWalnut ? createWoodTexture('#3e2723', '#23140b') : createWoodTexture('#854d0e', '#582e08'));
       topMat = new THREE.MeshStandardMaterial({
         map: woodTex,
         roughness: 0.45,
@@ -891,26 +1215,7 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
       roughness: 0.8,
     });
 
-    let screenMat: THREE.Material;
-    if (frontScreen === 'Wooden') {
-      const woodTex = setup?.tableTopColor === 'Beach' 
-        ? createWoodTexture('#d4a373', '#a16207')
-        : createWoodTexture('#854d0e', '#582e08');
-      screenMat = new THREE.MeshStandardMaterial({
-        map: woodTex,
-        roughness: 0.5,
-      });
-    } else {
-      screenMat = new THREE.MeshPhysicalMaterial({
-        color: new THREE.Color(screenColorHex.fill),
-        transmission: 0.65,
-        opacity: 0.85,
-        transparent: true,
-        roughness: 0.12,
-        ior: 1.45,
-        thickness: 0.01,
-      });
-    }
+    const screenMat = getScreenMaterial(frontScreen, screenColorHex, setup?.tableTopColor);
 
     const frameMat = new THREE.MeshStandardMaterial({
       color: 0xe2e8f0,
@@ -1050,10 +1355,14 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
           { x: halfW - legInset, z: halfD - legInset, isRear: false, isLeft: false },   // Front Right
         ];
 
-        // Calculate intermediate leg positions: exactly ONE middle leg at the exact center (x = 0) for wide / multi-person tables
+        // Calculate intermediate leg positions at every station seam for multi-person line-by-line seating, or 1 center leg for wide single desks
         const intermediateXPositions: number[] = [];
-        if (numPersons >= 2 || widthM >= 1.8) {
-          intermediateXPositions.push(0); // Exactly ONE leg in the middle
+        if (numPersons >= 2) {
+          for (let k = 1; k < numPersons; k++) {
+            intermediateXPositions.push(-halfW + k * stationWidth);
+          }
+        } else if (widthM >= 1.8) {
+          intermediateXPositions.push(0); // Single center support leg for wide 1P desks
         }
 
         // Front intermediate middle leg is recessed inside by 160mm (0.16m) for ergonomic knee clearance
@@ -1111,6 +1420,28 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
             const topBeamMesh = new THREE.Mesh(topBeamGeo, legMat);
             topBeamMesh.position.set(xPos, heightM - thicknessM - (legSizeM * 0.75) / 2, 0);
             deskParent.add(topBeamMesh);
+
+            // Side CNC Sheet placed between the two legs of the understructure (front post and rear post)
+            if (hasCncSheet) {
+              const sideCncSpanZ = runnerSpan - legSizeM - 0.02;
+              const sideCncH = legHeight * 0.58;
+              const sideCncY = legY + 0.02;
+              const sideCncMat = createCncMaterial(legColorHex.main, Math.max(1, Math.round(sideCncSpanZ / 0.45)), 1);
+              const sideCncGeo = new THREE.BoxGeometry(0.005, sideCncH, sideCncSpanZ);
+              const sideCncMesh = new THREE.Mesh(sideCncGeo, sideCncMat);
+              sideCncMesh.position.set(xPos, sideCncY, 0);
+              sideCncMesh.castShadow = true;
+              deskParent.add(sideCncMesh);
+
+              const chanMat = new THREE.MeshStandardMaterial({ color: legColorHex.main, roughness: 0.4, metalness: 0.4 });
+              const chanGeo = new THREE.BoxGeometry(0.012, 0.012, sideCncSpanZ + 0.004);
+              const topChan = new THREE.Mesh(chanGeo, chanMat);
+              topChan.position.set(xPos, sideCncY + sideCncH / 2, 0);
+              deskParent.add(topChan);
+              const botChan = new THREE.Mesh(chanGeo, chanMat);
+              botChan.position.set(xPos, sideCncY - sideCncH / 2, 0);
+              deskParent.add(botChan);
+            }
 
             // Glides on bottom runner
             const glideGeo = new THREE.CylinderGeometry(0.012, 0.012, 0.006, 16);
@@ -1193,13 +1524,15 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
             deskParent.add(glideMesh);
           });
 
-          // Left & Right Side Metal Gable Modesty Panels (spanning between slanted posts)
-          const sideGableGeo = new THREE.BoxGeometry(0.006, legHeight * 0.55, depthM - legInset * 2.2);
-          const sideGableMat = new THREE.MeshStandardMaterial({
-            color: legColorObj,
-            roughness: 0.4,
-            metalness: 0.3
-          });
+          // Left & Right Side Metal Gable / CNC Panels (spanning between slanted posts)
+          const sideGableGeo = new THREE.BoxGeometry(0.005, legHeight * 0.55, depthM - legInset * 2.2);
+          const sideGableMat = hasCncSheet
+            ? createCncMaterial(legColorHex.main, Math.max(1, Math.round((depthM - legInset * 2.2) / 0.45)), 1)
+            : new THREE.MeshStandardMaterial({
+                color: legColorObj,
+                roughness: 0.4,
+                metalness: 0.3
+              });
           
           const leftGable = new THREE.Mesh(sideGableGeo, sideGableMat);
           leftGable.position.set(-halfW + legInset, heightM - thicknessM - (legHeight * 0.55) / 2 - 0.02, 0);
@@ -1251,6 +1584,31 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
             glideMesh.position.set(pos.x, 0.004, pos.z);
             deskParent.add(glideMesh);
           });
+
+          // Side CNC Sheet placed between front and rear straight legs on left and right
+          if (hasCncSheet) {
+            const sideCncSpanZ = depthM - legInset * 2 - legSizeM - 0.02;
+            const sideCncH = legHeight * 0.58;
+            const sideCncY = legY + 0.02;
+            const sideCncMat = createCncMaterial(legColorHex.main, Math.max(1, Math.round(sideCncSpanZ / 0.45)), 1);
+
+            [-halfW + legInset, halfW - legInset].forEach((xPos) => {
+              const sideCncGeo = new THREE.BoxGeometry(0.005, sideCncH, sideCncSpanZ);
+              const sideCncMesh = new THREE.Mesh(sideCncGeo, sideCncMat);
+              sideCncMesh.position.set(xPos, sideCncY, 0);
+              sideCncMesh.castShadow = true;
+              deskParent.add(sideCncMesh);
+
+              const chanMat = new THREE.MeshStandardMaterial({ color: legColorHex.main, roughness: 0.4, metalness: 0.4 });
+              const chanGeo = new THREE.BoxGeometry(0.012, 0.012, sideCncSpanZ + 0.004);
+              const topChan = new THREE.Mesh(chanGeo, chanMat);
+              topChan.position.set(xPos, sideCncY + sideCncH / 2, 0);
+              deskParent.add(topChan);
+              const botChan = new THREE.Mesh(chanGeo, chanMat);
+              botChan.position.set(xPos, sideCncY - sideCncH / 2, 0);
+              deskParent.add(botChan);
+            });
+          }
 
           // Intermediate Middle Support Legs (Recessed inside for legroom)
           intermediateXPositions.forEach((xPos) => {
@@ -1316,7 +1674,7 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
         }
 
         // Side metal pipes connecting Front Leg to Rear Leg under tabletop (Left & Right)
-        if (railSpanZ > 0.2 && legStyle !== 'U shape legs') {
+        if (railSpanZ > 0.2 && !isUShape) {
           const sideRailGeo = new THREE.BoxGeometry(railW, railH, railSpanZ);
           
           // Left Side Metal Pipe
@@ -1333,36 +1691,18 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
         }
       }
 
-      // 3. PRIVACY SCREENS (Single shared central screen in face-to-face pods, or individual per-desk screen)
-      if (hasScreen && !isClusterRearRow) {
-        const screenH = setup?.screenHeight === '450MM' ? 0.45 : setup?.screenHeight === '400MM' ? 0.4 : 0.32;
+      // 3. PRIVACY SCREENS (Single shared central screen in face-to-face pods, or rear wall-side screens in wall-facing rows)
+      if (hasScreen && (!isClusterRearRow || (isCluster && numPersons > 1 && setup?.middlePartition !== 'None'))) {
+        const sHeightStr = (setup?.screenHeight || '').toLowerCase();
+        const screenH = sHeightStr.includes('450') ? 0.45 : sHeightStr.includes('400') ? 0.4 : 0.30;
         const screenThickness = 0.008;
         const screenSideW = depthM - 0.06;
         const screenY = heightM + screenH / 2 - 0.04;
         const screenZ = isCluster ? -halfD : -halfD + 0.02;
         const screenQty = setup?.screenQuantity ?? 1;
+        const isAluminumFramed = frontScreen.toLowerCase().includes('alumin');
 
-        let screenMat: THREE.Material;
-        if (frontScreen === 'Wooden') {
-          const woodTex = setup?.tableTopColor === 'Beach' 
-            ? createWoodTexture('#d4a373', '#a16207')
-            : createWoodTexture('#854d0e', '#582e08');
-          screenMat = new THREE.MeshStandardMaterial({
-            map: woodTex,
-            roughness: 0.5,
-          });
-        } else {
-          // Acrylic semi-transparent screen
-          screenMat = new THREE.MeshPhysicalMaterial({
-            color: new THREE.Color(screenColorHex.fill),
-            transmission: 0.65,
-            opacity: 0.85,
-            transparent: true,
-            roughness: 0.12,
-            ior: 1.45,
-            thickness: 0.01,
-          });
-        }
+        const screenMat = getScreenMaterial(frontScreen, screenColorHex, setup?.tableTopColor);
 
         const frameMat = new THREE.MeshStandardMaterial({
           color: 0xe2e8f0,
@@ -1387,7 +1727,7 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
           deskParent.add(screenMesh);
 
           // Aluminium framing for Front Screen
-          if (frontScreen === 'Aluminium framing') {
+          if (isAluminumFramed) {
             const hBarGeo = new THREE.BoxGeometry(screenW + frameBorderW * 2, frameBorderW, screenThickness + 0.004);
             const topBar = new THREE.Mesh(hBarGeo, frameMat);
             topBar.position.set(0, screenY + screenH / 2, screenZ);
@@ -1421,18 +1761,19 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
           const stationW = widthM / numPersons;
           const seatScreenW = stationW - 0.05;
 
-          for (let k = 0; k < numPersons; k++) {
-            const seatCenterX = -halfW + (k + 0.5) * stationW;
+          if (!isClusterRearRow) {
+            for (let k = 0; k < numPersons; k++) {
+              const seatCenterX = -halfW + (k + 0.5) * stationW;
 
-            // Individual screen panel for Person (k+1) with curved top edges
-            const seatScreenGeo = createCurvedTopScreenGeometry(seatScreenW, screenH, screenThickness, 0.038);
-            const seatScreenMesh = new THREE.Mesh(seatScreenGeo, screenMat);
-            seatScreenMesh.position.set(seatCenterX, screenY, screenZ);
-            seatScreenMesh.castShadow = true;
-            deskParent.add(seatScreenMesh);
+              // Individual screen panel for Person (k+1) with curved top edges
+              const seatScreenGeo = createCurvedTopScreenGeometry(seatScreenW, screenH, screenThickness, 0.038);
+              const seatScreenMesh = new THREE.Mesh(seatScreenGeo, screenMat);
+              seatScreenMesh.position.set(seatCenterX, screenY, screenZ);
+              seatScreenMesh.castShadow = true;
+              deskParent.add(seatScreenMesh);
 
-            // Aluminium frame around each individual screen
-            if (frontScreen === 'Aluminium framing') {
+              // Aluminium frame around each individual screen
+              if (isAluminumFramed) {
               const hBarGeo = new THREE.BoxGeometry(seatScreenW + frameBorderW * 2, frameBorderW, screenThickness + 0.004);
               const topBar = new THREE.Mesh(hBarGeo, frameMat);
               topBar.position.set(seatCenterX, screenY + screenH / 2, screenZ);
@@ -1452,15 +1793,16 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
               deskParent.add(rightBar);
             }
 
-            // 2 Clamps per individual screen
-            const cOffset = seatScreenW * 0.32;
-            const c1 = new THREE.Mesh(clampGeo, clampMat);
-            c1.position.set(seatCenterX - cOffset, heightM + 0.01, screenZ);
-            deskParent.add(c1);
+              // 2 Clamps per individual screen
+              const cOffset = seatScreenW * 0.32;
+              const c1 = new THREE.Mesh(clampGeo, clampMat);
+              c1.position.set(seatCenterX - cOffset, heightM + 0.01, screenZ);
+              deskParent.add(c1);
 
-            const c2 = new THREE.Mesh(clampGeo, clampMat);
-            c2.position.set(seatCenterX + cOffset, heightM + 0.01, screenZ);
-            deskParent.add(c2);
+              const c2 = new THREE.Mesh(clampGeo, clampMat);
+              c2.position.set(seatCenterX + cOffset, heightM + 0.01, screenZ);
+              deskParent.add(c2);
+            }
           }
 
           // --- INTERMEDIATE CROSS-DIVIDER PARTITION SCREENS BETWEEN SEATERS (OPTIONAL) ---
@@ -1480,7 +1822,7 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
               deskParent.add(divMesh);
 
               // Aluminium frame on the intermediate divider
-              if (frontScreen === 'Aluminium framing') {
+              if (isAluminumFramed) {
                 const divHBarGeo = new THREE.BoxGeometry(screenThickness + 0.004, frameBorderW, dividerDepth + frameBorderW * 2);
                 const topDivBar = new THREE.Mesh(divHBarGeo, frameMat);
                 topDivBar.position.set(divX, screenY + screenH / 2, dividerZ);
@@ -1505,15 +1847,15 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
           }
         }
 
-        // --- OUTER SIDE SCREENS (if selected) ---
-        if (screenQty >= 2) {
+        // --- OUTER SIDE SCREENS (if selected, skip for cluster rear row to avoid overlapping) ---
+        if (!isClusterRearRow && screenQty >= 2) {
           const sideScreenGeo = createCurvedTopDividerGeometry(screenSideW, screenH, screenThickness, 0.038);
           const leftSideMesh = new THREE.Mesh(sideScreenGeo, screenMat);
           leftSideMesh.position.set(-halfW + 0.02, screenY, 0);
           leftSideMesh.castShadow = true;
           deskParent.add(leftSideMesh);
 
-          if (frontScreen === 'Aluminium framing') {
+          if (isAluminumFramed) {
             const sideHBarGeo = new THREE.BoxGeometry(screenThickness + 0.004, frameBorderW, screenSideW + frameBorderW * 2);
             const topSideBar = new THREE.Mesh(sideHBarGeo, frameMat);
             topSideBar.position.set(-halfW + 0.02, screenY + screenH / 2, 0);
@@ -1535,14 +1877,14 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
           deskParent.add(sideClamp2);
         }
 
-        if (screenQty >= 3) {
+        if (!isClusterRearRow && screenQty >= 3) {
           const sideScreenGeo = createCurvedTopDividerGeometry(screenSideW, screenH, screenThickness, 0.038);
           const rightSideMesh = new THREE.Mesh(sideScreenGeo, screenMat);
           rightSideMesh.position.set(halfW - 0.02, screenY, 0);
           rightSideMesh.castShadow = true;
           deskParent.add(rightSideMesh);
 
-          if (frontScreen === 'Aluminium framing') {
+          if (isAluminumFramed) {
             const sideHBarGeo = new THREE.BoxGeometry(screenThickness + 0.004, frameBorderW, screenSideW + frameBorderW * 2);
             const topSideBar = new THREE.Mesh(sideHBarGeo, frameMat);
             topSideBar.position.set(halfW - 0.02, screenY + screenH / 2, 0);
@@ -1565,23 +1907,63 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
         }
       }
 
-      // 4. MODESTY PANEL
-      if (hasModesty) {
+      // Compute bay leg X boundaries for segmented Modesty / CNC Sheets in single/wall-facing rows
+      const bayBoundaries: number[] = [-halfW + legInset];
+      if (numPersons >= 2) {
+        for (let k = 1; k < numPersons; k++) {
+          bayBoundaries.push(-halfW + k * stationWidth);
+        }
+      }
+      bayBoundaries.push(halfW - legInset);
+
+      // 4. MODESTY PANEL (Single Desk / Linear Row only; Cluster pods use unified center spine panel)
+      if (hasModesty && !isCluster && !hasCncSheet) {
         const modestyH = 0.32;
-        const modestyW = widthM - legInset * 2 - legSizeM * 2 - 0.04;
         const modestyY = heightM - thicknessM - modestyH / 2 - 0.02;
         const modestyZ = -halfD + legInset + 0.01;
-
         const modestyMat = new THREE.MeshStandardMaterial({
           color: topColorHex.isWood ? new THREE.Color(topColorHex.main) : new THREE.Color(0x475569),
           roughness: 0.5,
         });
 
-        const modestyGeo = new THREE.BoxGeometry(modestyW, modestyH, 0.015);
-        const modestyMesh = new THREE.Mesh(modestyGeo, modestyMat);
-        modestyMesh.position.set(0, modestyY, modestyZ);
-        modestyMesh.castShadow = true;
-        deskParent.add(modestyMesh);
+        for (let b = 0; b < bayBoundaries.length - 1; b++) {
+          const bayW = Math.max(0.2, (bayBoundaries[b + 1] - bayBoundaries[b]) - legSizeM - 0.02);
+          const bayCx = (bayBoundaries[b] + bayBoundaries[b + 1]) / 2;
+          const modestyGeo = new THREE.BoxGeometry(bayW, modestyH, 0.015);
+          const modestyMesh = new THREE.Mesh(modestyGeo, modestyMat);
+          modestyMesh.position.set(bayCx, modestyY, modestyZ);
+          modestyMesh.castShadow = true;
+          deskParent.add(modestyMesh);
+        }
+      }
+
+      // 4b. CNC SHEET (Optional decorative laser-cut sheet placed cleanly in each bay between legs)
+      if (hasCncSheet && !isCluster) {
+        const cncH = 0.36;
+        const cncY = heightM - thicknessM - cncH / 2 - 0.03;
+        const cncZ = -halfD + legInset + 0.015;
+        const chanMat = new THREE.MeshStandardMaterial({ color: legColorHex.main, roughness: 0.4, metalness: 0.4 });
+
+        for (let b = 0; b < bayBoundaries.length - 1; b++) {
+          const cncW = Math.max(0.2, (bayBoundaries[b + 1] - bayBoundaries[b]) - legSizeM - 0.02);
+          const bayCx = (bayBoundaries[b] + bayBoundaries[b + 1]) / 2;
+
+          const cncMat = createCncMaterial(legColorHex.main, Math.max(1, Math.round(cncW / 0.55)), 1);
+          const cncGeo = new THREE.BoxGeometry(cncW, cncH, 0.006);
+          const cncMesh = new THREE.Mesh(cncGeo, cncMat);
+          cncMesh.position.set(bayCx, cncY, cncZ);
+          cncMesh.castShadow = true;
+          deskParent.add(cncMesh);
+
+          const chanGeo = new THREE.BoxGeometry(cncW + 0.004, 0.012, 0.012);
+          const topChan = new THREE.Mesh(chanGeo, chanMat);
+          topChan.position.set(bayCx, cncY + cncH / 2, cncZ);
+          deskParent.add(topChan);
+
+          const botChan = new THREE.Mesh(chanGeo, chanMat);
+          botChan.position.set(bayCx, cncY - cncH / 2, cncZ);
+          deskParent.add(botChan);
+        }
       }
 
       // 5. FLIP BOX (Embedded Tabletop Cable Management Box - OPTIONAL)
@@ -1707,7 +2089,7 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
 
         for (let k = 0; k < numPersons; k++) {
           const seatCenterX = numPersons === 1 ? 0 : -halfW + (k + 0.5) * stationWidth;
-          const pedX = seatCenterX - stationWidth * 0.32;
+          const pedX = seatCenterX - stationWidth * 0.30;
           const pedY = pedH / 2 + 0.04;
           const pedZ = 0;
 
@@ -1730,6 +2112,76 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
             const handleMesh = new THREE.Mesh(handleGeo, handleMat);
             handleMesh.position.set(pedX, dy, pedD / 2 + 0.01);
             deskParent.add(handleMesh);
+          }
+        }
+      }
+
+      // 6b. ADDONS: SINGLE UNDER-DESK DRAWER & CONDRAWER
+      if (hasDrawer) {
+        const drW = Math.min(0.38, stationWidth * 0.38);
+        const drH = 0.095;
+        const drD = Math.min(0.42, depthM * 0.65);
+        const drBodyMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.35, metalness: 0.15 });
+        const drFaceMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3 });
+        const drHandleMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.8, roughness: 0.25 });
+
+        for (let k = 0; k < numPersons; k++) {
+          const seatCenterX = numPersons === 1 ? 0 : -halfW + (k + 0.5) * stationWidth;
+          const drX = seatCenterX + stationWidth * 0.26;
+          const drY = heightM - thicknessM - drH / 2 - 0.015;
+          const drZ = halfD - drD / 2 - 0.04;
+
+          const drMesh = new THREE.Mesh(new THREE.BoxGeometry(drW, drH, drD), drBodyMat);
+          drMesh.position.set(drX, drY, drZ);
+          drMesh.castShadow = true;
+          deskParent.add(drMesh);
+
+          const drFace = new THREE.Mesh(new THREE.BoxGeometry(drW - 0.008, drH - 0.008, 0.008), drFaceMat);
+          drFace.position.set(drX, drY, drZ + drD / 2 + 0.004);
+          deskParent.add(drFace);
+
+          const drHandle = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.01, 0.01), drHandleMat);
+          drHandle.position.set(drX, drY, drZ + drD / 2 + 0.011);
+          deskParent.add(drHandle);
+        }
+      }
+
+      if (hasCondrawer) {
+        const cdW = Math.min(0.46, stationWidth * 0.44);
+        const cdH = 0.048;
+        const cdD = Math.min(0.30, depthM * 0.48);
+        const cdMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.4, metalness: 0.45 });
+        const cdPullMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.85, roughness: 0.2 });
+
+        for (let k = 0; k < numPersons; k++) {
+          const seatCenterX = numPersons === 1 ? 0 : -halfW + (k + 0.5) * stationWidth;
+          const cdY = heightM - thicknessM - cdH / 2 - 0.012;
+          const cdZ = halfD - cdD / 2 - 0.035;
+
+          const cdMesh = new THREE.Mesh(new THREE.BoxGeometry(cdW, cdH, cdD), cdMat);
+          cdMesh.position.set(seatCenterX, cdY, cdZ);
+          cdMesh.castShadow = true;
+          deskParent.add(cdMesh);
+
+          const cdPull = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.008, 0.008), cdPullMat);
+          cdPull.position.set(seatCenterX, cdY, cdZ + cdD / 2 + 0.005);
+          deskParent.add(cdPull);
+        }
+      }
+
+      // 6c. WIRE MANAGEMENT SNAKE / VERTICAL CABLE CHANNEL (if wireManagement active)
+      if (hasWireMgmtMesh && !isClusterRearRow) {
+        const snakeMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.5, metalness: 0.35 });
+        const snakeSegGeo = new THREE.BoxGeometry(0.032, 0.035, 0.022);
+        for (let k = 0; k < numPersons; k++) {
+          const seatCenterX = numPersons === 1 ? 0 : -halfW + (k + 0.5) * stationWidth;
+          const snakeX = seatCenterX + stationWidth * 0.16;
+          const snakeZ = -halfD + 0.13;
+          for (let seg = 0; seg < 10; seg++) {
+            const sy = 0.05 + seg * 0.062;
+            const segMesh = new THREE.Mesh(snakeSegGeo, snakeMat);
+            segMesh.position.set(snakeX, sy, snakeZ);
+            deskParent.add(segMesh);
           }
         }
       }
@@ -1999,9 +2451,14 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
       const fullPodSpanZ = outerFrontZ - outerRearZ; // 2 * depthM - 2 * legInset
       const outerXPositions = [-halfW + legInset, halfW - legInset];
 
-      // Intermediate X positions for multi-seater pods (x = 0)
+      // Intermediate X positions at every column seam for multi-seater pods
       const intermediateXPositions: number[] = [];
-      if (cols >= 2 || widthM >= 1.8) {
+      if (cols >= 2) {
+        const colW = widthM / cols;
+        for (let k = 1; k < cols; k++) {
+          intermediateXPositions.push(-halfW + k * colW);
+        }
+      } else if (widthM >= 1.8) {
         intermediateXPositions.push(0);
       }
 
@@ -2036,6 +2493,28 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
           const topBeamMesh = new THREE.Mesh(topBeamGeo, legMat);
           topBeamMesh.position.set(xPos, heightM - thicknessM - (legSizeM * 0.75) / 2, 0);
           podGroup.add(topBeamMesh);
+
+          // Side CNC Sheet placed between the two legs of the understructure (front post and rear post)
+          if (hasCncSheet) {
+            const sideCncSpanZ = fullPodSpanZ - legSizeM - 0.02;
+            const sideCncH = legHeight * 0.58;
+            const sideCncY = legY + 0.02;
+            const sideCncMat = createCncMaterial(legColorHex.main, Math.max(1, Math.round(sideCncSpanZ / 0.55)), 1);
+            const sideCncGeo = new THREE.BoxGeometry(0.005, sideCncH, sideCncSpanZ);
+            const sideCncMesh = new THREE.Mesh(sideCncGeo, sideCncMat);
+            sideCncMesh.position.set(xPos, sideCncY, 0);
+            sideCncMesh.castShadow = true;
+            podGroup.add(sideCncMesh);
+
+            const chanMat = new THREE.MeshStandardMaterial({ color: legColorHex.main, roughness: 0.4, metalness: 0.4 });
+            const chanGeo = new THREE.BoxGeometry(0.012, 0.012, sideCncSpanZ + 0.004);
+            const topChan = new THREE.Mesh(chanGeo, chanMat);
+            topChan.position.set(xPos, sideCncY + sideCncH / 2, 0);
+            podGroup.add(topChan);
+            const botChan = new THREE.Mesh(chanGeo, chanMat);
+            botChan.position.set(xPos, sideCncY - sideCncH / 2, 0);
+            podGroup.add(botChan);
+          }
 
           // Glides (Front & Rear only - clean open side loop)
           const glideGeo = new THREE.CylinderGeometry(0.012, 0.012, 0.006, 16);
@@ -2116,13 +2595,15 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
           rearMesh.castShadow = true;
           podGroup.add(rearMesh);
 
-          // Full-span side gable modesty panel
-          const sideGableGeo = new THREE.BoxGeometry(0.006, legHeight * 0.55, fullPodSpanZ);
-          const sideGableMat = new THREE.MeshStandardMaterial({
-            color: legColorObj,
-            roughness: 0.4,
-            metalness: 0.3
-          });
+          // Full-span side gable / CNC sheet between slanted posts
+          const sideGableGeo = new THREE.BoxGeometry(0.005, legHeight * 0.55, fullPodSpanZ);
+          const sideGableMat = hasCncSheet
+            ? createCncMaterial(legColorHex.main, Math.max(1, Math.round(fullPodSpanZ / 0.55)), 1)
+            : new THREE.MeshStandardMaterial({
+                color: legColorObj,
+                roughness: 0.4,
+                metalness: 0.3
+              });
           const sideGable = new THREE.Mesh(sideGableGeo, sideGableMat);
           sideGable.position.set(xPos, heightM - thicknessM - (legHeight * 0.55) / 2 - 0.02, 0);
           sideGable.castShadow = true;
@@ -2166,6 +2647,28 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
           rearPost.position.set(xPos, legY, outerRearZ);
           rearPost.castShadow = true;
           podGroup.add(rearPost);
+
+          // Side CNC Sheet placed between front and rear straight legs of understructure
+          if (hasCncSheet) {
+            const sideCncSpanZ = fullPodSpanZ - legSizeM - 0.02;
+            const sideCncH = legHeight * 0.58;
+            const sideCncY = legY + 0.02;
+            const sideCncMat = createCncMaterial(legColorHex.main, Math.max(1, Math.round(sideCncSpanZ / 0.55)), 1);
+            const sideCncGeo = new THREE.BoxGeometry(0.005, sideCncH, sideCncSpanZ);
+            const sideCncMesh = new THREE.Mesh(sideCncGeo, sideCncMat);
+            sideCncMesh.position.set(xPos, sideCncY, 0);
+            sideCncMesh.castShadow = true;
+            podGroup.add(sideCncMesh);
+
+            const chanMat = new THREE.MeshStandardMaterial({ color: legColorHex.main, roughness: 0.4, metalness: 0.4 });
+            const chanGeo = new THREE.BoxGeometry(0.012, 0.012, sideCncSpanZ + 0.004);
+            const topChan = new THREE.Mesh(chanGeo, chanMat);
+            topChan.position.set(xPos, sideCncY + sideCncH / 2, 0);
+            podGroup.add(topChan);
+            const botChan = new THREE.Mesh(chanGeo, chanMat);
+            botChan.position.set(xPos, sideCncY - sideCncH / 2, 0);
+            podGroup.add(botChan);
+          }
 
           // Glides
           const glideGeo = new THREE.CylinderGeometry(0.015, 0.015, 0.008, 16);
@@ -2219,6 +2722,42 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
         const spineRail = new THREE.Mesh(spineRailGeo, railMat);
         spineRail.position.set(0, railY, 0);
         podGroup.add(spineRail);
+
+        // Unified Single Center Longitudinal Panel along Spine at z = 0
+        if (hasCncSheet) {
+          const spineCncW = railLengthX - legSizeM - 0.02;
+          const spineCncH = 0.34;
+          const spineCncY = heightM - thicknessM - spineCncH / 2 - 0.03;
+          const spineCncMat = createCncMaterial(legColorHex.main, Math.max(1, Math.round(spineCncW / 0.55)), 1);
+          const spineCncGeo = new THREE.BoxGeometry(spineCncW, spineCncH, 0.006);
+          const spineCncMesh = new THREE.Mesh(spineCncGeo, spineCncMat);
+          spineCncMesh.position.set(0, spineCncY, 0);
+          spineCncMesh.castShadow = true;
+          podGroup.add(spineCncMesh);
+
+          const chanMat = new THREE.MeshStandardMaterial({ color: legColorHex.main, roughness: 0.4, metalness: 0.4 });
+          const chanGeo = new THREE.BoxGeometry(spineCncW + 0.004, 0.012, 0.012);
+          const topChan = new THREE.Mesh(chanGeo, chanMat);
+          topChan.position.set(0, spineCncY + spineCncH / 2, 0);
+          podGroup.add(topChan);
+
+          const botChan = new THREE.Mesh(chanGeo, chanMat);
+          botChan.position.set(0, spineCncY - spineCncH / 2, 0);
+          podGroup.add(botChan);
+        } else if (hasModesty) {
+          const spineModestyW = railLengthX - legSizeM - 0.02;
+          const spineModestyH = 0.32;
+          const spineModestyY = heightM - thicknessM - spineModestyH / 2 - 0.02;
+          const modestyMat = new THREE.MeshStandardMaterial({
+            color: topColorHex.isWood ? new THREE.Color(topColorHex.main) : new THREE.Color(0x475569),
+            roughness: 0.5,
+          });
+          const modestyGeo = new THREE.BoxGeometry(spineModestyW, spineModestyH, 0.015);
+          const modestyMesh = new THREE.Mesh(modestyGeo, modestyMat);
+          modestyMesh.position.set(0, spineModestyY, 0);
+          modestyMesh.castShadow = true;
+          podGroup.add(modestyMesh);
+        }
       }
     };
 
@@ -2276,7 +2815,7 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
 
     setIsAutoRotating(false);
 
-    const dist = 2.4;
+    const dist = Math.max(2.4, maxSpan * 1.12);
     const targetY = heightM / 2 + 0.05;
     controls.target.set(0, targetY, 0);
 
@@ -2459,7 +2998,11 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
             <span className="w-2.5 h-2.5 rounded-full bg-indigo-500 shrink-0 shadow-xs" />
             <span className="font-bold">{setup?.dimensions || '1200 x 600 mm'}</span>
             <span className="text-slate-400">•</span>
-            <span className="font-medium">{setup?.personQuantity && setup.personQuantity > 1 ? `${setup.personQuantity}-Seater Pod` : 'Single Desk'}</span>
+            <span className="font-medium">
+              {setup?.personQuantity && setup.personQuantity > 1
+                ? `${setup.personQuantity}-Seater ${effectiveLayoutType === 'linear' ? 'Wall-Facing Row' : 'Face-to-Face Pod'}`
+                : effectiveLayoutType === 'linear' ? 'Single Wall-Facing Desk' : 'Single Desk'}
+            </span>
             <span className="text-slate-400">•</span>
             <span className="text-slate-500 font-medium">Height 750 mm</span>
           </span>
@@ -2514,22 +3057,22 @@ export const Workstation3DViewer: React.FC<Workstation3DViewerProps> = ({
             )}
           </button>
 
-          {/* Single Snapshot Button */}
+          {/* Single Snapshot Picture Button */}
           <button
             type="button"
             onClick={handleTakeSnapshot}
             disabled={isDownloadingAllAngles}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all shadow-sm cursor-pointer hover:scale-105 active:scale-95 ${
               snapshotSuccess
-                ? 'bg-emerald-600 text-white'
+                ? 'bg-emerald-600 text-white shadow-emerald-500/30'
                 : isFullScreen
-                  ? 'bg-slate-800/90 text-slate-200 hover:bg-slate-700 border border-slate-700'
-                  : 'bg-white/95 text-slate-700 hover:bg-slate-100 border border-slate-200'
+                  ? 'bg-emerald-600/90 text-white hover:bg-emerald-600 border border-emerald-500/50'
+                  : 'bg-emerald-600 text-white hover:bg-emerald-700 border border-emerald-600'
             }`}
-            title="Download Single Angle High-Resolution Snapshot"
+            title="Download Instant High-Resolution Picture (PNG)"
           >
-            {snapshotSuccess ? <Check className="w-3.5 h-3.5" /> : <Camera className="w-3.5 h-3.5 text-indigo-500" />}
-            <span className="hidden sm:inline">{snapshotSuccess ? 'Saved!' : 'Snapshot'}</span>
+            {snapshotSuccess ? <Check className="w-3.5 h-3.5" /> : <Camera className="w-3.5 h-3.5 text-white" />}
+            <span>{snapshotSuccess ? '📸 Picture Saved!' : '📸 Make Picture'}</span>
           </button>
 
           {/* Theme switcher in Fullscreen */}

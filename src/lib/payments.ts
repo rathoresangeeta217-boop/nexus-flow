@@ -1,6 +1,7 @@
 import { collection, addDoc, getDocs, setDoc, query, updateDoc, doc, onSnapshot, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
 import { getCachedPayments, setCachedPayments, BASELINE_PAYMENTS } from './paymentsCache';
+export { getCachedPayments, setCachedPayments, BASELINE_PAYMENTS };
 
 export interface PaymentPhase {
   id: string;
@@ -126,22 +127,46 @@ export function isPaymentMatchingOrder(
 
   const oIdFull = orderId ? orderId.trim().toLowerCase() : '';
   const oDocFull = docId ? docId.trim().toLowerCase() : '';
-  const oCustFull = customerName ? customerName.trim().toLowerCase() : '';
   const oBase = extractOrderBaseId(orderId) || extractOrderBaseId(docId);
 
   const pOrderId = payment.orderId ? payment.orderId.trim().toLowerCase() : '';
   const pDocId = payment.docId ? payment.docId.trim().toLowerCase() : '';
-  const pCust = (payment.customer || '').trim().toLowerCase();
   const pBase = extractOrderBaseId(payment.orderId) || extractOrderBaseId(payment.docId);
 
-  // Exact full string match
+  // 1. Exact full string match
   if (oIdFull && (pOrderId === oIdFull || pDocId === oIdFull)) return true;
   if (oDocFull && (pOrderId === oDocFull || pDocId === oDocFull)) return true;
 
-  // Exact base order code match (e.g. ord-2026-3285735 === ord-2026-3285735)
+  // 2. Exact base order code match (e.g. ord-2026-3285735 === ord-2026-3285735)
   if (oBase && pBase && oBase === pBase) return true;
 
-  // Check aliases array on payment
+  // 3. Known specific order ID aliases for quotation <-> order equivalence
+  const isSubhasOrder = oIdFull.includes('4809459') || oIdFull.includes('3285735');
+  const isSubhasPayment = pOrderId.includes('4809459') || pOrderId.includes('3285735') || pDocId.includes('4809459') || pDocId.includes('3285735');
+  if (isSubhasOrder && isSubhasPayment) {
+    return true;
+  }
+
+  const isGosimplifyOrder = oIdFull.includes('6200679') || oIdFull.includes('3585537');
+  const isGosimplifyPayment = pOrderId.includes('6200679') || pOrderId.includes('3585537') || pDocId.toLowerCase() === 'lc5okuwkms8x8evbvawn' || pDocId.includes('6200679');
+  if (isGosimplifyOrder && isGosimplifyPayment) {
+    return true;
+  }
+
+  const isNahimOrder = oIdFull.includes('7247180') || oBase === 'ord-2026-724';
+  const isNahimPayment = pOrderId.includes('7247180') || pBase === 'ord-2026-724';
+  if (isNahimOrder && isNahimPayment) {
+    return true;
+  }
+
+  const isAnkitGoyalOrder = oIdFull.includes('8661661') || oIdFull.includes('8165553') || (customerName && customerName.toLowerCase().includes('ankit') && customerName.toLowerCase().includes('goyal'));
+  const isAnkitGoyalPayment = pOrderId.includes('8661661') || pOrderId.includes('8165553') || (payment.customer && payment.customer.toLowerCase().includes('ankit') && payment.customer.toLowerCase().includes('goyal'));
+  if (isAnkitGoyalOrder && isAnkitGoyalPayment) {
+    return true;
+  }
+
+  // 4. CHECK ALIASES ARRAY (CRITICAL: Must check aliases BEFORE rejecting for different base IDs!)
+  // If payment explicitly records the order's docId or orderId in aliases, it IS a verified match!
   if (payment.aliases && Array.isArray(payment.aliases)) {
     for (const alias of payment.aliases) {
       if (!alias) continue;
@@ -149,60 +174,25 @@ export function isPaymentMatchingOrder(
       const aBase = extractOrderBaseId(alias);
       if (oIdFull && aLow === oIdFull) return true;
       if (oDocFull && aLow === oDocFull) return true;
-      if (oBase && (aLow === oBase || aBase === oBase || aLow.includes(oBase))) return true;
+      if (oBase && aBase && oBase === aBase) return true;
     }
   }
 
-  // Known mapping for Subhas Sir order ID alias (ORD-2026-4809459 <-> ORD-2026-3285735)
-  const isSubhasOrder = oIdFull.includes('4809459') || oIdFull.includes('3285735') || oCustFull.includes('subhas');
-  const isSubhasPayment = pOrderId.includes('4809459') || pOrderId.includes('3285735') || pCust.includes('subhas') || pDocId.includes('subhas');
-  if (isSubhasOrder && isSubhasPayment) {
-    return true;
+  // 5. CRITICAL RULE: If both order and payment have distinct ORD- base IDs and neither is in the other's aliases:
+  // THEY ARE DEFINITIVELY DIFFERENT ORDERS! NEVER match them, even if customer name is identical!
+  // E.g. ORD-2026-650 or ORD-2026-878 must NEVER match new orders of Ganpati Infra!
+  if (oBase && pBase && oBase.startsWith('ord-') && pBase.startsWith('ord-') && oBase !== pBase) {
+    return false;
   }
 
-  // Known mapping for Gosimplify / Rekha Sharma order ID alias (ORD-2026-6200679 <-> ORD-2026-3585537)
-  const isGosimplifyOrder = oIdFull.includes('6200679') || oIdFull.includes('3585537') || oCustFull.includes('gosimplify') || oCustFull.includes('rekha');
-  const isGosimplifyPayment = pOrderId.includes('6200679') || pOrderId.includes('3585537') || pCust.includes('gosimplify') || pCust.includes('rekha') || pDocId.toLowerCase() === 'lc5okuwkms8x8evbvawn' || pDocId.includes('6200679');
-  if (isGosimplifyOrder && isGosimplifyPayment) {
-    return true;
-  }
-
-  // Substring and prefix match between base order codes (e.g. ord-2026-724 <-> ord-2026-7247180)
-  if (oBase && pBase) {
-    if (oBase === pBase) return true;
-    if (oBase.length >= 8 && pBase.length >= 8) {
-      if (oBase.startsWith(pBase) || pBase.startsWith(oBase)) return true;
-      if (oBase.includes(pBase) || pBase.includes(oBase)) return true;
-    }
-  }
-
-  // Substring match by base order code
-  if (oBase && oBase.length > 5 && (pOrderId.includes(oBase) || pDocId.includes(oBase))) {
-    return true;
-  }
-  if (pBase && pBase.length > 5 && (oIdFull.includes(pBase) || oDocFull.includes(pBase))) {
-    return true;
-  }
-
-  // Match by customer name if present and sufficiently distinct (ignoring corporate suffixes like pvt, ltd and country/city names)
-  const COMMON_CUSTOMER_STOP_WORDS = new Set([
-    'pvt', 'ltd', 'limited', 'private', 'corp', 'corporation', 'inc', 'incorporated',
-    'co', 'company', 'enterprises', 'enterprise', 'industries', 'industry', 'services',
-    'and', 'the', 'for', 'by', 'sir', 'ji', 'mr', 'mrs', 'ms',
-    'india', 'bharat', 'jaipur', 'delhi', 'mumbai', 'rajasthan'
-  ]);
-
-  if (oCustFull && oCustFull.length >= 3) {
-    if (pOrderId.includes(oCustFull) || pDocId.includes(oCustFull)) {
-      return true;
-    }
-    if (pCust) {
-      if (pCust === oCustFull) return true;
-      if (pCust.includes(oCustFull) || oCustFull.includes(pCust)) return true;
-      // Word tokens overlap on meaningful distinctive words (excluding 'pvt', 'ltd', etc.)
-      const pTokens = pCust.replace(/[^a-z0-9\s]/gi, '').toLowerCase().split(/\s+/).filter(t => t.length >= 3 && !COMMON_CUSTOMER_STOP_WORDS.has(t));
-      const oTokens = oCustFull.replace(/[^a-z0-9\s]/gi, '').toLowerCase().split(/\s+/).filter(t => t.length >= 3 && !COMMON_CUSTOMER_STOP_WORDS.has(t));
-      if (pTokens.length > 0 && oTokens.length > 0 && pTokens.some(pt => oTokens.includes(pt))) {
+  // 6. Customer name fallback ONLY if the payment has NO valid ORD- ID
+  // (e.g. legacy records where orderId is missing or literally entered as customer name)
+  const isLegacyNonOrderIdPayment = !pBase || !pBase.startsWith('ord-');
+  if (isLegacyNonOrderIdPayment) {
+    const oCustFull = customerName ? customerName.trim().toLowerCase() : '';
+    const pCust = (payment.customer || '').trim().toLowerCase();
+    if (oCustFull && pCust && oCustFull.length >= 3 && pCust.length >= 3) {
+      if (pCust === oCustFull || pOrderId === oCustFull) {
         return true;
       }
     }
@@ -212,6 +202,8 @@ export function isPaymentMatchingOrder(
 }
 
 export const KNOWN_ORDER_CUSTOMERS: Record<string, string> = {
+  "ORD-2026-8661661": "Ankit Kumar Goyal",
+  "ORD-2026-8165553": "Ankit Kumar Goyal",
   "ORD-2026-724": "NAHIM KHAN",
   "ORD-2026-572": "Southern grand hotels pvt. ltd.",
   "ORD-2026-550": "TBR Industries Pvt. Ltd",
@@ -543,7 +535,7 @@ const removeUndefined = (obj: any): any => {
 export const savePaymentRecord = async (record: Partial<PaymentRecord>) => {
   const cleanData = removeUndefined(record);
 
-  // Check if there is an existing payment record for this order
+  // Check if there is an existing payment record for this exact order
   let existingRecord: PaymentRecord | null = null;
   try {
     existingRecord = await getPaymentForOrder(cleanData.orderId || '', cleanData.docId, cleanData.customer);
@@ -551,30 +543,39 @@ export const savePaymentRecord = async (record: Partial<PaymentRecord>) => {
     console.warn("Could not check existing record prior to save:", e);
   }
 
-  // Choose the best document ID: prefer real Firestore ID if one already exists
+  const isMatchingSameOrder = Boolean(
+    existingRecord && (
+      (cleanData.orderId && extractOrderBaseId(cleanData.orderId) === extractOrderBaseId(existingRecord.orderId)) ||
+      (cleanData.docId && cleanData.docId === existingRecord.docId) ||
+      (cleanData.orderId && existingRecord.aliases?.includes(cleanData.orderId)) ||
+      (cleanData.docId && existingRecord.aliases?.includes(cleanData.docId)) ||
+      (cleanData.customer && existingRecord.customer && cleanData.customer.trim().toLowerCase() === existingRecord.customer.trim().toLowerCase())
+    )
+  );
+
+  // Choose the best document ID: prefer real Firestore ID if one already exists for THIS exact order
   let targetDocId = cleanData.docId;
-  if (existingRecord?.docId && !existingRecord.docId.startsWith('pay_')) {
+  if (isMatchingSameOrder && existingRecord?.docId && !existingRecord.docId.startsWith('pay_')) {
     targetDocId = existingRecord.docId;
-  } else if (!targetDocId) {
-    targetDocId = `pay_${Date.now()}`;
+  } else if (!targetDocId || !isMatchingSameOrder) {
+    targetDocId = `pay_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
   }
   cleanData.docId = targetDocId;
 
   if (!cleanData.customer || cleanData.customer.toLowerCase() === 'customer') {
-    cleanData.customer = existingRecord?.customer || getKnownCustomerForOrderId(cleanData.orderId);
+    cleanData.customer = (isMatchingSameOrder && existingRecord?.customer) || getKnownCustomerForOrderId(cleanData.orderId);
   }
 
   const combinedAliases = Array.from(new Set([
     ...(cleanData.aliases || []),
-    ...(existingRecord?.aliases || []),
+    ...(isMatchingSameOrder ? (existingRecord?.aliases || []) : []),
     cleanData.orderId,
-    existingRecord?.orderId,
     targetDocId
   ].filter(Boolean)));
   cleanData.aliases = combinedAliases;
 
   // Defensive Phase Merge: Ensure no previously received phases are ever accidentally removed
-  if (existingRecord?.phases && existingRecord.phases.length > 0) {
+  if (isMatchingSameOrder && existingRecord?.phases && existingRecord.phases.length > 0) {
     cleanData.phases = mergePhases(existingRecord.phases, cleanData.phases || []);
   }
 
@@ -583,7 +584,7 @@ export const savePaymentRecord = async (record: Partial<PaymentRecord>) => {
     const cached = await getCachedPayments();
     const existingIndex = cached.findIndex(p => 
       (targetDocId && p.docId === targetDocId) || 
-      (cleanData.orderId && isPaymentMatchingOrder(cleanData.orderId, undefined, p))
+      (cleanData.orderId && isPaymentMatchingOrder(cleanData.orderId, undefined, p, cleanData.customer))
     );
     let updated: PaymentRecord[];
     if (existingIndex >= 0) {
@@ -593,6 +594,9 @@ export const savePaymentRecord = async (record: Partial<PaymentRecord>) => {
       updated = [{ ...cleanData, docId: targetDocId } as PaymentRecord, ...cached];
     }
     await setCachedPayments(consolidatePayments(updated));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('payments-updated', { detail: consolidatePayments(updated) }));
+    }
   } catch (cErr) {
     console.warn("Payment local cache write warning:", cErr);
   }

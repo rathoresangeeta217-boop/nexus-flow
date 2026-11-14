@@ -6,6 +6,41 @@ const PAYMENTS_BACKUP_LS_KEY = 'srk_payments_backup_v2';
 
 export const BASELINE_PAYMENTS: PaymentRecord[] = [
   {
+    docId: "pay_1793797477610_dbcwy",
+    orderId: "ORD-2026-8661661",
+    customer: "Ankit Kumar Goyal",
+    grandTotal: "₹95,238",
+    originalAmount: "₹80,710.17",
+    originalGst: "₹14,527.83 (18%)",
+    advancePayment: "Rs. 61,000",
+    transportationCharges: "Rs. 900",
+    installationCharges: "Rs. 1,000",
+    deliveryDate: "2026-11-07",
+    aliases: [
+      "ORD-2026-8661661",
+      "ORD-2026-8165553",
+      "egLKspSQPXsyVnO7cRRK",
+      "pay_1793797477610_dbcwy"
+    ],
+    phases: [
+      {
+        id: "b0rdr1q",
+        title: "Advance Payment (Rs. 61,000)",
+        amount: "Rs. 60,000",
+        status: "Received",
+        sourceType: "Bank",
+        bankName: "PNB",
+        date: "2026-11-03"
+      },
+      {
+        id: "8jikj6l",
+        title: "Balance Before Dispatch",
+        amount: "Balance Amount",
+        status: "Pending"
+      }
+    ]
+  },
+  {
     "docId": "0CXcGNLMDC7Fy5MdR8U4",
     "orderId": "ORD-2026-4883924",
     "grandTotal": "₹37,196",

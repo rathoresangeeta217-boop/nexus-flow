@@ -13,7 +13,7 @@ import { subscribeToPurchases, Purchase } from '../lib/purchases';
 import { PaymentManagementModal } from '../components/PaymentManagementModal';
 import { VendorPaymentModal } from '../components/VendorPaymentModal';
 import { ProjectVendorSummaryModal } from '../components/ProjectVendorSummaryModal';
-import { getAllPayments, subscribeToPayments, PaymentRecord, calculatePhaseGstAdjustment, isPaymentMatchingOrder, isPhaseReceived, calculateOrderTotalAmount, mergePaymentRecords, getKnownCustomerForOrderId } from '../lib/payments';
+import { getAllPayments, subscribeToPayments, PaymentRecord, calculatePhaseGstAdjustment, isPaymentMatchingOrder, isPhaseReceived, calculateOrderTotalAmount, mergePaymentRecords, getKnownCustomerForOrderId, getCachedPayments, consolidatePayments } from '../lib/payments';
 import { generatePaymentReminderPDF } from '../lib/pdfHelper';
 
 import * as XLSX from 'xlsx';
@@ -22,8 +22,9 @@ export type PaymentFilterType = 'all' | 'remaining' | 'unpaid' | 'paid';
 
 export function getOrderPaymentSummary(order: Order, customerPayments: PaymentRecord[]) {
   const orderAmt = calculateOrderTotalAmount(order);
+  const custName = order.customer || order.details?.customerName || (order.details as any)?.companyName || '';
 
-  const matchingPayments = customerPayments.filter(p => isPaymentMatchingOrder(order.id, order.docId, p, order.customer));
+  const matchingPayments = customerPayments.filter(p => isPaymentMatchingOrder(order.id, order.docId, p, custName));
 
   // Merge all matching records for this order so no payment phase is ever omitted
   const paymentRecord = matchingPayments.length > 0 ? mergePaymentRecords(matchingPayments) : undefined;
@@ -214,12 +215,27 @@ export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
         setVendorPayments(fetched);
       }
     });
+
+    const onPaymentsUpdated = (e: any) => {
+      if (e?.detail && Array.isArray(e.detail) && e.detail.length > 0) {
+        setCustomerPayments(e.detail);
+      } else {
+        getCachedPayments().then(cached => {
+          if (cached && cached.length > 0) {
+            setCustomerPayments(consolidatePayments(cached));
+          }
+        });
+      }
+    };
+    window.addEventListener('payments-updated', onPaymentsUpdated);
+
     return () => {
       isMounted = false;
       unsubOrders();
       unsubPurchases();
       unsubCustPayments();
       unsubVendPayments();
+      window.removeEventListener('payments-updated', onPaymentsUpdated);
     };
   }, []);
 
@@ -311,7 +327,7 @@ export function PaymentsTab({ searchQuery = '' }: { searchQuery?: string }) {
       
       let exists = false;
       for (const ord of map.values()) {
-        if (isPaymentMatchingOrder(ord.id, ord.docId, p, ord.customer)) {
+        if (isPaymentMatchingOrder(ord.id, ord.docId, p)) {
           exists = true;
           // If the existing order had an empty/placeholder customer name and the payment knows it, update it
           if ((!ord.customer || ord.customer.toLowerCase() === 'customer') && p.customer && p.customer.toLowerCase() !== 'customer') {

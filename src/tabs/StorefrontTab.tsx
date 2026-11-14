@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { subscribeToProducts, Product, isCategoryMatch, saveProduct, ProductVariant, deduplicateCategories } from '../lib/products';
+import { subscribeToProducts, Product, isCategoryMatch, saveProduct, ProductVariant, deduplicateCategories, parsePriceNumber, resolveVariantPriceMode } from '../lib/products';
 import { subscribeToVendors, Vendor } from '../lib/vendors';
 import { NewProductModal } from '../components/NewProductModal';
-import { ShoppingCart, Search, Menu, Star, Zap, ChevronRight, X, Upload, ImagePlus, Plus, Layers, Check, ImageIcon, RotateCw, Boxes, Maximize2, Minimize2, ZoomIn, ZoomOut, FileText, Sparkles, Loader2 } from 'lucide-react';
+import { ShoppingCart, Search, Menu, Star, Zap, ChevronLeft, ChevronRight, CheckCircle2, Truck, Share2, X, Upload, ImagePlus, Plus, Layers, Check, ImageIcon, RotateCw, Boxes, Maximize2, Minimize2, ZoomIn, ZoomOut, FileText, Sparkles, Loader2, Camera } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 // custom image component defined at bottom of file
 import { getProductFile, getVariantFile } from '../lib/fileStorage';
@@ -11,7 +11,7 @@ import { set, get } from 'idb-keyval';
 import { getTableTopHex, getScreenHex, getLegHex } from '../components/WorkstationLiveRenderer';
 import { Workstation3DViewer } from '../components/Workstation3DViewer';
 import { WorkstationTechnicalInfographicModal } from '../components/WorkstationTechnicalInfographicModal';
-import { CreateQuotationModal } from '../components/CreateQuotationModal';
+import { CreateQuotationModal, QuotationCheckoutCartItem } from '../components/CreateQuotationModal';
 
 export interface StorefrontCartItem {
   id: string;
@@ -39,6 +39,7 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
   const [selectedElectricVariantId, setSelectedElectricVariantId] = useState<string | null>(null);
   const [selectedColorVariantId, setSelectedColorVariantId] = useState<string | null>(null);
   const [selectedCustomVariantIds, setSelectedCustomVariantIds] = useState<Record<string, string>>({});
+  const [lastTotalSelectionKey, setLastTotalSelectionKey] = useState<string | null>(null);
   const [activeImageSrc, setActiveImageSrc] = useState<string | null>(null);
   const [currentWorkstationSetup, setCurrentWorkstationSetup] = useState<any>(null);
   const [visualizerView, setVisualizerView] = useState<'3d' | 'photo'>('3d');
@@ -53,8 +54,47 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
   const [isQuotationModalOpen, setIsQuotationModalOpen] = useState(false);
   const [quotationProduct, setQuotationProduct] = useState<Product | null>(null);
   const [quotationVariant, setQuotationVariant] = useState<ProductVariant | null>(null);
+  const [quotationCartItems, setQuotationCartItems] = useState<QuotationCheckoutCartItem[] | null>(null);
+  const [checkoutSuccessToast, setCheckoutSuccessToast] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [pictureToast, setPictureToast] = useState(false);
+  const [copiedShareToast, setCopiedShareToast] = useState(false);
+  const [deliveryPincode, setDeliveryPincode] = useState('122008');
+  const [checkedPincode, setCheckedPincode] = useState('122008');
   const { profile } = useAuth();
+
+  const handleCaptureSnapshotPicture = () => {
+    // If in 3D mode, export current WebGL canvas as a crisp high-resolution PNG
+    const canvas = document.querySelector('canvas') as HTMLCanvasElement | null;
+    if (canvas && visualizerView === '3d') {
+      try {
+        const dataUrl = canvas.toDataURL('image/png', 1.0);
+        const link = document.createElement('a');
+        const cleanName = (selectedProduct?.name || 'workstation').toLowerCase().replace(/[^a-z0-9]/g, '-');
+        link.download = `${cleanName}-3d-custom-${Date.now()}.png`;
+        link.href = dataUrl;
+        link.click();
+        setPictureToast(true);
+        setTimeout(() => setPictureToast(false), 2600);
+        return;
+      } catch (e) {
+        console.warn('Canvas snapshot error:', e);
+      }
+    }
+
+    // Otherwise download the active product image
+    const activeVarImg = selectedProduct?.variants?.find(v => v.id === selectedVariantId)?.imageData;
+    const targetImg = activeImageSrc || activeVarImg;
+    if (targetImg) {
+      const link = document.createElement('a');
+      const cleanName = (selectedProduct?.name || 'workstation').toLowerCase().replace(/[^a-z0-9]/g, '-');
+      link.download = `${cleanName}-picture-${Date.now()}.png`;
+      link.href = targetImg;
+      link.click();
+      setPictureToast(true);
+      setTimeout(() => setPictureToast(false), 2600);
+    }
+  };
   useEffect(() => {
     get('storefront_banner')
       .then(url => { if (url) setBannerUrl(url as string); })
@@ -186,6 +226,7 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
 
   // Synchronize active variants and preselect 1 default option in each section when product changes
   useEffect(() => {
+    setLastTotalSelectionKey(null);
     if (selectedProduct) {
       setVisualizerView('3d');
       if (selectedProduct.variants && selectedProduct.variants.length > 0) {
@@ -193,7 +234,7 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
         const sizeVars = all.filter(v => v.variantType === 'size' || Boolean(v.size));
         const sideStorageVars = all.filter(v => v.variantType === 'side_storage' || Boolean(v.sideStorage));
         const electricVars = all.filter(v => v.variantType === 'electric' || Boolean(v.electricOption));
-        const colorVars = all.filter(v => v.variantType === 'color' || Boolean(v.colorCode || v.color));
+        const colorVars = all.filter(v => v.variantType === 'color' || Boolean((v.colorCode || v.color) && !v.sideStorage && !v.electricOption && v.variantType !== 'custom'));
         const customVars = all.filter(v => v.variantType === 'custom' || Boolean(v.groupName && v.variantType !== 'color' && v.variantType !== 'size' && v.variantType !== 'side_storage' && v.variantType !== 'electric'));
 
         const firstSize = sizeVars[0];
@@ -209,9 +250,9 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
         setSelectedColorVariantId(firstColor ? firstColor.id : null);
 
         const initialCustomMap: Record<string, string> = {};
-        const groupNames = Array.from(new Set(customVars.map(v => v.groupName || 'Custom Options')));
+        const groupNames = Array.from(new Set(customVars.map(v => v.groupName || 'Additional Options')));
         for (const gName of groupNames) {
-          const gItem = customVars.find(v => (v.groupName || 'Custom Options') === gName);
+          const gItem = customVars.find(v => (v.groupName || 'Additional Options') === gName);
           if (gItem) initialCustomMap[gName] = gItem.id;
         }
         setSelectedCustomVariantIds(initialCustomMap);
@@ -325,7 +366,7 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
 
 
   return (
-    <div className="bg-slate-50 min-h-screen font-sans flex flex-col -mx-0 -mt-0 -mb-12">
+    <div className={`${selectedProduct ? 'bg-white' : 'bg-slate-50'} min-h-screen font-sans flex flex-col -mx-0 -mt-0 -mb-12`}>
       {/* Header */}
       <header className="bg-white text-slate-900 sticky top-0 z-50 border-b border-slate-200/90 shadow-2xs">
         <div className="max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-10">
@@ -515,36 +556,69 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
       )}
 
       {/* Main Content */}
-      <main className="flex-1 w-full max-w-none px-2 sm:px-4 md:px-6 lg:px-8 xl:px-10 py-4 lg:py-6">
+      <main className="flex-1 w-full max-w-none px-4 sm:px-8 lg:px-12 py-5 lg:py-7">
         {selectedProduct ? (
-          <div className="w-full bg-white rounded-3xl p-4 sm:p-6 lg:p-7 xl:p-9 border border-slate-200/80 shadow-xs">
+          <div className="max-w-[1520px] mx-auto w-full">
             {/* Breadcrumbs */}
-            <div className="flex items-center text-xs font-medium text-slate-500 mb-5">
+            <nav aria-label="Breadcrumb" className="flex items-center text-xs sm:text-[13px] font-medium text-slate-500 mb-6">
               <span className="cursor-pointer hover:text-slate-900 transition-colors" onClick={() => setSelectedProduct(null)}>Home</span>
-              <ChevronRight className="w-3.5 h-3.5 mx-1.5 text-slate-400" />
+              <ChevronRight className="w-3.5 h-3.5 mx-1.5 text-slate-400 shrink-0" />
               <span className="cursor-pointer hover:text-slate-900 transition-colors" onClick={() => {
                 setSelectedCategory(selectedProduct.category || 'All');
                 setSelectedProduct(null);
               }}>
                 {selectedProduct.category || 'Products'}
               </span>
-              <ChevronRight className="w-3.5 h-3.5 mx-1.5 text-slate-400" />
+              <ChevronRight className="w-3.5 h-3.5 mx-1.5 text-slate-400 shrink-0" />
               <span className="font-semibold text-slate-900 truncate">{selectedProduct.name}</span>
-            </div>
+            </nav>
 
-            <div className="flex flex-col lg:flex-row gap-6 xl:gap-10 items-start">
-              {/* Left: 3D Visualizer & Studio Media Column */}
+            <div className="flex flex-col lg:flex-row gap-8 lg:gap-12 items-start">
+              {/* Left: Gallery & 3D Visualizer Column */}
               {(() => {
                 const isWorkstation = isCategoryMatch(selectedProduct.category, "Workstation") || 
                                       (selectedProduct.name || '').toLowerCase().includes('workstation') ||
                                       (selectedProduct.name || '').toLowerCase().includes('alfa') ||
                                       (selectedProduct.name || '').toLowerCase().includes('alpha');
+                const isPhotoMode = !isWorkstation || visualizerView === 'photo';
                 const allVariants = (selectedProduct.variants || []).filter(Boolean);
                 const allSizeVariants = allVariants.filter(v => v.variantType === 'size' || Boolean(v.size));
                 const sideStorageVariants = allVariants.filter(v => v.variantType === 'side_storage' || Boolean(v.sideStorage));
                 const electricVariants = allVariants.filter(v => v.variantType === 'electric' || Boolean(v.electricOption));
                 const colorVariants = allVariants.filter(v => v.variantType === 'color' || Boolean((v.colorCode || v.color) && !v.sideStorage && !v.electricOption && v.variantType !== 'custom'));
                 const customVariants = allVariants.filter(v => v.variantType === 'custom' || Boolean(v.groupName && v.variantType !== 'color' && v.variantType !== 'size' && v.variantType !== 'side_storage' && v.variantType !== 'electric'));
+
+                const resolveColorSwatchHex = (label: string, explicitHex?: string): string => {
+                  if (explicitHex) return explicitHex;
+                  const key = label.trim().toLowerCase();
+                  const colorMap: Record<string, string> = {
+                    gray: '#71717a',
+                    grey: '#71717a',
+                    black: '#18181b',
+                    pink: '#ec4899',
+                    white: '#f8fafc',
+                    blue: '#2563eb',
+                    navy: '#1e3a8a',
+                    red: '#dc2626',
+                    green: '#16a34a',
+                    mint: '#5eead4',
+                    walnut: '#5c4033',
+                    teak: '#b5651d',
+                    oak: '#c8a165',
+                    brown: '#78350f',
+                    cream: '#fef3c7',
+                    beige: '#e7e5e4',
+                    yellow: '#eab308',
+                    orange: '#ea580c',
+                    purple: '#9333ea',
+                    silver: '#cbd5e1',
+                    charcoal: '#27272a',
+                  };
+                  for (const [k, hex] of Object.entries(colorMap)) {
+                    if (key.includes(k)) return hex;
+                  }
+                  return '#94a3b8';
+                };
 
                 // Dynamically adjust size options when side storage, color, or option choices change
                 const sizeVariants = (() => {
@@ -583,7 +657,27 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                 const activeElectricVar = electricVariants.find(v => v.id === selectedElectricVariantId);
                 const activeColorVar = colorVariants.find(v => v.id === selectedColorVariantId);
 
-                const activeVariant = activeSizeVar || activeStorageVar || activeElectricVar || activeColorVar || allVariants[0];
+                const baseProductPrice =
+                  selectedProduct.salesRate ||
+                  parsePriceNumber(selectedProduct.price || selectedProduct.details?.perUnitPrice || selectedProduct.details?.totalUnitPrice) ||
+                  0;
+
+                const selectedCustomEntries = (() => {
+                  const grouped = customVariants.reduce((acc, v) => {
+                    const g = v.groupName || 'Additional Options';
+                    if (!acc[g]) acc[g] = [];
+                    acc[g].push(v);
+                    return acc;
+                  }, {} as Record<string, ProductVariant[]>);
+                  return Object.entries(grouped).map(([gName, vList]) => {
+                    const selId = selectedCustomVariantIds[gName];
+                    const matched = vList.find(v => v.id === selId) || vList[0];
+                    return { gName, variant: matched };
+                  }).filter((entry): entry is { gName: string; variant: ProductVariant } => Boolean(entry.variant));
+                })();
+
+                const firstCustomSelectedVar = selectedCustomEntries[0]?.variant;
+                const activeVariant = activeSizeVar || activeStorageVar || activeElectricVar || activeColorVar || firstCustomSelectedVar || allVariants[0];
 
                 const workstationCalculatedPrice = isWorkstation && currentWorkstationSetup?.calculatedPrice ? currentWorkstationSetup.calculatedPrice : null;
 
@@ -591,31 +685,64 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                 if (isWorkstation && workstationCalculatedPrice) {
                   currentPrice = workstationCalculatedPrice;
                 } else {
-                  const sizePrice = activeSizeVar 
-                    ? (parseFloat(String(activeSizeVar.price).replace(/[^0-9.]/g, '')) || 0)
-                    : (selectedProduct.salesRate || parseFloat(String(selectedProduct.price).replace(/[^0-9.]/g, '')) || 0);
+                  const totalCandidates: { key: string; price: number }[] = [];
+                  let addonTotal = 0;
 
-                  const storagePrice = activeStorageVar 
-                    ? (parseFloat(String(activeStorageVar.price).replace(/[^0-9.]/g, '')) || 0)
-                    : 0;
+                  if (activeSizeVar) {
+                    const sPrice = parsePriceNumber(activeSizeVar.price);
+                    if (sPrice > 0) totalCandidates.push({ key: 'size', price: sPrice });
+                  }
 
-                  const electricPrice = activeElectricVar 
-                    ? (parseFloat(String(activeElectricVar.price).replace(/[^0-9.]/g, '')) || 0)
-                    : 0;
+                  if (activeColorVar) {
+                    const cPrice = parsePriceNumber(activeColorVar.price);
+                    const cMode = resolveVariantPriceMode(activeColorVar, baseProductPrice);
+                    if (cPrice > 0) {
+                      if (cMode === 'total') {
+                        totalCandidates.push({ key: 'color', price: cPrice });
+                      } else {
+                        addonTotal += cPrice;
+                      }
+                    }
+                  }
 
-                  const colorPrice = (activeColorVar && sizeVariants.length === 0)
-                    ? (parseFloat(String(activeColorVar.price).replace(/[^0-9.]/g, '')) || 0)
-                    : 0;
+                  if (activeStorageVar) {
+                    const stPrice = parsePriceNumber(activeStorageVar.price);
+                    const stMode = resolveVariantPriceMode(activeStorageVar, baseProductPrice);
+                    if (stPrice > 0) {
+                      if (stMode === 'total') totalCandidates.push({ key: 'side_storage', price: stPrice });
+                      else addonTotal += stPrice;
+                    }
+                  }
 
-                  let customPrice = 0;
-                  Object.values(selectedCustomVariantIds).forEach(vId => {
-                    const matchedCustom = customVariants.find(v => v.id === vId);
-                    if (matchedCustom) {
-                      customPrice += (parseFloat(String(matchedCustom.price).replace(/[^0-9.]/g, '')) || 0);
+                  if (activeElectricVar) {
+                    const elPrice = parsePriceNumber(activeElectricVar.price);
+                    const elMode = resolveVariantPriceMode(activeElectricVar, baseProductPrice);
+                    if (elPrice > 0) {
+                      if (elMode === 'total') totalCandidates.push({ key: 'electric', price: elPrice });
+                      else addonTotal += elPrice;
+                    }
+                  }
+
+                  selectedCustomEntries.forEach(({ gName, variant }) => {
+                    const cPrice = parsePriceNumber(variant.price);
+                    const cMode = resolveVariantPriceMode(variant, baseProductPrice);
+                    if (cPrice > 0) {
+                      if (cMode === 'total') {
+                        totalCandidates.push({ key: `custom:${gName}`, price: cPrice });
+                      } else {
+                        addonTotal += cPrice;
+                      }
                     }
                   });
 
-                  currentPrice = (sizePrice || 0) + storagePrice + electricPrice + colorPrice + customPrice;
+                  const pickedTotalCandidate =
+                    (lastTotalSelectionKey && totalCandidates.find(c => c.key === lastTotalSelectionKey)) ||
+                    totalCandidates.find(c => c.key === 'size') ||
+                    totalCandidates.find(c => c.key.startsWith('custom:')) ||
+                    totalCandidates[0];
+
+                  const resolvedBase = pickedTotalCandidate ? pickedTotalCandidate.price : baseProductPrice;
+                  currentPrice = resolvedBase + addonTotal;
                 }
 
                 const summaryParts: string[] = [];
@@ -629,13 +756,26 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                   summaryParts.push(`Screen: ${selectedFrontScreen} (${selectedScreenColor})`);
                   summaryParts.push(`Partition: ${storeMiddlePartition}`);
                 }
-                Object.entries(selectedCustomVariantIds).forEach(([gName, vId]) => {
-                  const cVar = customVariants.find(v => v.id === vId);
-                  if (cVar) summaryParts.push(`${gName}: ${cVar.name}`);
+                selectedCustomEntries.forEach(({ gName, variant }) => {
+                  summaryParts.push(`${gName}: ${variant.name}`);
                 });
                 const optionsSummary = summaryParts.join(' | ');
+                const quotationResolvedVariant: ProductVariant | null = activeVariant
+                  ? {
+                      ...activeVariant,
+                      name: optionsSummary || activeVariant.name,
+                      price: currentPrice
+                    }
+                  : null;
 
                 const effectiveSetup = currentWorkstationSetup || {
+                  structure: 'wall-facing',
+                  workstationStructure: 'wall-facing',
+                  layoutType: 'linear',
+                  sizeType: 'per_person',
+                  widthPerPerson: '1200 mm',
+                  depthPerPerson: '600 mm',
+                  personQuantity: 1,
                   dimensions: activeSizeVar?.size || '1200 x 600 mm',
                   material: `${selectedThickness} PLPB Board`,
                   thickness: selectedThickness,
@@ -643,7 +783,7 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                   screenColor: selectedScreenColor,
                   middlePartition: storeMiddlePartition,
                   legColor: selectedLegColor,
-                  legSize: '50 x 50 mm',
+                  legSize: '50x50',
                   legStyle: selectedLegStyle,
                   frontScreen: selectedFrontScreen,
                   electricFunction: activeElectricVar?.electricOption || activeElectricVar?.name || 'Dual Flip Box & Wire Raceway',
@@ -651,9 +791,16 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                   calculatedPrice: currentPrice
                 };
 
+                const cleanPin = checkedPincode.replace(/\D/g, '');
+                const dispatchDays = cleanPin.startsWith('12') || cleanPin.startsWith('11')
+                  ? '2–3 business days'
+                  : ['40', '56', '60', '50', '30', '41'].some(p => cleanPin.startsWith(p))
+                  ? '3–5 business days'
+                  : '5–7 business days';
+
                 return (
                   <>
-                    <div className="w-full lg:w-[60%] xl:w-[62%] flex gap-3 sm:gap-4 shrink-0 lg:sticky lg:top-20 lg:self-start z-20">
+                    <div className="w-full lg:w-[54%] flex gap-4 shrink-0 lg:sticky lg:top-20 lg:self-start z-20">
                       {/* Left Vertical Thumbnails Sidebar */}
                       {(() => {
                         const angleImages: string[] = [];
@@ -686,120 +833,138 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
 
                         return (
                           <>
-                            <div className="w-16 sm:w-20 shrink-0 flex flex-col gap-2.5 max-h-[740px] overflow-y-auto custom-scrollbar pr-1">
+                            <div className="w-16 lg:w-[72px] shrink-0 flex flex-col gap-3 max-h-[660px] overflow-y-auto custom-scrollbar pr-0.5">
                               {/* 3D CAD Visualizer Thumbnail for Workstations */}
                               {isWorkstation && (
-                                <div 
+                                <button
+                                  type="button"
                                   onClick={() => setVisualizerView('3d')}
-                                  className={`aspect-square rounded-xl border-2 flex flex-col items-center justify-center p-1 cursor-pointer transition-all relative overflow-hidden group ${
+                                  className={`aspect-square rounded-xl border-2 flex flex-col items-center justify-center p-1 cursor-pointer transition-colors ${
                                     visualizerView === '3d' 
-                                      ? 'border-indigo-600 bg-indigo-50 ring-2 ring-indigo-500/20 shadow-xs scale-105' 
-                                      : 'border-slate-200 hover:border-indigo-300 bg-slate-50'
+                                      ? 'border-slate-900 bg-slate-100' 
+                                      : 'border-slate-200 hover:border-slate-400 bg-slate-50'
                                   }`}
                                   title="Interactive 3D CAD Visualizer"
                                 >
-                                  <div className="w-7 h-7 rounded-full bg-indigo-600/10 flex items-center justify-center text-indigo-600 group-hover:scale-110 transition-transform">
-                                    <RotateCw className="w-4 h-4 animate-spin" style={{ animationDuration: '10s' }} />
-                                  </div>
-                                  <span className="text-[9px] font-extrabold text-indigo-700 mt-1 uppercase tracking-tight">3D CAD</span>
-                                </div>
+                                  <RotateCw className="w-4 h-4 text-slate-800" />
+                                  <span className="text-[10px] font-bold text-slate-900 mt-0.5 uppercase tracking-tight">3D</span>
+                                </button>
                               )}
 
                               {uniqueAngles.length === 0 ? (
-                                <div 
+                                <button
+                                  type="button"
                                   onClick={() => {
                                     setActiveImageSrc(null);
                                     setVisualizerView('photo');
                                   }}
-                                  className={`aspect-square rounded-xl border-2 flex items-center justify-center p-1.5 cursor-pointer transition-all overflow-hidden ${
-                                    visualizerView === 'photo' && !activeImageSrc ? 'border-indigo-600 bg-indigo-50/50 ring-2 ring-indigo-500/20 shadow-xs' : 'border-slate-200 hover:border-slate-300 bg-slate-50'
+                                  className={`aspect-square rounded-xl border-2 flex items-center justify-center p-1 cursor-pointer transition-colors overflow-hidden bg-white ${
+                                    isPhotoMode && !activeImageSrc ? 'border-slate-900' : 'border-slate-200 hover:border-slate-400'
                                   }`}
-                                  title="Base Photo"
+                                  title="Product Photo"
                                 >
                                   <StorefrontProductImage productId={selectedProduct.id} productName={selectedProduct.name} />
-                                </div>
+                                </button>
                               ) : (
                                 uniqueAngles.map((src, aIdx) => {
-                                  const isSelected = visualizerView === 'photo' && (activeImageSrc === src || (!activeImageSrc && aIdx === 0));
+                                  const isSelected = isPhotoMode && (activeImageSrc === src || (!activeImageSrc && aIdx === 0));
                                   return (
-                                    <div 
-                                      key={aIdx} 
+                                    <button 
+                                      key={aIdx}
+                                      type="button"
                                       onClick={() => {
                                         setActiveImageSrc(src);
                                         setVisualizerView('photo');
                                       }}
-                                      className={`aspect-square rounded-xl border-2 flex items-center justify-center p-1 cursor-pointer transition-all relative overflow-hidden group ${
+                                      className={`aspect-square rounded-xl flex items-center justify-center p-1.5 cursor-pointer transition-colors overflow-hidden bg-white ${
                                         isSelected 
-                                          ? 'border-indigo-600 bg-indigo-50/50 ring-2 ring-indigo-500/20 shadow-xs scale-105' 
-                                          : 'border-slate-200 hover:border-indigo-300 bg-slate-50 opacity-80 hover:opacity-100'
+                                          ? 'border-2 border-slate-900' 
+                                          : 'border border-slate-200 hover:border-slate-400 opacity-85 hover:opacity-100'
                                       }`}
                                       title={`View ${aIdx + 1}`}
                                     >
-                                      <img src={src} alt={`Angle ${aIdx + 1}`} className="w-full h-full object-contain mix-blend-multiply" />
-                                    </div>
+                                      <img src={src} alt={`Angle ${aIdx + 1}`} className="w-full h-full object-contain" />
+                                    </button>
                                   );
                                 })
                               )}
                             </div>
 
-                            {/* Main Visualizer Stage Canvas */}
-                            <div className="flex-1 w-full h-[560px] sm:h-[640px] md:h-[720px] lg:h-[780px] xl:h-[820px] bg-white rounded-2xl border border-slate-200/90 shadow-sm flex flex-col items-center justify-center p-0 relative overflow-hidden group mx-auto lg:mx-0">
-                              {/* Top Bar Actions & Mode Switcher */}
-                              <div className="absolute top-3 inset-x-3 z-20 flex items-center justify-between gap-2 pointer-events-auto">
-                                <div className="flex items-center bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-xl p-1 shadow-sm text-xs font-semibold gap-1">
+                            {/* Main Studio Gallery Stage */}
+                            <div className={`flex-1 w-full ${isWorkstation && visualizerView === '3d' ? 'h-[480px] sm:h-[560px] lg:h-[640px] bg-[#F7F8FA]' : 'h-[440px] sm:h-[540px] lg:h-[630px] xl:h-[660px] bg-white'} rounded-2xl flex flex-col items-center justify-center relative overflow-hidden group`}>
+                              {/* Top-left 3D / Photo Switcher (Workstations only) */}
+                              {isWorkstation && (
+                                <div className="absolute top-3 left-3 z-20 flex items-center bg-white/95 backdrop-blur-sm border border-slate-200/80 rounded-lg p-0.5 shadow-2xs text-xs font-semibold gap-0.5">
                                   <button
                                     type="button"
                                     onClick={() => setVisualizerView('photo')}
-                                    className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer font-bold ${
+                                    className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer font-semibold ${
                                       visualizerView === 'photo' 
-                                        ? 'bg-slate-900 text-white shadow-xs' 
+                                        ? 'bg-slate-900 text-white' 
                                         : 'text-slate-600 hover:text-slate-900'
                                     }`}
                                   >
                                     Photos
                                   </button>
-                                  {isWorkstation && (
-                                    <button
-                                      type="button"
-                                      onClick={() => setVisualizerView('3d')}
-                                      className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer font-bold ${
-                                        visualizerView === '3d' 
-                                          ? 'bg-indigo-600 text-white shadow-xs' 
-                                          : 'text-slate-600 hover:text-indigo-600'
-                                      }`}
-                                    >
-                                      <Boxes className="w-3.5 h-3.5" />
-                                      <span>3D View</span>
-                                    </button>
-                                  )}
-                                </div>
-
-                                <div className="flex items-center gap-1.5">
-                                  {isWorkstation && (
-                                    <button
-                                      type="button"
-                                      onClick={() => setIsInfographicOpen(true)}
-                                      className="px-2.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white shadow-xs text-xs font-bold flex items-center gap-1 transition-all cursor-pointer"
-                                      title="2D CAD Specs Sheet"
-                                    >
-                                      <FileText className="w-3.5 h-3.5" />
-                                      <span className="hidden sm:inline">2D Specs</span>
-                                    </button>
-                                  )}
                                   <button
                                     type="button"
-                                    onClick={() => setIsPhotoFullscreen(true)}
-                                    className="p-2 rounded-xl bg-white/90 backdrop-blur-md border border-slate-200 text-slate-700 hover:bg-slate-100 shadow-xs text-xs font-bold transition-all cursor-pointer hover:scale-105 active:scale-95"
-                                    title="Fullscreen View"
+                                    onClick={() => setVisualizerView('3d')}
+                                    className={`px-2.5 py-1 rounded-md flex items-center gap-1.5 transition-colors cursor-pointer font-semibold ${
+                                      visualizerView === '3d' 
+                                        ? 'bg-slate-900 text-white' 
+                                        : 'text-slate-600 hover:text-slate-900'
+                                    }`}
                                   >
-                                    <Maximize2 className="w-4 h-4 text-slate-700" />
+                                    <Boxes className="w-3.5 h-3.5" />
+                                    <span>3D View</span>
                                   </button>
                                 </div>
+                              )}
+
+                              {/* Bottom-right subtle image actions */}
+                              <div className="absolute bottom-3 right-3 z-20 flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={handleCaptureSnapshotPicture}
+                                  className="px-3.5 py-1.5 rounded-full bg-white/95 hover:bg-white border border-slate-200 text-slate-700 shadow-xs text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap"
+                                  title="Download product image"
+                                >
+                                  <Camera className="w-3.5 h-3.5 text-slate-600" />
+                                  <span>Save Image</span>
+                                </button>
+
+                                {isWorkstation && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setIsInfographicOpen(true)}
+                                    className="px-3.5 py-1.5 rounded-full bg-slate-900 hover:bg-black text-white shadow-xs text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap"
+                                    title="2D CAD Specs Sheet"
+                                  >
+                                    <FileText className="w-3.5 h-3.5" />
+                                    <span className="hidden sm:inline">2D Specs</span>
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => setIsPhotoFullscreen(true)}
+                                  className="p-2 rounded-full bg-white/95 hover:bg-white border border-slate-200 text-slate-700 shadow-xs transition-colors cursor-pointer"
+                                  title="Fullscreen View"
+                                >
+                                  <Maximize2 className="w-4 h-4 text-slate-700" />
+                                </button>
                               </div>
 
-                              {/* Stage Canvas Body: 3D CAD Viewer or Studio Photo */}
+                              {/* Snapshot feedback toast */}
+                              {pictureToast && (
+                                <div className="absolute top-3 z-30 bg-slate-900 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-lg flex items-center gap-2">
+                                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                  <span>Image downloaded</span>
+                                </div>
+                              )}
+
+                              {/* Stage Canvas Body */}
                               {isWorkstation && visualizerView === '3d' ? (
-                                <div className="w-full h-full pt-12 pb-2">
+                                <div className="w-full h-full pt-12 pb-10">
                                   <Workstation3DViewer 
                                     setup={effectiveSetup} 
                                     onToggleMiddlePartition={() => {
@@ -810,13 +975,13 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                                 </div>
                               ) : (
                                 <div 
-                                  className="w-full h-full flex items-center justify-center cursor-zoom-in relative p-6 pt-12"
+                                  className="w-full h-full flex items-center justify-center cursor-zoom-in relative p-2"
                                   onClick={() => setIsPhotoFullscreen(true)}
                                 >
                                   {activeImageSrc ? (
-                                    <img src={activeImageSrc} alt={selectedProduct.name} className="max-w-full max-h-full object-contain mix-blend-multiply transition-all duration-300 drop-shadow-xs" />
+                                    <img src={activeImageSrc} alt={selectedProduct.name} className="max-w-full max-h-full object-contain transition-opacity duration-200" />
                                   ) : activeVariant?.imageData ? (
-                                    <img src={activeVariant.imageData} alt={activeVariant.name} className="max-w-full max-h-full object-contain mix-blend-multiply transition-all duration-300 drop-shadow-xs" />
+                                    <img src={activeVariant.imageData} alt={activeVariant.name} className="max-w-full max-h-full object-contain transition-opacity duration-200" />
                                   ) : (
                                     <StorefrontProductImage 
                                       variantId={activeVariant?.id} 
@@ -827,24 +992,24 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                                 </div>
                               )}
 
-                              {/* Left / Right Navigation Arrows in Photo Mode */}
-                              {visualizerView === 'photo' && uniqueAngles.length > 1 && (
+                              {/* Circular Dark Navigation Arrows in Photo Mode */}
+                              {isPhotoMode && uniqueAngles.length > 1 && (
                                 <>
                                   <button
                                     type="button"
                                     onClick={e => { e.stopPropagation(); handlePrevImg(); }}
-                                    className="absolute left-2 top-1/2 -translate-y-1/2 z-20 w-8 h-8 rounded-full bg-white/90 shadow-md border border-slate-200 flex items-center justify-center text-slate-700 hover:bg-white hover:scale-110 active:scale-95 transition-all cursor-pointer"
+                                    className="absolute left-3 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-slate-900/90 hover:bg-black text-white shadow-md flex items-center justify-center transition-colors cursor-pointer"
                                     title="Previous Image"
                                   >
-                                    ‹
+                                    <ChevronLeft className="w-5 h-5" />
                                   </button>
                                   <button
                                     type="button"
                                     onClick={e => { e.stopPropagation(); handleNextImg(); }}
-                                    className="absolute right-2 top-1/2 -translate-y-1/2 z-20 w-8 h-8 rounded-full bg-white/90 shadow-md border border-slate-200 flex items-center justify-center text-slate-700 hover:bg-white hover:scale-110 active:scale-95 transition-all cursor-pointer"
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-slate-900/90 hover:bg-black text-white shadow-md flex items-center justify-center transition-colors cursor-pointer"
                                     title="Next Image"
                                   >
-                                    ›
+                                    <ChevronRight className="w-5 h-5" />
                                   </button>
                                 </>
                               )}
@@ -900,33 +1065,57 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                       })()}
                     </div>
 
-                    {/* Right: Product Details Column */}
-                    <div className="w-full lg:w-[40%] xl:w-[38%] flex flex-col min-w-0">
-                      {/* Rating & Review Summary */}
-                      <div className="flex items-center gap-2 mb-2">
-                        <div className="inline-flex items-center gap-1 bg-amber-50 text-amber-900 border border-amber-200/80 px-2.5 py-1 rounded-full text-xs font-extrabold shadow-2xs">
-                          <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-                          <span>4.9</span>
+                    {/* Right: Clean Editorial D2C Purchase Column */}
+                    <div className="w-full lg:w-[46%] flex flex-col min-w-0">
+                      {/* Rating Line + Promo Badge */}
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-1.5 text-xs sm:text-[13px] text-slate-600">
+                          <Star className="w-4 h-4 text-amber-400 fill-amber-400" />
+                          <span className="font-semibold text-slate-800">4.9</span>
+                          <span className="text-slate-400">(18)</span>
+                          <CheckCircle2 className="w-4 h-4 text-emerald-500 fill-emerald-500/15" />
                         </div>
-                        <span className="text-xs font-semibold text-slate-500">| 18 Verified Reviews</span>
-                        {selectedProduct.variants && selectedProduct.variants.length > 0 && (
-                          <span className="ml-auto px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                            {selectedProduct.variants.length} Options
-                          </span>
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setQuotationCartItems(null);
+                            setQuotationProduct(selectedProduct);
+                            setQuotationVariant(quotationResolvedVariant);
+                            setIsQuotationModalOpen(true);
+                          }}
+                          className="text-xs font-medium text-rose-600 border border-rose-300 bg-rose-50/50 hover:bg-rose-50 rounded-full px-3.5 py-1 transition-colors cursor-pointer whitespace-nowrap"
+                        >
+                          Save extra on bulk &amp; GST quotes
+                        </button>
                       </div>
 
-                      {/* Product Name */}
-                      <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight mb-2">
-                        {selectedProduct.name}
-                      </h1>
+                      {/* Product Headline + Share */}
+                      <div className="flex items-start justify-between gap-3">
+                        <h1 className="text-2xl sm:text-3xl lg:text-[32px] font-bold text-slate-900 tracking-tight leading-snug mb-1.5" style={{ textWrap: 'balance' }}>
+                          {selectedProduct.name}
+                        </h1>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (navigator.clipboard) {
+                              navigator.clipboard.writeText(window.location.href).catch(() => {});
+                            }
+                            setCopiedShareToast(true);
+                            setTimeout(() => setCopiedShareToast(false), 2000);
+                          }}
+                          title="Copy product link"
+                          className="p-2 text-slate-500 hover:text-slate-900 transition-colors cursor-pointer shrink-0 relative"
+                        >
+                          {copiedShareToast ? <Check className="w-4.5 h-4.5 text-emerald-600" /> : <Share2 className="w-4.5 h-4.5" />}
+                        </button>
+                      </div>
 
-                      {/* Description */}
+                      {/* Clean Subtitle / Description */}
                       {(() => {
                         const typedDesc = (selectedProduct.description || selectedProduct.details?.details || selectedProduct.details?.description || '').trim();
                         if (typedDesc && typedDesc.length > 2) {
                           return (
-                            <p className="text-slate-600 mb-4 leading-relaxed text-xs sm:text-sm bg-slate-50 p-3 rounded-xl border border-slate-200/80">
+                            <p className="text-slate-500 mb-4 leading-relaxed text-sm sm:text-[15px]">
                               {typedDesc}
                             </p>
                           );
@@ -934,459 +1123,496 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                         return null;
                       })()}
 
-                      {/* Pricing Tag */}
-                      <div className="mb-5 p-4 bg-slate-50 rounded-2xl border border-slate-200/90 shadow-2xs">
-                        <div className="flex items-baseline gap-3 mb-1">
-                          <span className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight">
+                      {/* Pricing Block */}
+                      <div className="mb-4">
+                        <div className="flex items-baseline gap-3">
+                          <span className="text-3xl lg:text-[34px] font-bold text-slate-900 tracking-tight tabular-nums">
                             ₹{Number(currentPrice).toLocaleString()}
                           </span>
-                          <span className="text-base text-slate-400 line-through font-semibold">
-                            ₹{Math.floor(Number(currentPrice) * 1.25).toLocaleString()}
+                          <span className="text-base text-slate-400 line-through font-normal tabular-nums">
+                            ₹{Math.floor(Number(currentPrice) * 1.25).toLocaleString()}.00
                           </span>
-                          <span className="text-xs font-extrabold text-emerald-700 bg-emerald-100 px-2.5 py-1 rounded-full border border-emerald-200">
-                            20% OFF
+                          <span className="text-sm sm:text-base font-semibold text-emerald-600">
+                            20% Off
                           </span>
                         </div>
-                        <p className="text-xs text-slate-500 font-medium">
-                          Inclusive of all taxes & free factory shipping on bulk orders
+                        <p className="text-xs text-slate-500 mt-1">
+                          MRP(Inclusive of all taxes)
                         </p>
                       </div>
 
-                      {/* Offer / EMI / Instant Quote Banner */}
-                      <div className="mb-5 p-3 rounded-xl bg-indigo-50/70 border border-indigo-100 flex items-center justify-between gap-2 text-xs">
-                        <div className="flex items-center gap-2 text-indigo-900 font-bold">
-                          <span className="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0">
-                            <Zap className="w-3.5 h-3.5" />
-                          </span>
-                          <span>Instant GST Quote & On-Site Assembly Available</span>
-                        </div>
-                        <span className="text-indigo-700 font-bold text-[11px] underline cursor-pointer shrink-0">Details</span>
+                      {/* Slim Commercial GST Quote Bar */}
+                      <div className="mb-5 px-4 py-3 rounded-lg bg-[#EFF4F8] flex items-center justify-between gap-3">
+                        <span className="text-xs sm:text-sm text-slate-700 leading-tight">
+                          Instant GST invoice &amp; project quote <span className="text-slate-400 mx-1">|</span> Dispatch from factory
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setQuotationCartItems(null);
+                            setQuotationProduct(selectedProduct);
+                            setQuotationVariant(quotationResolvedVariant);
+                            setIsQuotationModalOpen(true);
+                          }}
+                          className="shrink-0 bg-[#1A2024] hover:bg-black text-white text-[11px] font-bold px-3 py-1.5 rounded uppercase tracking-wide transition-colors cursor-pointer whitespace-nowrap"
+                        >
+                          GET QUOTE ▸
+                        </button>
                       </div>
 
-                      {/* 1. Size Variants */}
-                      {sizeVariants.length > 0 && (
-                        <div className="mb-5">
-                          <label className="block text-xs font-bold uppercase tracking-wider text-slate-800 mb-2.5 flex items-center justify-between">
-                            <span>Select Size / Model: <span className="text-indigo-600 font-extrabold">{activeSizeVar ? (activeSizeVar.size || activeSizeVar.name) : 'Standard'}</span></span>
-                          </label>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            {sizeVariants.map(v => {
-                              const sizeLabel = v.size || v.name;
-                              const isSelected = selectedSizeVariantId === v.id;
-                              const vPrice = parseFloat(String(v.price).replace(/[^0-9.]/g, '')) || 0;
-                              return (
-                                <button
-                                  key={v.id}
-                                  type="button"
-                                  onClick={() => {
-                                    setSelectedSizeVariantId(v.id);
-                                    if (v.imageData) setActiveImageSrc(v.imageData);
-                                  }}
-                                  className={`p-2.5 rounded-xl border text-xs font-semibold transition-all flex items-center justify-between gap-2 text-left cursor-pointer ${
-                                    isSelected
-                                      ? 'border-indigo-600 bg-indigo-50/80 text-indigo-900 ring-2 ring-indigo-500/20 font-bold'
-                                      : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
-                                  }`}
-                                >
-                                  <span className="truncate">{sizeLabel}</span>
-                                  <div className="shrink-0 flex items-center gap-1">
-                                    {vPrice > 0 && (
-                                      <span className="text-indigo-600 font-bold text-xs">
-                                        ₹{vPrice.toLocaleString()}
-                                      </span>
-                                    )}
-                                    {isSelected && <Check className="w-4 h-4 text-indigo-600 shrink-0" />}
+                      {/* Standard Product Variant Options (Hidden for Workstation, which uses Alfa Configurator below) */}
+                      {!isWorkstation && (
+                        <>
+                          {/* Color Swatch Selector (Dedicated Color Variants) */}
+                          {colorVariants.length > 0 && (() => {
+                            const distinctImgs = new Set(colorVariants.map(v => v.imageData).filter(Boolean));
+                            const usePhotoSwatches = distinctImgs.size > 1;
+                            return (
+                              <div className="mb-5">
+                                <p className="text-sm font-normal text-slate-900 mb-2.5">
+                                  <span className="font-bold">Choose your color :</span>{' '}
+                                  <span className="font-medium text-slate-700 capitalize">{activeColorVar ? (activeColorVar.color || activeColorVar.name) : 'Standard'}</span>
+                                </p>
+                                <div className="flex flex-wrap gap-3">
+                                  {colorVariants.map(v => {
+                                    const colorLabel = v.color || v.name;
+                                    const isSelected = selectedColorVariantId === v.id;
+                                    const swatchHex = resolveColorSwatchHex(colorLabel, v.colorCode);
+                                    if (usePhotoSwatches && v.imageData) {
+                                      return (
+                                        <button
+                                          key={v.id}
+                                          type="button"
+                                          onClick={() => {
+                                            setSelectedColorVariantId(v.id);
+                                            if (parsePriceNumber(v.price) > 0 && resolveVariantPriceMode(v, baseProductPrice) === 'total') {
+                                              setLastTotalSelectionKey('color');
+                                            }
+                                            setActiveImageSrc(v.imageData!);
+                                          }}
+                                          title={colorLabel}
+                                          className={`flex flex-col items-center gap-1 p-1.5 rounded-xl bg-white cursor-pointer transition-colors ${
+                                            isSelected ? 'border-2 border-slate-900' : 'border border-slate-200 hover:border-slate-400'
+                                          }`}
+                                        >
+                                          <img src={v.imageData} alt={colorLabel} className="w-11 h-11 lg:w-12 lg:h-12 object-contain rounded" />
+                                          <span className="flex items-center gap-1 text-[11px] font-medium text-slate-700 capitalize">
+                                            <span className="w-2.5 h-2.5 rounded-full border border-slate-300" style={{ backgroundColor: swatchHex }} />
+                                            {colorLabel}
+                                          </span>
+                                        </button>
+                                      );
+                                    }
+                                    return (
+                                      <button
+                                        key={v.id}
+                                        type="button"
+                                        onClick={() => {
+                                          setSelectedColorVariantId(v.id);
+                                          if (parsePriceNumber(v.price) > 0 && resolveVariantPriceMode(v, baseProductPrice) === 'total') {
+                                            setLastTotalSelectionKey('color');
+                                          }
+                                          if (v.imageData) setActiveImageSrc(v.imageData);
+                                        }}
+                                        title={colorLabel}
+                                        className={`px-3.5 py-2 rounded-lg border text-xs sm:text-[13px] font-medium flex items-center gap-2 cursor-pointer transition-colors ${
+                                          isSelected ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-white text-slate-800 hover:border-slate-400'
+                                        }`}
+                                      >
+                                        <span className="w-4 h-4 rounded-full border border-slate-300 shrink-0" style={{ backgroundColor: swatchHex }} />
+                                        <span className="capitalize">{colorLabel}</span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })()}
+
+                          {/* Dynamic Custom Variant Groups */}
+                          {(() => {
+                            const allVars = (selectedProduct.variants || []).filter(Boolean);
+                            const customVars = allVars.filter(v => v.variantType === 'custom' || Boolean(v.groupName && v.variantType !== 'color' && v.variantType !== 'size' && v.variantType !== 'side_storage' && v.variantType !== 'electric'));
+                            if (customVars.length === 0) return null;
+
+                            const grouped = customVars.reduce((acc, v) => {
+                              const g = v.groupName || 'Additional Options';
+                              if (!acc[g]) acc[g] = [];
+                              acc[g].push(v);
+                              return acc;
+                            }, {} as Record<string, ProductVariant[]>);
+
+                            return Object.entries(grouped).map(([gName, vList]) => {
+                              const selId = selectedCustomVariantIds[gName];
+                              const selVar = vList.find(v => v.id === selId) || vList[0];
+                              const isColorGroup = /colou?r|finish|shade/i.test(gName);
+
+                              if (isColorGroup) {
+                                const distinctImgs = new Set(vList.map(v => v.imageData).filter(Boolean));
+                                const usePhotoSwatches = distinctImgs.size > 1;
+                                return (
+                                  <div key={gName} className="mb-5">
+                                    <p className="text-sm text-slate-900 mb-2.5">
+                                      <span className="font-bold">Choose your color :</span>{' '}
+                                      <span className="font-medium text-slate-700 capitalize">{selVar ? selVar.name : 'Default'}</span>
+                                    </p>
+                                    <div className="flex flex-wrap gap-3">
+                                      {vList.map(v => {
+                                        const isSel = selId === v.id || (!selId && v.id === vList[0]?.id);
+                                        const swatchHex = resolveColorSwatchHex(v.name, v.colorCode);
+                                        const vPrice = parsePriceNumber(v.price);
+                                        const vMode = resolveVariantPriceMode(v, baseProductPrice);
+                                        const pricePrefix = vMode === 'addon' ? '+₹' : '₹';
+                                        if (usePhotoSwatches && v.imageData) {
+                                          return (
+                                            <button
+                                              key={v.id}
+                                              type="button"
+                                              onClick={() => {
+                                                setSelectedCustomVariantIds(prev => ({ ...prev, [gName]: v.id }));
+                                                if (vPrice > 0 && vMode === 'total') {
+                                                  setLastTotalSelectionKey(`custom:${gName}`);
+                                                }
+                                                setActiveImageSrc(v.imageData!);
+                                              }}
+                                              title={`${v.name}${vPrice > 0 ? ` (${pricePrefix}${vPrice.toLocaleString()})` : ''}`}
+                                              className={`flex flex-col items-center gap-1 p-1.5 rounded-xl bg-white cursor-pointer transition-colors ${
+                                                isSel ? 'border-2 border-slate-900' : 'border border-slate-200 hover:border-slate-400'
+                                              }`}
+                                            >
+                                              <img src={v.imageData} alt={v.name} className="w-11 h-11 lg:w-12 lg:h-12 object-contain rounded" />
+                                              <span className="flex items-center gap-1 text-[11px] font-medium text-slate-700 capitalize">
+                                                <span className="w-2.5 h-2.5 rounded-full border border-slate-300" style={{ backgroundColor: swatchHex }} />
+                                                {v.name}
+                                              </span>
+                                            </button>
+                                          );
+                                        }
+                                        return (
+                                          <button
+                                            key={v.id}
+                                            type="button"
+                                            onClick={() => {
+                                              setSelectedCustomVariantIds(prev => ({ ...prev, [gName]: v.id }));
+                                              if (vPrice > 0 && vMode === 'total') {
+                                                setLastTotalSelectionKey(`custom:${gName}`);
+                                              }
+                                              if (v.imageData) setActiveImageSrc(v.imageData);
+                                            }}
+                                            title={`${v.name}${vPrice > 0 ? ` (${pricePrefix}${vPrice.toLocaleString()})` : ''}`}
+                                            className={`px-3.5 py-2 rounded-lg border text-xs sm:text-[13px] font-medium flex items-center gap-2 cursor-pointer transition-colors ${
+                                              isSel ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-white text-slate-800 hover:border-slate-400'
+                                            }`}
+                                          >
+                                            <span className="w-4 h-4 rounded-full border border-slate-300 shrink-0" style={{ backgroundColor: swatchHex }} />
+                                            <span className="capitalize">{v.name}</span>
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
                                   </div>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
+                                );
+                              }
 
-                      {/* 2. Side Storage Option */}
-                      {sideStorageVariants.length > 0 && (
-                        <div className="mb-5">
-                          <label className="block text-xs font-bold uppercase tracking-wider text-slate-800 mb-2.5">
-                            Side Storage: <span className="text-emerald-700 font-extrabold">{activeStorageVar ? (activeStorageVar.sideStorage || activeStorageVar.name) : 'Without Side Storage'}</span>
-                          </label>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            <button
-                              type="button"
-                              onClick={() => setSelectedSideStorageVariantId(null)}
-                              className={`p-2.5 rounded-xl border text-xs font-semibold transition-all flex items-center justify-between gap-2 text-left cursor-pointer ${
-                                !selectedSideStorageVariantId
-                                  ? 'border-emerald-600 bg-emerald-50/80 text-emerald-900 ring-2 ring-emerald-500/20 font-bold'
-                                  : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
-                              }`}
-                            >
-                              <span>Without Side Storage</span>
-                              {!selectedSideStorageVariantId && <Check className="w-4 h-4 text-emerald-600" />}
-                            </button>
-
-                            {sideStorageVariants.map(v => {
-                              const storageLabel = v.sideStorage || v.name;
-                              const isSelected = selectedSideStorageVariantId === v.id;
-                              const vPrice = parseFloat(String(v.price).replace(/[^0-9.]/g, '')) || 0;
                               return (
-                                <button
-                                  key={v.id}
-                                  type="button"
-                                  onClick={() => {
-                                    setSelectedSideStorageVariantId(v.id);
-                                    if (v.imageData) setActiveImageSrc(v.imageData);
-                                  }}
-                                  className={`p-2.5 rounded-xl border text-xs font-semibold transition-all flex items-center justify-between gap-2 text-left cursor-pointer ${
-                                    isSelected
-                                      ? 'border-emerald-600 bg-emerald-50/80 text-emerald-900 ring-2 ring-emerald-500/20 font-bold'
-                                      : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
-                                  }`}
-                                >
-                                  <span className="truncate">{storageLabel}</span>
-                                  <div className="shrink-0 flex items-center gap-1">
-                                    {vPrice > 0 && (
-                                      <span className="text-emerald-700 font-bold text-xs">+₹{vPrice.toLocaleString()}</span>
-                                    )}
-                                    {isSelected && <Check className="w-4 h-4 text-emerald-600 shrink-0" />}
+                                <div key={gName} className="mb-4">
+                                  <p className="text-[13px] text-slate-900 mb-2">
+                                    <span className="font-bold">{gName} :</span>{' '}
+                                    <span className="font-medium text-slate-700 capitalize">{selVar ? selVar.name : 'Default'}</span>
+                                  </p>
+                                  <div className="flex flex-wrap gap-2">
+                                    {vList.map(v => {
+                                      const isSel = selId === v.id || (!selId && v.id === vList[0]?.id);
+                                      const vPrice = parsePriceNumber(v.price);
+                                      const vMode = resolveVariantPriceMode(v, baseProductPrice);
+                                      const pricePrefix = vMode === 'addon' ? '+₹' : '₹';
+                                      return (
+                                        <button
+                                          key={v.id}
+                                          type="button"
+                                          onClick={() => {
+                                            setSelectedCustomVariantIds(prev => ({ ...prev, [gName]: v.id }));
+                                            if (vPrice > 0 && vMode === 'total') {
+                                              setLastTotalSelectionKey(`custom:${gName}`);
+                                            }
+                                            if (v.imageData) setActiveImageSrc(v.imageData);
+                                          }}
+                                          className={`px-3 py-2 rounded-lg border text-xs font-semibold transition-colors flex items-center gap-2 text-left cursor-pointer ${
+                                            isSel
+                                              ? 'border-slate-900 bg-slate-900 text-white'
+                                              : 'border-slate-200 bg-white text-slate-700 hover:border-slate-400'
+                                          }`}
+                                        >
+                                          <span className="capitalize">{v.name}</span>
+                                          {vPrice > 0 && (
+                                            <span className={`font-bold text-xs tabular-nums ${isSel ? 'text-slate-300' : 'text-slate-900'}`}>
+                                              {pricePrefix}{vPrice.toLocaleString()}
+                                            </span>
+                                          )}
+                                          {isSel && <Check className="w-3.5 h-3.5 text-white shrink-0" />}
+                                        </button>
+                                      );
+                                    })}
                                   </div>
-                                </button>
+                                </div>
                               );
-                            })}
-                          </div>
-                        </div>
-                      )}
+                            });
+                          })()}
 
-                      {/* 3. Electric & Cabling */}
-                      {electricVariants.length > 0 && (
-                        <div className="mb-5">
-                          <label className="block text-xs font-bold uppercase tracking-wider text-slate-800 mb-2.5">
-                            Electric & Cabling: <span className="text-purple-700 font-extrabold">{activeElectricVar ? (activeElectricVar.electricOption || activeElectricVar.name) : 'Standard / None'}</span>
-                          </label>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            {electricVariants.map(v => {
-                              const electricLabel = v.electricOption || v.name;
-                              const isSelected = selectedElectricVariantId === v.id;
-                              const vPrice = parseFloat(String(v.price).replace(/[^0-9.]/g, '')) || 0;
-                              return (
-                                <button
-                                  key={v.id}
-                                  type="button"
-                                  onClick={() => {
-                                    setSelectedElectricVariantId(selectedElectricVariantId === v.id ? null : v.id);
-                                    if (v.imageData) setActiveImageSrc(v.imageData);
-                                  }}
-                                  className={`p-2.5 rounded-xl border text-xs font-semibold transition-all flex items-center justify-between gap-2 text-left cursor-pointer ${
-                                    isSelected
-                                      ? 'border-purple-600 bg-purple-50/80 text-purple-900 ring-2 ring-purple-500/20 font-bold'
-                                      : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
-                                  }`}
-                                >
-                                  <span className="truncate">{electricLabel}</span>
-                                  <div className="shrink-0 flex items-center gap-1">
-                                    {vPrice > 0 && <span className="text-purple-700 font-bold text-xs">+₹{vPrice.toLocaleString()}</span>}
-                                    {isSelected && <Check className="w-4 h-4 text-purple-600 shrink-0" />}
-                                  </div>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* 4. Colour / Finish Swatches (boAt style) */}
-                      {colorVariants.length > 0 ? (
-                        <div className="mb-6">
-                          <p className="font-bold text-slate-900 text-xs sm:text-sm mb-3">
-                            Choose your color : <span className="font-extrabold text-indigo-600">{activeColorVar ? (activeColorVar.color || activeColorVar.name) : 'Swedish White / Light Oak'}</span>
-                          </p>
-                          <div className="flex flex-wrap gap-3">
-                            {colorVariants.map(v => {
-                              const colorLabel = v.color || v.name;
-                              const isSelected = selectedColorVariantId === v.id;
-                              return (
-                                <button
-                                  key={v.id}
-                                  type="button"
-                                  onClick={() => {
-                                    setSelectedColorVariantId(v.id);
-                                    if (v.imageData) setActiveImageSrc(v.imageData);
-                                  }}
-                                  className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
-                                    isSelected 
-                                      ? 'border-slate-900 bg-slate-900 text-white shadow-sm ring-2 ring-slate-900/20' 
-                                      : 'border-slate-200 bg-white text-slate-800 hover:border-slate-400'
-                                  }`}
-                                >
-                                  {v.imageData ? (
-                                    <img src={v.imageData} alt={colorLabel} className="w-5 h-5 rounded-full object-cover border border-slate-300 shrink-0" />
-                                  ) : v.colorCode ? (
-                                    <span 
-                                      className="w-4 h-4 rounded-full border border-slate-300 shrink-0 shadow-xs" 
-                                      style={{ backgroundColor: v.colorCode }} 
-                                    />
-                                  ) : (
-                                    <span className="w-4 h-4 rounded-full bg-slate-300 shrink-0" />
-                                  )}
-                                  <span>{colorLabel}</span>
-                                  {isSelected && <Check className="w-3.5 h-3.5 text-white ml-0.5" />}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="mb-6">
-                          <p className="font-bold text-slate-900 text-xs sm:text-sm mb-3">
-                            Choose your color : <span className="font-normal text-slate-600">Swedish White / Classic Walnut</span>
-                          </p>
-                          <div className="flex gap-3">
-                            <div className="w-12 h-12 rounded-xl border-2 border-slate-900 flex items-center justify-center cursor-pointer overflow-hidden p-1 bg-slate-50 ring-2 ring-slate-900/10">
-                              <StorefrontProductImage productId={selectedProduct.id} productName={selectedProduct.name} />
-                            </div>
-                            <div className="w-12 h-12 rounded-xl border border-slate-200 flex items-center justify-center cursor-pointer hover:border-slate-400 overflow-hidden p-1 bg-slate-50 opacity-60">
-                              <StorefrontProductImage productId={selectedProduct.id} productName={selectedProduct.name} />
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Dynamic Custom Variant Groups (for uploaded products with custom option groups) */}
-                      {(() => {
-                        const allVars = (selectedProduct.variants || []).filter(Boolean);
-                        const customVars = allVars.filter(v => v.variantType === 'custom' || Boolean(v.groupName && v.variantType !== 'color' && v.variantType !== 'size' && v.variantType !== 'side_storage' && v.variantType !== 'electric'));
-                        if (customVars.length === 0) return null;
-
-                        const grouped = customVars.reduce((acc, v) => {
-                          const g = v.groupName || 'Additional Options';
-                          if (!acc[g]) acc[g] = [];
-                          acc[g].push(v);
-                          return acc;
-                        }, {} as Record<string, ProductVariant[]>);
-
-                        return Object.entries(grouped).map(([gName, vList]) => {
-                          const selId = selectedCustomVariantIds[gName];
-                          const selVar = vList.find(v => v.id === selId) || vList[0];
-                          return (
-                            <div key={gName} className="mb-5">
-                              <label className="block text-xs font-bold uppercase tracking-wider text-slate-800 mb-2">
-                                {gName}: <span className="text-indigo-600 font-extrabold">{selVar ? selVar.name : 'Default'}</span>
-                              </label>
+                          {/* 1. Size Variants */}
+                          {sizeVariants.length > 0 && (
+                            <div className="mb-4">
+                              <p className="text-[13px] text-slate-900 mb-2">
+                                <span className="font-bold">Size / Model :</span>{' '}
+                                <span className="font-medium text-slate-700">{activeSizeVar ? (activeSizeVar.size || activeSizeVar.name) : 'Standard'}</span>
+                              </p>
                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                {vList.map(v => {
-                                  const isSel = selId === v.id || (!selId && v.id === vList[0]?.id);
-                                  const vPrice = parseFloat(String(v.price).replace(/[^0-9.]/g, '')) || 0;
+                                {sizeVariants.map(v => {
+                                  const sizeLabel = v.size || v.name;
+                                  const isSelected = selectedSizeVariantId === v.id;
+                                  const vPrice = parsePriceNumber(v.price);
                                   return (
                                     <button
                                       key={v.id}
                                       type="button"
                                       onClick={() => {
-                                        setSelectedCustomVariantIds(prev => ({ ...prev, [gName]: v.id }));
+                                        setSelectedSizeVariantId(v.id);
+                                        if (vPrice > 0) setLastTotalSelectionKey('size');
                                         if (v.imageData) setActiveImageSrc(v.imageData);
                                       }}
-                                      className={`p-2.5 rounded-xl border text-xs font-semibold transition-all flex items-center justify-between gap-2 text-left cursor-pointer ${
-                                        isSel
-                                          ? 'border-indigo-600 bg-indigo-50/80 text-indigo-900 ring-2 ring-indigo-500/20 font-bold'
-                                          : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                                      className={`px-3 py-2 rounded-lg border text-xs font-semibold transition-colors flex items-center justify-between gap-2 text-left cursor-pointer ${
+                                        isSelected
+                                          ? 'border-slate-900 bg-slate-900 text-white'
+                                          : 'border-slate-200 bg-white text-slate-700 hover:border-slate-400'
                                       }`}
                                     >
-                                      <span className="truncate">{v.name}</span>
-                                      <div className="shrink-0 flex items-center gap-1">
-                                        {vPrice > 0 && <span className="text-indigo-600 font-bold text-xs">+₹{vPrice.toLocaleString()}</span>}
-                                        {isSel && <Check className="w-4 h-4 text-indigo-600 shrink-0" />}
+                                      <span className="truncate">{sizeLabel}</span>
+                                      <div className="shrink-0 flex items-center gap-1.5 tabular-nums">
+                                        {vPrice > 0 && (
+                                          <span className={`font-bold text-xs ${isSelected ? 'text-slate-200' : 'text-slate-900'}`}>
+                                            ₹{vPrice.toLocaleString()}
+                                          </span>
+                                        )}
+                                        {isSelected && <Check className="w-3.5 h-3.5 text-white shrink-0" />}
                                       </div>
                                     </button>
                                   );
                                 })}
                               </div>
                             </div>
-                          );
-                        });
-                      })()}
+                          )}
 
-                      {/* Workstation Specification & Feature Customization Controls */}
+                          {/* 2. Side Storage Option */}
+                          {sideStorageVariants.length > 0 && (
+                            <div className="mb-4">
+                              <p className="text-[13px] text-slate-900 mb-2">
+                                <span className="font-bold">Side Storage :</span>{' '}
+                                <span className="font-medium text-slate-700">{activeStorageVar ? (activeStorageVar.sideStorage || activeStorageVar.name) : 'Without Side Storage'}</span>
+                              </p>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedSideStorageVariantId(null)}
+                                  className={`px-3 py-2 rounded-lg border text-xs font-semibold transition-colors flex items-center justify-between gap-2 text-left cursor-pointer ${
+                                    !selectedSideStorageVariantId
+                                      ? 'border-slate-900 bg-slate-900 text-white'
+                                      : 'border-slate-200 bg-white text-slate-700 hover:border-slate-400'
+                                  }`}
+                                >
+                                  <span>Without Side Storage</span>
+                                  {!selectedSideStorageVariantId && <Check className="w-3.5 h-3.5 text-white shrink-0" />}
+                                </button>
+
+                                {sideStorageVariants.map(v => {
+                                  const storageLabel = v.sideStorage || v.name;
+                                  const isSelected = selectedSideStorageVariantId === v.id;
+                                  const vPrice = parseFloat(String(v.price).replace(/[^0-9.]/g, '')) || 0;
+                                  return (
+                                    <button
+                                      key={v.id}
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedSideStorageVariantId(v.id);
+                                        if (v.imageData) setActiveImageSrc(v.imageData);
+                                      }}
+                                      className={`px-3 py-2 rounded-lg border text-xs font-semibold transition-colors flex items-center justify-between gap-2 text-left cursor-pointer ${
+                                        isSelected
+                                          ? 'border-slate-900 bg-slate-900 text-white'
+                                          : 'border-slate-200 bg-white text-slate-700 hover:border-slate-400'
+                                      }`}
+                                    >
+                                      <span className="truncate">{storageLabel}</span>
+                                      <div className="shrink-0 flex items-center gap-1.5 tabular-nums">
+                                        {vPrice > 0 && (
+                                          <span className={`font-bold text-xs ${isSelected ? 'text-slate-200' : 'text-slate-900'}`}>+₹{vPrice.toLocaleString()}</span>
+                                        )}
+                                        {isSelected && <Check className="w-3.5 h-3.5 text-white shrink-0" />}
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* 3. Electric & Cabling */}
+                          {electricVariants.length > 0 && (
+                            <div className="mb-4">
+                              <p className="text-[13px] text-slate-900 mb-2">
+                                <span className="font-bold">Electric &amp; Cabling :</span>{' '}
+                                <span className="font-medium text-slate-700">{activeElectricVar ? (activeElectricVar.electricOption || activeElectricVar.name) : 'Standard / None'}</span>
+                              </p>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                {electricVariants.map(v => {
+                                  const electricLabel = v.electricOption || v.name;
+                                  const isSelected = selectedElectricVariantId === v.id;
+                                  const vPrice = parseFloat(String(v.price).replace(/[^0-9.]/g, '')) || 0;
+                                  return (
+                                    <button
+                                      key={v.id}
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedElectricVariantId(selectedElectricVariantId === v.id ? null : v.id);
+                                        if (v.imageData) setActiveImageSrc(v.imageData);
+                                      }}
+                                      className={`px-3 py-2 rounded-lg border text-xs font-semibold transition-colors flex items-center justify-between gap-2 text-left cursor-pointer ${
+                                        isSelected
+                                          ? 'border-slate-900 bg-slate-900 text-white'
+                                          : 'border-slate-200 bg-white text-slate-700 hover:border-slate-400'
+                                      }`}
+                                    >
+                                      <span className="truncate">{electricLabel}</span>
+                                      <div className="shrink-0 flex items-center gap-1.5 tabular-nums">
+                                        {vPrice > 0 && <span className={`font-bold text-xs ${isSelected ? 'text-slate-200' : 'text-slate-900'}`}>+₹{vPrice.toLocaleString()}</span>}
+                                        {isSelected && <Check className="w-3.5 h-3.5 text-white shrink-0" />}
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      )}
+
+                      {/* Check Delivery Box (D2C Pincode & Dispatch Timeline) */}
+                      {!isWorkstation && (
+                        <>
+                          <div className="mb-5 bg-[#F7F9FA] rounded-xl p-4 sm:p-5">
+                            <h3 className="text-sm font-bold text-slate-900 mb-3">Check Delivery</h3>
+                            <div className="flex items-center gap-3">
+                              <div className="flex-1 bg-white border border-slate-200/80 rounded-lg px-3.5 py-2 flex items-center justify-between gap-2">
+                                <input
+                                  type="text"
+                                  maxLength={6}
+                                  value={deliveryPincode}
+                                  onChange={(e) => setDeliveryPincode(e.target.value.replace(/\D/g, ''))}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && deliveryPincode.length === 6) {
+                                      setCheckedPincode(deliveryPincode);
+                                    }
+                                  }}
+                                  placeholder="Enter 6-digit pincode"
+                                  className="w-full text-sm font-medium text-slate-900 bg-transparent focus:outline-none tabular-nums"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (deliveryPincode.length >= 4) setCheckedPincode(deliveryPincode);
+                                  }}
+                                  className="px-4 py-1.5 bg-[#1A2024] hover:bg-black text-white text-xs sm:text-[13px] font-semibold rounded-md transition-colors cursor-pointer shrink-0"
+                                >
+                                  Change
+                                </button>
+                              </div>
+                              <Truck className="w-5 h-5 text-slate-600 shrink-0" />
+                            </div>
+                            <p className="text-xs sm:text-[13px] mt-2.5 font-medium">
+                              <span className="text-emerald-700 font-semibold">Free delivery</span>{' '}
+                              <span className="text-slate-600">| Dispatches in {dispatchDays} ({checkedPincode})</span>
+                            </p>
+                          </div>
+
+                          {/* Active Offers Tier Cards */}
+                          <div className="mb-6">
+                            <h3 className="text-sm font-bold text-slate-900 mb-3.5">Active Offers</h3>
+                            <div className="grid grid-cols-3 gap-3">
+                              {[
+                                { tag: 'MOST POPULAR', label: 'Buy 2 or more', discount: '5% off', qty: 2, tagBg: 'bg-emerald-600' },
+                                { tag: 'BEST VALUE', label: 'Buy 5 or more', discount: '10% off', qty: 5, tagBg: 'bg-[#1A2024]' },
+                                { tag: 'MOST SAVINGS', label: 'Buy 10 or more', discount: '15% off', qty: 10, tagBg: 'bg-[#1A2024]' },
+                              ].map((offer) => (
+                                <button
+                                  key={offer.qty}
+                                  type="button"
+                                  onClick={() => {
+                                    for (let i = 0; i < offer.qty; i++) {
+                                      addToCart(selectedProduct, currentWorkstationSetup, activeVariant, currentPrice, optionsSummary);
+                                    }
+                                    setIsCartOpen(true);
+                                  }}
+                                  className="relative pt-4 pb-3 px-2.5 rounded-xl border border-emerald-200/90 bg-[#F3FAF6] hover:border-emerald-400 transition-colors text-center cursor-pointer flex flex-col items-center"
+                                >
+                                  <span className={`absolute -top-2.5 left-1/2 -translate-x-1/2 ${offer.tagBg} text-white text-[10px] font-bold tracking-wide px-2.5 py-0.5 rounded whitespace-nowrap`}>
+                                    {offer.tag}
+                                  </span>
+                                  <span className="text-xs sm:text-[13px] font-semibold text-slate-800 leading-tight mt-0.5">{offer.label}</span>
+                                  <span className="text-xs sm:text-[13px] font-bold text-emerald-700 mt-0.5">{offer.discount}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </>
+                      )}
+
+                      {/* Alfa Modular Workstation Pro - Full CAD Configurator */}
                       {isWorkstation && (
-                        <div className="space-y-5 mb-6 pt-4 border-t border-slate-200">
-                          <h3 className="text-xs font-black uppercase tracking-wider text-indigo-700 flex items-center gap-1.5">
-                            <Sparkles className="w-3.5 h-3.5" />
-                            <span>Workstation CAD Customization</span>
-                          </h3>
-
-                          {/* Tabletop Board Thickness */}
-                          <div>
-                            <label className="block text-xs font-bold uppercase tracking-wider text-slate-800 mb-2">
-                              Tabletop Board Thickness: <span className="text-amber-700 font-extrabold">{selectedThickness}</span>
-                            </label>
-                            <div className="grid grid-cols-3 gap-2">
-                              {[
-                                { label: '18 mm PLPB', val: '18 mm' },
-                                { label: '25 mm Commercial', val: '25 mm' },
-                                { label: '36 mm Heavy Duty', val: '36 mm' }
-                              ].map(t => (
-                                <button
-                                  key={t.val}
-                                  type="button"
-                                  onClick={() => setSelectedThickness(t.val)}
-                                  className={`p-2.5 rounded-xl border text-xs font-bold transition-all text-center cursor-pointer ${
-                                    selectedThickness === t.val
-                                      ? 'border-amber-600 bg-amber-50/90 text-amber-950 ring-2 ring-amber-500/20'
-                                      : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
-                                  }`}
-                                >
-                                  <span>{t.label}</span>
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-
-                          {/* 5. Leg Structure Style */}
-                          <div>
-                            <label className="block text-xs font-bold uppercase tracking-wider text-slate-800 mb-2">
-                              Leg Frame Style: <span className="text-indigo-600 font-extrabold">{selectedLegStyle}</span>
-                            </label>
-                            <div className="grid grid-cols-2 gap-2">
-                              {['Square Loop Leg', 'O-Frame Loop Leg', 'A-Frame Angle Leg', 'Triangular Die-Cast Leg'].map(style => (
-                                <button
-                                  key={style}
-                                  type="button"
-                                  onClick={() => setSelectedLegStyle(style)}
-                                  className={`p-2.5 rounded-xl border text-xs font-bold transition-all text-left flex items-center justify-between cursor-pointer ${
-                                    selectedLegStyle === style
-                                      ? 'border-indigo-600 bg-indigo-50/90 text-indigo-900 ring-2 ring-indigo-500/20'
-                                      : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
-                                  }`}
-                                >
-                                  <span className="truncate">{style}</span>
-                                  {selectedLegStyle === style && <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-
-                          {/* 6. Leg Metal Finish */}
-                          <div>
-                            <label className="block text-xs font-bold uppercase tracking-wider text-slate-800 mb-2">
-                              Leg Metal Finish: <span className="text-slate-900 font-extrabold">{selectedLegColor}</span>
-                            </label>
-                            <div className="flex flex-wrap gap-2">
-                              {[
-                                { name: 'Metallic Grey', code: '#94A3B8' },
-                                { name: 'Matte Black', code: '#0F172A' },
-                                { name: 'Pure White', code: '#F8FAFC' },
-                                { name: 'Chrome', code: '#E2E8F0' }
-                              ].map(col => (
-                                <button
-                                  key={col.name}
-                                  type="button"
-                                  onClick={() => setSelectedLegColor(col.name)}
-                                  className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold cursor-pointer transition-all ${
-                                    selectedLegColor === col.name
-                                      ? 'border-slate-900 bg-slate-900 text-white shadow-xs'
-                                      : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
-                                  }`}
-                                >
-                                  <span className="w-3.5 h-3.5 rounded-full border border-slate-300 shrink-0" style={{ backgroundColor: col.code }} />
-                                  <span>{col.name}</span>
-                                  {selectedLegColor === col.name && <Check className="w-3 h-3 text-white ml-0.5" />}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-
-                          {/* 7. Front Privacy Screen Type */}
-                          <div>
-                            <label className="block text-xs font-bold uppercase tracking-wider text-slate-800 mb-2">
-                              Privacy Screen Material: <span className="text-blue-700 font-extrabold">{selectedFrontScreen}</span>
-                            </label>
-                            <div className="grid grid-cols-2 gap-2">
-                              {['Acrylic Privacy Screen', 'Fabric Pinboard Screen', 'Acoustic PET Felt Panel', 'Frosted Glass Screen'].map(screen => (
-                                <button
-                                  key={screen}
-                                  type="button"
-                                  onClick={() => setSelectedFrontScreen(screen)}
-                                  className={`p-2.5 rounded-xl border text-xs font-bold transition-all text-left flex items-center justify-between cursor-pointer ${
-                                    selectedFrontScreen === screen
-                                      ? 'border-blue-600 bg-blue-50/90 text-blue-900 ring-2 ring-blue-500/20'
-                                      : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
-                                  }`}
-                                >
-                                  <span className="truncate">{screen}</span>
-                                  {selectedFrontScreen === screen && <Check className="w-3.5 h-3.5 text-blue-600 shrink-0" />}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-
-                          {/* 8. Privacy Screen Color */}
-                          <div>
-                            <label className="block text-xs font-bold uppercase tracking-wider text-slate-800 mb-2">
-                              Privacy Screen Color: <span className="text-blue-600 font-extrabold">{selectedScreenColor}</span>
-                            </label>
-                            <div className="flex flex-wrap gap-2">
-                              {['Frosty White', 'Ocean Blue', 'Slate Grey', 'Forest Green', 'Sunset Amber'].map(sc => (
-                                <button
-                                  key={sc}
-                                  type="button"
-                                  onClick={() => setSelectedScreenColor(sc)}
-                                  className={`px-3 py-1.5 rounded-xl border text-xs font-bold cursor-pointer transition-all ${
-                                    selectedScreenColor === sc
-                                      ? 'border-blue-600 bg-blue-600 text-white shadow-xs'
-                                      : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
-                                  }`}
-                                >
-                                  <span>{sc}</span>
-                                  {selectedScreenColor === sc && <Check className="w-3 h-3 text-white ml-1 inline-block" />}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-
-                          {/* 9. Middle Partition Toggle */}
-                          <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200">
-                            <div>
-                              <span className="block text-xs font-bold text-slate-900">Middle Glass/Panel Partition</span>
-                              <span className="block text-[11px] text-slate-500">Center divider between facing desks</span>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => setStoreMiddlePartition(storeMiddlePartition === 'Included' ? 'None' : 'Included')}
-                              className={`px-3 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
-                                storeMiddlePartition === 'Included'
-                                  ? 'bg-emerald-600 text-white shadow-xs'
-                                  : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
-                              }`}
-                            >
-                              {storeMiddlePartition === 'Included' ? 'Included' : 'None'}
-                            </button>
-                          </div>
-                        </div>
+                        <WorkstationSetup
+                          onChange={(setup) => {
+                            setCurrentWorkstationSetup(setup);
+                          }}
+                          variants={selectedProduct.variants}
+                          activeVariant={activeVariant}
+                          onSelectVariant={(v) => {
+                            if (v.variantType === 'size' || v.size) setSelectedSizeVariantId(v.id);
+                            if (v.variantType === 'color' || v.color) setSelectedColorVariantId(v.id);
+                            if (v.imageData) setActiveImageSrc(v.imageData);
+                          }}
+                          onColorChange={() => {}}
+                          externalMiddlePartition={storeMiddlePartition}
+                          onMiddlePartitionChange={(val) => setStoreMiddlePartition(val)}
+                        />
                       )}
 
                       {/* Action Buttons */}
-                      <div className="mt-auto pt-4 flex flex-col sm:flex-row gap-3">
+                      <div className="mt-auto pt-2 grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <button 
                           onClick={() => addToCart(selectedProduct, currentWorkstationSetup, activeVariant, currentPrice, optionsSummary)}
-                          className="flex-1 py-3.5 px-5 rounded-xl bg-slate-900 text-white font-extrabold hover:bg-black transition-all flex items-center justify-center gap-2 shadow-md cursor-pointer text-sm active:scale-98"
+                          className="h-12 px-4 rounded-xl bg-[#1A2024] text-white font-semibold hover:bg-black transition-colors flex items-center justify-center gap-2 cursor-pointer text-sm whitespace-nowrap"
                         >
-                          <ShoppingCart className="w-4 h-4" /> Add To Quote
-                        </button>
-                        <button 
-                          onClick={() => {
-                            setQuotationProduct(selectedProduct);
-                            setQuotationVariant(activeVariant);
-                            setIsQuotationModalOpen(true);
-                          }}
-                          className="flex-1 py-3.5 px-5 rounded-xl bg-indigo-600 text-white font-extrabold hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 shadow-md cursor-pointer text-sm active:scale-98"
-                        >
-                          <FileText className="w-4 h-4" /> Create Quotation
+                          <ShoppingCart className="w-4 h-4 shrink-0" />
+                          <span>Add To Quote</span>
                         </button>
                         <button 
                           onClick={() => {
                             addToCart(selectedProduct, currentWorkstationSetup, activeVariant, currentPrice, optionsSummary);
                             setIsCartOpen(true);
                           }}
-                          className="py-3.5 px-5 rounded-xl bg-amber-400 text-slate-900 font-extrabold hover:bg-amber-500 transition-all shadow-md cursor-pointer text-sm active:scale-98"
+                          className="h-12 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-900 font-semibold transition-colors flex items-center justify-center cursor-pointer text-sm whitespace-nowrap"
                         >
                           Buy Now
+                        </button>
+                        <button 
+                          onClick={() => {
+                            setQuotationCartItems(null);
+                            setQuotationProduct(selectedProduct);
+                            setQuotationVariant(quotationResolvedVariant);
+                            setIsQuotationModalOpen(true);
+                          }}
+                          className="h-12 px-4 rounded-xl border border-slate-300 bg-white text-slate-900 font-semibold hover:bg-slate-50 transition-colors flex items-center justify-center gap-2 cursor-pointer text-sm whitespace-nowrap"
+                        >
+                          <FileText className="w-4 h-4 shrink-0" />
+                          <span>Create Quotation</span>
                         </button>
                       </div>
 
@@ -1395,6 +1621,32 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                 );
               })()}
             </div>
+
+            {/* Structured Product Specifications Section */}
+            {(() => {
+              const specs = (selectedProduct.specifications || selectedProduct.details?.specifications || [])
+                .filter(s => s && (s.label?.trim() || s.value?.trim()));
+              if (specs.length === 0) return null;
+              return (
+                <section className="mt-12 pt-8 border-t border-slate-200/80">
+                  <h2 className="text-lg sm:text-xl font-bold text-slate-900 mb-6">
+                    Specifications
+                  </h2>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-16 gap-y-6 max-w-4xl">
+                    {specs.map((spec, sIdx) => (
+                      <div key={sIdx} className="min-w-0">
+                        <div className="text-xs sm:text-[13px] text-slate-500 font-normal mb-1">
+                          {spec.label || 'Specification'}
+                        </div>
+                        <div className="text-sm sm:text-base font-bold text-slate-900">
+                          {spec.value || '-'}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              );
+            })()}
 
           </div>
         ) : (
@@ -1574,9 +1826,17 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                       if (!product) return null;
                       const validVariants = (product.variants || []).filter(Boolean);
                       const hasVariants = validVariants.length > 0;
-                      const lowestPrice = hasVariants
-                        ? Math.min(...validVariants.map(v => typeof v?.price === 'string' ? parseFloat(v.price.replace(/[^0-9.]/g, '')) || 0 : (Number(v?.price) || 0)))
-                        : (product.salesRate || (typeof product.price === 'string' ? parseFloat(product.price.replace(/[^0-9.]/g, '')) : product.price) || 14500);
+                      const baseCardPrice =
+                        product.salesRate ||
+                        parsePriceNumber(product.price || product.details?.perUnitPrice || product.details?.totalUnitPrice) ||
+                        14500;
+                      const totalVariantPrices = validVariants
+                        .filter(v => resolveVariantPriceMode(v, baseCardPrice) === 'total')
+                        .map(v => parsePriceNumber(v?.price))
+                        .filter(p => p > 0);
+                      const lowestPrice = totalVariantPrices.length > 0
+                        ? Math.min(...totalVariantPrices)
+                        : baseCardPrice;
 
                       return (
                         <motion.div 
@@ -1661,6 +1921,7 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
+                                    setQuotationCartItems(null);
                                     setQuotationProduct(product);
                                     setQuotationVariant(hasVariants ? product.variants![0] : null);
                                     setIsQuotationModalOpen(true);
@@ -1853,7 +2114,17 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                     <span className="text-base font-bold text-slate-900 uppercase">Total</span>
                     <span className="font-black text-2xl text-red-600">Rs. {cartTotal.toLocaleString()}</span>
                   </div>
-                  <button className="w-full py-4 bg-black text-white font-bold uppercase tracking-wider text-sm rounded-xl hover:bg-red-600 transition-colors shadow-lg shadow-black/20 hover:shadow-red-600/30">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setQuotationProduct(null);
+                      setQuotationVariant(null);
+                      setQuotationCartItems([...cart]);
+                      setIsCartOpen(false);
+                      setIsQuotationModalOpen(true);
+                    }}
+                    className="w-full py-4 bg-black text-white font-bold uppercase tracking-wider text-sm rounded-xl hover:bg-red-600 transition-colors shadow-lg shadow-black/20 hover:shadow-red-600/30 cursor-pointer"
+                  >
                     Checkout Now
                   </button>
                 </div>
@@ -1883,11 +2154,30 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
       {/* Commercial Quotation Generator Modal */}
       <CreateQuotationModal
         isOpen={isQuotationModalOpen}
-        onClose={() => setIsQuotationModalOpen(false)}
+        onClose={() => {
+          setIsQuotationModalOpen(false);
+          setQuotationCartItems(null);
+        }}
         initialProduct={quotationProduct}
         initialVariant={quotationVariant}
+        initialCartItems={quotationCartItems}
         allProducts={products}
+        onSaved={() => {
+          if (quotationCartItems && quotationCartItems.length > 0) {
+            setCart([]);
+            setQuotationCartItems(null);
+            setCheckoutSuccessToast(true);
+            setTimeout(() => setCheckoutSuccessToast(false), 4500);
+          }
+        }}
       />
+
+      {checkoutSuccessToast && (
+        <div className="fixed bottom-6 right-6 z-[90] bg-slate-900 text-white px-5 py-3.5 rounded-xl shadow-2xl border border-slate-700 flex items-center gap-3 text-sm font-semibold">
+          <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+          <span>Quotation created and saved to Quotations tab.</span>
+        </div>
+      )}
 
     </div>
   );
@@ -1970,59 +2260,72 @@ export const WORKSTATION_PRICING = {
   material: {
     'PLPB': 0,
     'MDF': 1200,
+    'HDFM': 2400,
     'HDHMR': 2400,
     'Plywood': 3800
   } as Record<string, number>,
   thickness: {
     '18 mm': 0,
+    '25 g': 1500,
     '25 mm': 1500,
     '36 mm': 3200
   } as Record<string, number>,
-  legs: {
-    'metal': {
-      'Straight legs': 0,
-      'U shape legs': 1200,
-      'Angular legs': 1800
-    } as Record<string, number>,
-    'wooden': {
-      'Straight leg': 2500
-    } as Record<string, number>
+  laminate: {
+    front: 800,
+    back: 800
   },
+  metalPipeThickness: {
+    '40x40': 0,
+    '50x50': 800,
+    '40 x 40': 0,
+    '50 x 50': 800
+  } as Record<string, number>,
+  legStyle: {
+    'Straight legs': 0,
+    'U-shaped leg': 1200,
+    'U shape legs': 1200,
+    'Angular leg': 1800,
+    'Angular legs': 1800
+  } as Record<string, number>,
+  cncSheet: 1500,
   frontScreen: {
     'Acrylic sheet': 0,
+    'Pinna board': 600,
     'Pin up board': 600,
-    'Aluminium framing': 1800,
+    'Wooden partition': 1200,
+    'Wooden': 1200,
     'Magnetic glass': 2500,
-    'Wooden': 1200
+    'Aluminum framing': 1800,
+    'Aluminium framing': 1800,
+    '6 mm lacquer glass': 2800,
+    'No Screen': 0
   } as Record<string, number>,
   screenHeight: {
+    '300 mm': 0,
     '300MM': 0,
+    '400 mm': 500,
     '400MM': 500,
+    '450 mm': 900,
     '450MM': 900
   } as Record<string, number>,
-  modesty: {
-    'None': 0,
-    'Include Modesty Panel': 1200
-  } as Record<string, number>,
-  electricFunction: {
-    'None': 0,
-    'Flip Box': 450,
-    'Wire Raceway': 350,
-    'Wire Raceway (1 Switch Hole)': 400,
-    'Wire Raceway (2 Switch Holes)': 550,
-    'Wire Raceway (3 Switch Holes)': 700,
-    'Flip Box with Wire Raceway': 650,
+  wireManagement: 350,
+  wireRaceway: 500,
+  racewaySwitches: {
     '1 switch': 400,
-    '2 switch': 550,
-    '3 switch': 700,
-    '4 switch': 900
+    '2 switches': 550,
+    '3 switches': 700
+  } as Record<string, number>,
+  storage: {
+    '3-drawer pedestal': 3500,
+    'drawer': 1200,
+    'condrawer': 950
   } as Record<string, number>,
   addons: {
+    '3-Drawer Pedestal': 3500,
     '3-Drawer Mobile Pedestal': 3500,
-    'Keyboard Tray': 1200,
-    'CPU Stand': 800
+    'Drawer': 1200,
+    'Condrawer': 950
   } as Record<string, number>,
-  // Table Top Color and Front Screen Color strictly DO NOT affect price (₹0)
   tableTopColor: {
     'Frosty white': 0,
     'Ghotic Gray': 0,
@@ -2043,15 +2346,7 @@ export const WORKSTATION_PRICING = {
     'White': 0,
     'Silver / Grey': 0,
     'Anthracite': 0,
-    'Custom Colour': 0,
-    'Natural Teak': 0,
-    'Beach Wood': 0,
-    'Walnut': 0,
-    'Black Wood': 0
-  } as Record<string, number>,
-  legSize: {
-    '40 x 40': 0,
-    '50 x 50': 800
+    'Custom Colour': 0
   } as Record<string, number>
 };
 
@@ -2072,58 +2367,54 @@ function WorkstationSetup({
   externalMiddlePartition?: 'Included' | 'None';
   onMiddlePartitionChange?: (val: 'Included' | 'None') => void;
 }) {
-  const [sizeType, setSizeType] = useState<'per_person' | 'total'>('per_person');
-  const [width, setWidth] = useState('1000 mm');
+  // Heading & Edge Option
+  const [edgeOption] = useState('Less Billiard Workstation');
+
+  // 1. Structure: Wall-facing or Face-to-face
+  const [workstationStructure, setWorkstationStructure] = useState<'wall-facing' | 'face-to-face'>('wall-facing');
+
+  // 2. Size: Width and Depth per person
+  const [width, setWidth] = useState('1200 mm');
   const [depth, setDepth] = useState('600 mm');
-  const [totalSize, setTotalSize] = useState('1500L x 600W mm');
   const [personQuantity, setPersonQuantity] = useState<number>(1);
-  const [layoutType, setLayoutType] = useState<'cluster' | 'linear'>('cluster');
-  const [material, setMaterial] = useState('PLPB');
+
+  // 3. Tabletop Thickness: 25 mm, 18 mm, 36 mm
   const [thickness, setThickness] = useState('25 mm');
-  const [tableTopColor, setTableTopColor] = useState('Frosty white');
-  const [legMaterial, setLegMaterial] = useState<'metal' | 'wooden'>('metal');
+
+  // 4. Tabletop Material: PLPB, MDF, HDHMR, Plywood
+  const [material, setMaterial] = useState('PLPB');
+
+  // 5. Laminate tick boxes for Front or Another side (N/A for PLPB)
+  const [laminateFront, setLaminateFront] = useState(true);
+  const [laminateBack, setLaminateBack] = useState(false);
+
+  // 6. Understructure metal pipe thickness: 40x40 or 50x50
+  const [metalPipeThickness, setMetalPipeThickness] = useState<'40x40' | '50x50'>('50x50');
+
+  // 7. Leg Style: Straight legs, U-shaped leg, Angular leg
   const [legStyle, setLegStyle] = useState('Straight legs');
-  const [legSize, setLegSize] = useState('40 x 40');
-  const [legColor, setLegColor] = useState('Black');
+
+  // 8. CNC Sheet (Optional): placed between two legs of understructure
+  const [includeCncSheet, setIncludeCncSheet] = useState(false);
+
+  // 9. Front Screen Options: 6 options + Height (300 mm, 400 mm, 450 mm)
   const [frontScreen, setFrontScreen] = useState('Acrylic sheet');
-  const [middlePartition, setMiddlePartitionState] = useState<'Included' | 'None'>(externalMiddlePartition || 'Included');
-
-  const setMiddlePartition = (val: 'Included' | 'None') => {
-    setMiddlePartitionState(val);
-    onMiddlePartitionChange?.(val);
-  };
-
-  useEffect(() => {
-    if (externalMiddlePartition && externalMiddlePartition !== middlePartition) {
-      setMiddlePartitionState(externalMiddlePartition);
-    }
-  }, [externalMiddlePartition]);
-
-  const [screenQuantity, setScreenQuantity] = useState<number>(1);
-  const [screenHeight, setScreenHeight] = useState('300MM');
+  const [screenHeight, setScreenHeight] = useState('300 mm');
   const [screenColor, setScreenColor] = useState('Blue');
-  const [modesty, setModesty] = useState('Include Modesty Panel');
-  const [electricFunction, setElectricFunction] = useState('None');
-  const [addons, setAddons] = useState<string[]>([]);
 
-  // Collect available widths and depths from variants to ensure they exist in dropdowns
-  const availableWidths = React.useMemo(() => {
-    const list = new Set(['800 mm', '900 mm', '1000 mm', '1050 mm', '1200 mm', '1500 mm', '1600 mm', '1800 mm', '2100 mm', '2400 mm']);
-    variants.forEach(v => {
-      const parsed = parseSizeDimensions(v.size);
-      if (parsed.width) list.add(parsed.width);
-    });
-    return Array.from(list).sort((a, b) => parseInt(a) - parseInt(b));
-  }, [variants]);
+  // 10. Wiring & electrical: Wire management, Wire raceway (default checked), switches (1 switch, 2 switches, 3 switches)
+  const [wireManagement, setWireManagement] = useState(true);
+  const [wireRaceway, setWireRaceway] = useState(true);
+  const [racewaySwitches, setRacewaySwitches] = useState<'1 switch' | '2 switches' | '3 switches'>('2 switches');
 
-  const availableDepths = React.useMemo(() => {
-    const list = new Set(['600 mm', '750 mm', '800 mm', '900 mm']);
-    variants.forEach(v => {
-      const parsed = parseSizeDimensions(v.size);
-      if (parsed.depth) list.add(parsed.depth);
-    });
-    return Array.from(list).sort((a, b) => parseInt(a) - parseInt(b));
-  }, [variants]);
+  // 11. Storage & Pedestal checkboxes: 3-drawer pedestal, Drawer, Condrawer (NO keyboard tray!)
+  const [pedestal3Drawer, setPedestal3Drawer] = useState(false);
+  const [drawer, setDrawer] = useState(false);
+  const [condrawer, setCondrawer] = useState(false);
+
+  // Aesthetics: tabletop and leg colors for 3D visualizer
+  const [tableTopColor, setTableTopColor] = useState('Frosty white');
+  const [legColor, setLegColor] = useState('Black');
 
   // Sync width and depth when activeVariant changes
   useEffect(() => {
@@ -2134,960 +2425,886 @@ function WorkstationSetup({
     }
   }, [activeVariant]);
 
-  // Exact Seater Standard Mapping:
-  // 800 mm: 1PRS | 900 mm: 1PRS | 1050 mm: 1PRS | 1200 mm: 1PRS | 1500/1600 mm: 1PRS
-  // 1800 mm: 2PRS | 2100 mm: 2PRS | 2400 mm: 3PRS
-  const getStandardPersonsForWidth = (w: number): number => {
-    if (w >= 2400) return 3;
-    if (w >= 1800) return 2;
-    return 1;
-  };
-
-  // Determine numeric width and check if multi-person seating is allowed (>= 1800mm)
-  const widthNum = React.useMemo(() => {
-    if (sizeType === 'per_person') {
-      return parseInt(width.replace(/[^0-9]/g, ''), 10) || 1000;
-    } else {
-      const match = totalSize.match(/(\d+)L/);
-      if (match) return parseInt(match[1], 10);
-      return parseInt(totalSize.replace(/[^0-9]/g, ''), 10) || 1200;
-    }
-  }, [sizeType, width, totalSize]);
-
-  const isMultiPersonAllowed = widthNum >= 1800;
-
-  // Enforce standard person capacity rules based on width
-  useEffect(() => {
-    if (!isMultiPersonAllowed && personQuantity !== 1) {
-      setPersonQuantity(1);
-    }
-  }, [isMultiPersonAllowed, personQuantity]);
-
-  // Helper to match options to a variant and trigger image update
-  const tryMatchVariant = (
-    targetWidth: string, 
-    targetDepth: string, 
-    targetTopColor?: string, 
-    targetScreenColor?: string,
-    targetLegColor?: string
-  ) => {
-    if (!variants || variants.length === 0 || !onSelectVariant) return;
-    const wNum = targetWidth.replace(/[^0-9]/g, '');
-    const dNum = targetDepth.replace(/[^0-9]/g, '');
-    const searchTop = targetTopColor ?? tableTopColor;
-    const searchScreen = targetScreenColor ?? screenColor;
-    const searchLeg = targetLegColor ?? legColor;
-
-    // 1. Check if variant matches size AND color
-    const exactMatch = variants.find(v => {
-      if (!v.size) return false;
-      const sizeOk = v.size.includes(wNum) && v.size.includes(dNum);
-      const colorOk = v.color && (
-        v.color.toLowerCase().includes(searchTop.toLowerCase()) || 
-        searchTop.toLowerCase().includes(v.color.toLowerCase()) ||
-        v.color.toLowerCase().includes(searchScreen.toLowerCase()) ||
-        v.color.toLowerCase().includes(searchLeg.toLowerCase())
-      );
-      return sizeOk && colorOk;
-    });
-
-    if (exactMatch) {
-      onSelectVariant(exactMatch);
-      return;
-    }
-
-    // 2. Check if variant matches tabletop, screen or leg color
-    const colorMatch = variants.find(v => {
-      if (!v.color) return false;
-      return v.color.toLowerCase().includes(searchTop.toLowerCase()) || 
-             searchTop.toLowerCase().includes(v.color.toLowerCase()) ||
-             v.color.toLowerCase().includes(searchScreen.toLowerCase()) ||
-             v.color.toLowerCase().includes(searchLeg.toLowerCase());
-    });
-
-    if (colorMatch && !colorMatch.size) {
-      onSelectVariant(colorMatch);
-      return;
-    }
-
-    // 3. Fallback to size match
-    const sizeMatch = variants.find(v => {
-      if (!v.size) return false;
-      const parsed = parseSizeDimensions(v.size);
-      if (parsed.width && parsed.depth) {
-        return parsed.width.replace(/[^0-9]/g, '') === wNum && parsed.depth.replace(/[^0-9]/g, '') === dNum;
-      }
-      return v.size.includes(wNum) && v.size.includes(dNum);
-    });
-
-    if (sizeMatch) {
-      onSelectVariant(sizeMatch);
-    }
-  };
-
   const handleWidthChange = (val: string) => {
     setWidth(val);
-    const num = parseInt(val.replace(/[^0-9]/g, ''), 10) || 1000;
-    const stdPersons = getStandardPersonsForWidth(num);
-    setPersonQuantity(stdPersons);
-    tryMatchVariant(val, depth);
+    if (variants && onSelectVariant) {
+      const wNum = val.replace(/[^0-9]/g, '');
+      const dNum = depth.replace(/[^0-9]/g, '');
+      const matched = variants.find(v => v.size && v.size.includes(wNum) && v.size.includes(dNum));
+      if (matched) onSelectVariant(matched);
+    }
   };
 
   const handleDepthChange = (val: string) => {
     setDepth(val);
-    tryMatchVariant(width, val);
-  };
-
-  const handleTableTopColorChange = (newColor: string) => {
-    setTableTopColor(newColor);
-    onColorChange?.();
-    tryMatchVariant(width, depth, newColor, screenColor, legColor);
-  };
-
-  const handleScreenColorChange = (newColor: string) => {
-    setScreenColor(newColor);
-    onColorChange?.();
-    tryMatchVariant(width, depth, tableTopColor, newColor, legColor);
-  };
-
-  const handleLegColorChange = (newColor: string) => {
-    setLegColor(newColor);
-    onColorChange?.();
-    tryMatchVariant(width, depth, tableTopColor, screenColor, newColor);
-  };
-
-  // Match specific variant for current width & depth to retrieve its custom variant price
-  const matchedSizeVariant = React.useMemo(() => {
-    if (!variants || variants.length === 0) return null;
-    const wNum = width.replace(/[^0-9]/g, '');
-    const dNum = depth.replace(/[^0-9]/g, '');
-    return variants.find(v => {
-      if (!v.size) return false;
-      const parsed = parseSizeDimensions(v.size);
-      if (parsed.width && parsed.depth) {
-        return parsed.width.replace(/[^0-9]/g, '') === wNum && parsed.depth.replace(/[^0-9]/g, '') === dNum;
-      }
-      return v.size.includes(wNum) && v.size.includes(dNum);
-    }) || activeVariant;
-  }, [variants, width, depth, activeVariant]);
-
-  // Base price for size (from matched variant's specific price, activeVariant, or calculated default size price)
-  const baseSizePrice = React.useMemo(() => {
-    if (matchedSizeVariant?.price) {
-      const p = typeof matchedSizeVariant.price === 'string' 
-        ? parseFloat(matchedSizeVariant.price.replace(/[^0-9.]/g, '')) 
-        : matchedSizeVariant.price;
-      if (p && !isNaN(p)) return p;
+    if (variants && onSelectVariant) {
+      const wNum = width.replace(/[^0-9]/g, '');
+      const dNum = val.replace(/[^0-9]/g, '');
+      const matched = variants.find(v => v.size && v.size.includes(wNum) && v.size.includes(dNum));
+      if (matched) onSelectVariant(matched);
     }
-    if (activeVariant?.price) {
-      const p = typeof activeVariant.price === 'string' 
-        ? parseFloat(activeVariant.price.replace(/[^0-9.]/g, '')) 
-        : activeVariant.price;
-      if (p && !isNaN(p)) return p;
-    }
-    if (sizeType === 'per_person') {
-      const wNum = parseInt(width) || 1000;
-      const dNum = parseInt(depth) || 600;
-      const wDiff = Math.max(0, wNum - 800);
-      const dDiff = Math.max(0, dNum - 600);
-      return 12000 + Math.round((wDiff / 100) * 600 + (dDiff / 100) * 500);
-    } else {
-      if (totalSize.includes('2400L')) return 28000;
-      if (totalSize.includes('1800L')) return 21000;
-      if (totalSize.includes('1500L')) return 16500;
-      return 14000;
-    }
-  }, [matchedSizeVariant, activeVariant, sizeType, width, depth, totalSize]);
+  };
 
-  // Price adders for configurations that change price
-  const personMultiplier = sizeType === 'per_person' ? personQuantity : 1;
+  // Base price calculation per person
+  const personMultiplier = personQuantity || 1;
+  const wNum = parseInt(width.replace(/[^0-9]/g, ''), 10) || 1200;
+  const dNum = parseInt(depth.replace(/[^0-9]/g, ''), 10) || 600;
+  const wDiff = Math.max(0, wNum - 800);
+  const dDiff = Math.max(0, dNum - 600);
+  const basePerPerson = 12000 + Math.round((wDiff / 100) * 600 + (dDiff / 100) * 500);
+  const effectiveBasePrice = basePerPerson * personMultiplier;
+
+  // Material cost
   const materialCost = (WORKSTATION_PRICING.material[material] || 0) * personMultiplier;
+
+  // Thickness cost
   const thicknessCost = (WORKSTATION_PRICING.thickness[thickness] || 0) * personMultiplier;
-  const legsCost = ((WORKSTATION_PRICING.legs[legMaterial] as any)?.[legStyle] || 0) * (personMultiplier > 1 ? Math.ceil(personMultiplier * 0.75) : 1);
-  const legSizeCost = (WORKSTATION_PRICING.legSize[legSize] || 0) * personMultiplier;
-  const screenQty = frontScreen === 'No Screen' ? 0 : screenQuantity;
-  const screenCost = (WORKSTATION_PRICING.frontScreen[frontScreen] || 0) * screenQty * (personMultiplier > 1 ? Math.ceil(personMultiplier / 2) : 1);
-  const screenHeightCost = (WORKSTATION_PRICING.screenHeight[screenHeight] || 0) * screenQty * (personMultiplier > 1 ? Math.ceil(personMultiplier / 2) : 1);
-  const modestyCost = (WORKSTATION_PRICING.modesty[modesty] || 0) * personMultiplier;
-  const electricCost = (WORKSTATION_PRICING.electricFunction[electricFunction] || 0) * personMultiplier;
-  const addonsCost = addons.reduce((sum, item) => sum + (WORKSTATION_PRICING.addons[item] || 0), 0) * personMultiplier;
 
-  // Table Top Color, Screen Colors & Legs Colour: STRICTLY ₹0 (No price change)
-  const tableTopColorCost = 0;
-  const screenColorCost = 0;
-  const legColorCost = 0;
+  // Laminate cost (Only applies if not PLPB)
+  const isLaminateApplicable = material !== 'PLPB';
+  const laminateFrontCost = (isLaminateApplicable && laminateFront ? 800 : 0) * personMultiplier;
+  const laminateBackCost = (isLaminateApplicable && laminateBack ? 800 : 0) * personMultiplier;
+  const totalLaminateCost = laminateFrontCost + laminateBackCost;
 
-  const effectiveBaseSizePrice = baseSizePrice * personMultiplier;
+  // Metal pipe thickness cost
+  const pipeCost = (WORKSTATION_PRICING.metalPipeThickness[metalPipeThickness] || 0) * personMultiplier;
+
+  // Leg style cost
+  const legStyleCost = (WORKSTATION_PRICING.legStyle[legStyle] || 0) * (personMultiplier > 1 ? Math.ceil(personMultiplier * 0.75) : 1);
+
+  // CNC sheet cost
+  const cncCost = includeCncSheet ? (WORKSTATION_PRICING.cncSheet * (personMultiplier > 1 ? Math.ceil(personMultiplier * 0.75) : 1)) : 0;
+
+  // Front screen cost
+  const screenQtyMultiplier = personMultiplier > 1 ? Math.ceil(personMultiplier / 2) : 1;
+  const screenCost = (WORKSTATION_PRICING.frontScreen[frontScreen] || 0) * screenQtyMultiplier;
+  const screenHeightCost = (WORKSTATION_PRICING.screenHeight[screenHeight] || 0) * screenQtyMultiplier;
+
+  // Wiring & electrical cost
+  const wireMgmtCost = (wireManagement ? WORKSTATION_PRICING.wireManagement : 0) * personMultiplier;
+  const wireRacewayCost = (wireRaceway ? WORKSTATION_PRICING.wireRaceway : 0) * personMultiplier;
+  const switchesCost = (wireRaceway ? (WORKSTATION_PRICING.racewaySwitches[racewaySwitches] || 400) : 0) * personMultiplier;
+  const totalElectricCost = wireMgmtCost + wireRacewayCost + switchesCost;
+
+  // Storage cost (3-drawer pedestal, drawer, condrawer)
+  const pedestalCost = (pedestal3Drawer ? WORKSTATION_PRICING.storage['3-drawer pedestal'] : 0) * personMultiplier;
+  const drawerCost = (drawer ? WORKSTATION_PRICING.storage['drawer'] : 0) * personMultiplier;
+  const condrawerCost = (condrawer ? WORKSTATION_PRICING.storage['condrawer'] : 0) * personMultiplier;
+  const totalStorageCost = pedestalCost + drawerCost + condrawerCost;
 
   const totalCalculatedPrice = Math.round(
-    effectiveBaseSizePrice + 
-    materialCost + 
-    thicknessCost + 
-    legsCost + 
-    legSizeCost + 
-    screenCost + 
-    screenHeightCost + 
-    modestyCost + 
-    electricCost + 
-    addonsCost + 
-    tableTopColorCost + 
-    screenColorCost + 
-    legColorCost
+    effectiveBasePrice +
+    materialCost +
+    thicknessCost +
+    totalLaminateCost +
+    pipeCost +
+    legStyleCost +
+    cncCost +
+    screenCost +
+    screenHeightCost +
+    totalElectricCost +
+    totalStorageCost
   );
 
   useEffect(() => {
     if (onChange) {
+      const activeAddons: string[] = [];
+      if (pedestal3Drawer) activeAddons.push('3-Drawer Pedestal');
+      if (drawer) activeAddons.push('Drawer');
+      if (condrawer) activeAddons.push('Condrawer');
+
       onChange({
-        sizeType,
-        dimensions: sizeType === 'per_person' ? `${width} x ${depth} (${personQuantity} Person)` : totalSize,
+        edgeOption,
+        structure: workstationStructure,
+        workstationStructure,
+        layoutType: workstationStructure === 'wall-facing' ? 'linear' : 'cluster',
+        sizeType: 'per_person',
+        dimensions: `${width} x ${depth} (${personQuantity}P ${workstationStructure === 'wall-facing' ? 'Wall-Facing' : 'Face-to-Face'})`,
+        widthPerPerson: width,
+        depthPerPerson: depth,
         personQuantity,
-        layoutType,
         material,
         thickness,
-        tableTopColor,
-        legMaterial,
+        laminateFront: isLaminateApplicable ? laminateFront : false,
+        laminateBack: isLaminateApplicable ? laminateBack : false,
+        metalPipeThickness,
         legStyle,
-        legSize,
-        legColor,
+        legSize: metalPipeThickness,
+        includeCncSheet,
+        cncSheet: includeCncSheet,
         frontScreen,
-        middlePartition,
-        screenQuantity,
         screenHeight,
         screenColor,
-        modesty,
-        electricFunction,
-        addons,
+        middlePartition: workstationStructure === 'face-to-face' ? 'Included' : externalMiddlePartition || 'Included',
+        wireManagement,
+        wireRaceway,
+        racewaySwitches: wireRaceway ? racewaySwitches : 'None',
+        electricFunction: wireRaceway ? `Wire Raceway (${racewaySwitches})` : wireManagement ? 'Wire Management' : 'None',
+        pedestal3Drawer,
+        drawer,
+        condrawer,
+        addons: activeAddons,
+        tableTopColor,
+        legColor,
         calculatedPrice: totalCalculatedPrice,
         priceBreakdown: {
-          baseSizePrice: effectiveBaseSizePrice,
+          effectiveBasePrice,
           materialCost,
           thicknessCost,
-          legsCost,
-          legSizeCost,
+          totalLaminateCost,
+          pipeCost,
+          legStyleCost,
+          cncCost,
           screenCost,
           screenHeightCost,
-          modestyCost,
-          electricCost,
-          addonsCost,
-          tableTopColorCost: 0,
-          screenColorCost: 0,
-          legColorCost: 0
+          totalElectricCost,
+          totalStorageCost
         }
       });
     }
-  }, [sizeType, width, depth, totalSize, personQuantity, layoutType, material, thickness, tableTopColor, legMaterial, legStyle, legSize, legColor, frontScreen, middlePartition, screenQuantity, screenHeight, screenColor, modesty, electricFunction, addons, totalCalculatedPrice, onChange]);
-
-  const toggleAddon = (item: string) => {
-    setAddons(prev => prev.includes(item) ? prev.filter(x => x !== item) : [...prev, item]);
-  };
+  }, [
+    edgeOption,
+    workstationStructure,
+    width,
+    depth,
+    personQuantity,
+    material,
+    thickness,
+    laminateFront,
+    laminateBack,
+    isLaminateApplicable,
+    metalPipeThickness,
+    legStyle,
+    includeCncSheet,
+    frontScreen,
+    screenHeight,
+    screenColor,
+    externalMiddlePartition,
+    wireManagement,
+    wireRaceway,
+    racewaySwitches,
+    pedestal3Drawer,
+    drawer,
+    condrawer,
+    tableTopColor,
+    legColor,
+    totalCalculatedPrice,
+    effectiveBasePrice,
+    materialCost,
+    thicknessCost,
+    totalLaminateCost,
+    pipeCost,
+    legStyleCost,
+    cncCost,
+    screenCost,
+    screenHeightCost,
+    totalElectricCost,
+    totalStorageCost,
+    onChange
+  ]);
 
   return (
-    <div className="mb-6 p-5 bg-slate-50 rounded-xl border border-slate-200">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="font-bold text-lg text-slate-900">Let's make your Setup</h3>
-        <div className="text-right">
-          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Base Variant Price</span>
-          <span className="text-sm font-black text-indigo-700">₹{Number(baseSizePrice).toLocaleString()}</span>
+    <div className="mb-6 p-4 sm:p-5 bg-slate-50 rounded-2xl border border-slate-200 shadow-xs">
+      {/* Edge 1 Heading with "Less Billiard Workstation" */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 p-3.5 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white rounded-xl shadow-sm mb-4 border border-indigo-700/40">
+        <div className="flex items-center gap-2.5">
+          <div className="px-2.5 py-1 bg-amber-400 text-slate-950 text-xs font-black rounded-lg uppercase tracking-wider shadow-xs">
+            Edge 1
+          </div>
+          <div>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Custom Workstation Pro</span>
+            <span className="text-sm sm:text-base font-extrabold text-white">Alfa Modular Workstation Pro</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 self-start sm:self-auto bg-indigo-900/90 border border-indigo-400/40 px-3 py-1.5 rounded-lg text-xs font-bold text-indigo-100 shadow-2xs">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+          <span>Option: Less Billiard Workstation</span>
         </div>
       </div>
-      
-      <div className="space-y-5">
-        {/* 1. Size & Variant Pricing */}
-        <div>
+
+      <div className="space-y-4">
+        {/* 1. Structure of the Workstation: Wall-facing or Face-to-face */}
+        <div className="p-3.5 bg-white rounded-xl border border-slate-200">
           <div className="flex items-center justify-between mb-2">
-            <label className="block text-sm font-bold text-slate-900">1. Size & Variant</label>
-            {matchedSizeVariant && (
-              <span className="text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full">
-                Selected: {matchedSizeVariant.name || `${width} x ${depth}`}
+            <label className="block text-xs font-black uppercase tracking-wider text-slate-900">
+              1. Workstation Structure
+            </label>
+            <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+              {workstationStructure === 'wall-facing' ? 'Wall-facing' : 'Face-to-face'}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-2.5">
+            <button
+              type="button"
+              onClick={() => setWorkstationStructure('wall-facing')}
+              className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                workstationStructure === 'wall-facing'
+                  ? 'border-indigo-600 bg-indigo-50/80 ring-2 ring-indigo-500/25 text-indigo-950 font-bold'
+                  : 'border-slate-200 bg-slate-50/60 text-slate-700 hover:bg-slate-100 hover:border-slate-300'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-1">
+                <span className="font-extrabold text-sm">🧱 Wall-Facing</span>
+                {workstationStructure === 'wall-facing' && <Check className="w-4 h-4 text-indigo-600" />}
+              </div>
+              <span className="text-[11px] text-slate-500 font-normal">Line-by-line single-row seating facing a wall</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setWorkstationStructure('face-to-face');
+                if (personQuantity < 2) {
+                  setPersonQuantity(2);
+                }
+                if (externalMiddlePartition !== 'Included') {
+                  onMiddlePartitionChange?.('Included');
+                }
+              }}
+              className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                workstationStructure === 'face-to-face'
+                  ? 'border-indigo-600 bg-indigo-50/80 ring-2 ring-indigo-500/25 text-indigo-950 font-bold'
+                  : 'border-slate-200 bg-slate-50/60 text-slate-700 hover:bg-slate-100 hover:border-slate-300'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-1">
+                <span className="font-extrabold text-sm">👥 Face-to-Face</span>
+                {workstationStructure === 'face-to-face' && <Check className="w-4 h-4 text-indigo-600" />}
+              </div>
+              <span className="text-[11px] text-slate-500 font-normal">Dual-facing pod cluster with central partition / raceway</span>
+            </button>
+          </div>
+        </div>
+
+        {/* 2. Choose the Size: Width and Depth per person */}
+        <div className="p-3.5 bg-white rounded-xl border border-slate-200">
+          <div className="flex items-center justify-between mb-2">
+            <div>
+              <label className="block text-xs font-black uppercase tracking-wider text-slate-900">
+                2. Workstation Size (Per Person)
+              </label>
+              <span className="text-[11px] text-slate-500 font-medium">
+                Choose width and depth per person for {workstationStructure === 'wall-facing' ? 'wall-facing' : 'face-to-face'} structure
               </span>
-            )}
+            </div>
+            <span className="text-xs font-black px-2.5 py-1 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200">
+              {width} × {depth} / Person
+            </span>
           </div>
 
-          {/* Quick Size Variant Pills with Individual Prices */}
-          {variants && variants.length > 0 && (
-            <div className="mb-3.5">
-              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                Workstation Size Variants (Select to apply variant price):
-              </label>
-              <div className="flex flex-wrap gap-2">
-                {variants.filter(v => v.size).map(v => {
-                  const parsed = parseSizeDimensions(v.size);
-                  const wNum = width.replace(/[^0-9]/g, '');
-                  const dNum = depth.replace(/[^0-9]/g, '');
-                  const isSelected = (parsed.width && parsed.depth && parsed.width.replace(/[^0-9]/g, '') === wNum && parsed.depth.replace(/[^0-9]/g, '') === dNum) || activeVariant?.id === v.id;
-                  const vPrice = typeof v.price === 'string' ? parseFloat(v.price.replace(/[^0-9.]/g, '')) || 0 : v.price;
-                  return (
-                    <button
-                      key={v.id}
-                      type="button"
-                      onClick={() => {
-                        if (parsed.width) setWidth(parsed.width);
-                        if (parsed.depth) setDepth(parsed.depth);
-                        const num = parseInt((parsed.width || '').replace(/[^0-9]/g, ''), 10) || 1000;
-                        setPersonQuantity(getStandardPersonsForWidth(num));
-                        onSelectVariant?.(v);
-                      }}
-                      className={`px-3 py-2 rounded-xl text-xs border transition-all flex items-center gap-2 cursor-pointer ${
-                        isSelected
-                          ? 'border-indigo-600 bg-indigo-50 text-indigo-950 font-bold shadow-xs ring-2 ring-indigo-500/20'
-                          : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
-                      }`}
-                    >
-                      <span className="font-semibold">{v.size?.replace(' mm', '')}</span>
-                      <span className={`font-black text-xs px-1.5 py-0.5 rounded ${isSelected ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-800'}`}>
-                        ₹{vPrice.toLocaleString()}
-                      </span>
-                      {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600" />}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-3 mb-3">
             <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1">Custom Width</label>
-              <select 
+              <label className="block text-[11px] font-bold uppercase text-slate-700 mb-1">
+                Width Per Person
+              </label>
+              <select
                 value={width}
                 onChange={(e) => handleWidthChange(e.target.value)}
-                className="w-full bg-white border-slate-300 rounded-lg shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 font-medium text-sm"
+                className="w-full bg-slate-50 border border-slate-300 rounded-lg shadow-2xs px-3 py-2 text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               >
-                {availableWidths.map(w => (
+                {['800 mm', '900 mm', '1000 mm', '1050 mm', '1200 mm', '1500 mm', '1600 mm', '1800 mm', '2100 mm', '2400 mm'].map(w => (
                   <option key={w} value={w}>{w}</option>
                 ))}
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1">Custom Depth</label>
-              <select 
+              <label className="block text-[11px] font-bold uppercase text-slate-700 mb-1">
+                Depth Per Person
+              </label>
+              <select
                 value={depth}
                 onChange={(e) => handleDepthChange(e.target.value)}
-                className="w-full bg-white border-slate-300 rounded-lg shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 font-medium text-sm"
+                className="w-full bg-slate-50 border border-slate-300 rounded-lg shadow-2xs px-3 py-2 text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               >
-                {availableDepths.map(d => (
+                {['600 mm', '750 mm', '800 mm', '900 mm'].map(d => (
                   <option key={d} value={d}>{d}</option>
                 ))}
               </select>
             </div>
           </div>
-        </div>
 
-        {/* 2. Person Quantity (Workstation Seater Capacity) */}
-        {isMultiPersonAllowed && (
-          <div className="pt-3 border-t border-slate-200">
-            <div className="flex items-center justify-between mb-2">
-              <label className="block text-sm font-bold text-slate-900">
-                2. Person Quantity
-              </label>
-              <span className="text-xs font-bold px-2.5 py-1 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200">
-                {personQuantity} {personQuantity === 1 ? 'Person' : `${personQuantity} Persons`}
-              </span>
-            </div>
-
-            {/* Preset Seater Buttons */}
-            <div className="grid grid-cols-4 sm:grid-cols-8 gap-1.5 mb-2.5">
-              {[1, 2, 3, 4, 6, 8, 10, 12].map(qty => (
+          {/* Quick presets & Seater count */}
+          <div className="pt-2.5 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <span className="text-xs font-bold text-slate-700">Seater Capacity:</span>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {[1, 2, 4, 6, 8].map(qty => (
                 <button
                   key={qty}
                   type="button"
                   onClick={() => setPersonQuantity(qty)}
-                  className={`py-2 px-1 text-xs font-bold rounded-lg border transition-all flex flex-col items-center gap-0.5 cursor-pointer ${
+                  className={`px-2.5 py-1 text-xs font-black rounded-md border transition-all cursor-pointer ${
                     personQuantity === qty
-                      ? 'border-indigo-600 bg-indigo-50 text-indigo-950 ring-2 ring-indigo-500/25 shadow-xs font-black'
-                      : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300'
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                      : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
                   }`}
                 >
-                  <span className="font-bold text-sm">{qty}P</span>
-                  <span className="text-[9px] text-slate-500 font-medium">
-                    {qty === 1 ? 'Single' : qty === 2 ? '2-Pod' : qty === 3 ? '3-Pod' : qty === 4 ? '4-Pod' : `${qty}P`}
-                  </span>
+                  {qty} {qty === 1 ? 'Seater' : 'Seaters'}
+                </button>
+              ))}
+              <div className="flex items-center border border-slate-300 rounded-md overflow-hidden bg-white">
+                <button
+                  type="button"
+                  onClick={() => setPersonQuantity(prev => Math.max(1, prev - 1))}
+                  className="px-2 py-0.5 text-xs font-black text-slate-700 hover:bg-slate-100 cursor-pointer"
+                  title="Decrease Seater"
+                >-</button>
+                <span className="px-2 text-xs font-black text-slate-900">{personQuantity}</span>
+                <button
+                  type="button"
+                  onClick={() => setPersonQuantity(prev => prev + 1)}
+                  className="px-2 py-0.5 text-xs font-black text-slate-700 hover:bg-slate-100 cursor-pointer"
+                  title="Increase Seater"
+                >+</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 3. Tabletop Thickness: 25 mm, 18 mm, 36 mm */}
+        <div className="p-3.5 bg-white rounded-xl border border-slate-200">
+          <label className="block text-xs font-black uppercase tracking-wider text-slate-900 mb-2">
+            3. Tabletop Thickness: <span className="text-amber-700">{thickness}</span>
+          </label>
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { id: '25 mm', label: '25 mm', desc: 'Standard 25 mm Spec' },
+              { id: '18 mm', label: '18 mm', desc: 'Sleek 18 mm Spec' },
+              { id: '36 mm', label: '36 mm', desc: 'Heavy Duty 36 mm Spec' }
+            ].map(opt => (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => setThickness(opt.id)}
+                className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer flex flex-col items-center justify-center ${
+                  thickness === opt.id
+                    ? 'border-amber-600 bg-amber-50/80 ring-2 ring-amber-500/25 text-amber-950 font-bold'
+                    : 'border-slate-200 bg-slate-50/60 text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                <span className="font-extrabold text-sm">{opt.label}</span>
+                <span className="text-[10px] text-slate-500">{opt.desc}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 4. Tabletop Material: PLPB, MDF, HDHMR, Plywood */}
+        <div className="p-3.5 bg-white rounded-xl border border-slate-200">
+          <label className="block text-xs font-black uppercase tracking-wider text-slate-900 mb-2">
+            4. Tabletop Material: <span className="text-indigo-700">{material}</span>
+          </label>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {[
+              { id: 'PLPB', label: 'PLPB', desc: 'Pre-laminated Board' },
+              { id: 'MDF', label: 'MDF', desc: 'Medium Density Fibre' },
+              { id: 'HDHMR', label: 'HDHMR', desc: 'High Density High Moisture Resistance' },
+              { id: 'Plywood', label: 'Plywood', desc: 'Commercial BWP Plywood' }
+            ].map(mat => (
+              <button
+                key={mat.id}
+                type="button"
+                onClick={() => setMaterial(mat.id)}
+                className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer flex flex-col items-center justify-center ${
+                  material === mat.id
+                    ? 'border-indigo-600 bg-indigo-50/80 ring-2 ring-indigo-500/25 text-indigo-950 font-bold'
+                    : 'border-slate-200 bg-slate-50/60 text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                <span className="font-extrabold text-sm">{mat.label}</span>
+                <span className="text-[10px] text-slate-500">{mat.desc}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 5. Laminate Application: For PLPB N/A; For MDF, HDHMR, Plywood tick boxes */}
+        <div className="p-3.5 bg-white rounded-xl border border-slate-200">
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-xs font-black uppercase tracking-wider text-slate-900">
+              5. Laminate Application on Board
+            </label>
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
+              material === 'PLPB' 
+                ? 'bg-amber-50 text-amber-800 border-amber-200' 
+                : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+            }`}>
+              {material === 'PLPB' ? 'Not Applicable for PLPB' : 'Laminate Customization Active'}
+            </span>
+          </div>
+
+          {material === 'PLPB' ? (
+            <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-start gap-2">
+              <span className="text-base leading-none">ℹ️</span>
+              <div>
+                <span className="font-bold block">For PLPB, laminate does not apply.</span>
+                <span className="text-amber-700 text-[11px]">
+                  Pre-Laminated Particle Board (PLPB) arrives pre-laminated from the board manufacturer with melamine surface. Additional laminate is not applicable.
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-[11px] text-slate-500 mb-2">
+                Check whether laminate is present on the front or another side of the {material} board:
+              </p>
+              <label className={`flex items-center gap-2.5 p-2.5 rounded-lg border transition-all cursor-pointer ${
+                laminateFront ? 'border-indigo-600 bg-indigo-50/50' : 'border-slate-200 hover:bg-slate-50'
+              }`}>
+                <input
+                  type="checkbox"
+                  checked={laminateFront}
+                  onChange={(e) => setLaminateFront(e.target.checked)}
+                  className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300"
+                />
+                <div className="flex-1">
+                  <span className="text-xs font-bold text-slate-800">Laminate Present on Front Side (Top)</span>
+                  <span className="text-[10px] text-slate-500 block">Top workstation work surface finished in premium decorative laminate</span>
+                </div>
+                <span className="text-xs font-bold text-indigo-700">+₹800</span>
+              </label>
+
+              <label className={`flex items-center gap-2.5 p-2.5 rounded-lg border transition-all cursor-pointer ${
+                laminateBack ? 'border-indigo-600 bg-indigo-50/50' : 'border-slate-200 hover:bg-slate-50'
+              }`}>
+                <input
+                  type="checkbox"
+                  checked={laminateBack}
+                  onChange={(e) => setLaminateBack(e.target.checked)}
+                  className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300"
+                />
+                <div className="flex-1">
+                  <span className="text-xs font-bold text-slate-800">Laminate Present on Another Side (Bottom / Back)</span>
+                  <span className="text-[10px] text-slate-500 block">Balancing under-surface laminate to prevent board warping</span>
+                </div>
+                <span className="text-xs font-bold text-indigo-700">+₹800</span>
+              </label>
+            </div>
+          )}
+        </div>
+
+        {/* 6. Understructure Metal Pipe Thickness: 40x40 or 50x50 */}
+        <div className="p-3.5 bg-white rounded-xl border border-slate-200">
+          <label className="block text-xs font-black uppercase tracking-wider text-slate-900 mb-2">
+            6. Understructure Metal Pipe Thickness: <span className="text-indigo-700">{metalPipeThickness}</span>
+          </label>
+          <div className="grid grid-cols-2 gap-2.5">
+            {[
+              { id: '40x40', label: '40x40', desc: 'Standard 40×40 mm Steel Pipe', price: 'Standard' },
+              { id: '50x50', label: '50x50', desc: 'Heavy-Gauge 50×50 mm Steel Pipe', price: '+₹800' }
+            ].map(p => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setMetalPipeThickness(p.id as any)}
+                className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                  metalPipeThickness === p.id
+                    ? 'border-indigo-600 bg-indigo-50/80 ring-2 ring-indigo-500/25 text-indigo-950 font-bold'
+                    : 'border-slate-200 bg-slate-50/60 text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="font-extrabold text-sm">{p.label}</span>
+                  <span className="text-xs font-bold text-indigo-700">{p.price}</span>
+                </div>
+                <span className="text-[10px] text-slate-500">{p.desc}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 7. Leg Style: Straight legs, U-shaped leg, Angular leg */}
+        <div className="p-3.5 bg-white rounded-xl border border-slate-200">
+          <label className="block text-xs font-black uppercase tracking-wider text-slate-900 mb-2">
+            7. Leg Style: <span className="text-indigo-700">{legStyle}</span>
+          </label>
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { id: 'Straight legs', label: 'Straight legs', desc: 'Vertical Tubular' },
+              { id: 'U-shaped leg', label: 'U-shaped leg', desc: 'Continuous Loop' },
+              { id: 'Angular leg', label: 'Angular leg', desc: 'Slanted A-Frame' }
+            ].map(ls => (
+              <button
+                key={ls.id}
+                type="button"
+                onClick={() => setLegStyle(ls.id)}
+                className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer flex flex-col items-center justify-center ${
+                  legStyle === ls.id
+                    ? 'border-indigo-600 bg-indigo-50/80 ring-2 ring-indigo-500/25 text-indigo-950 font-bold'
+                    : 'border-slate-200 bg-slate-50/60 text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                <span className="font-extrabold text-xs">{ls.label}</span>
+                <span className="text-[10px] text-slate-500">{ls.desc}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 8. CNC Sheet (Optional): placed between two legs of understructure */}
+        <div className="p-3.5 bg-white rounded-xl border border-slate-200">
+          <label className="block text-xs font-black uppercase tracking-wider text-slate-900 mb-1">
+            8. CNC Sheet (Understructure Modesty Panel)
+          </label>
+          <p className="text-[11px] text-slate-500 mb-2.5">
+            Placed between the two legs of the understructure as a decorative CNC-designed laser-cut steel sheet.
+          </p>
+          <label className={`flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer ${
+            includeCncSheet
+              ? 'border-indigo-600 bg-indigo-50/80 ring-2 ring-indigo-500/20 text-indigo-950'
+              : 'border-slate-200 bg-slate-50/60 hover:bg-slate-100 text-slate-700'
+          }`}>
+            <input
+              type="checkbox"
+              checked={includeCncSheet}
+              onChange={(e) => setIncludeCncSheet(e.target.checked)}
+              className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300"
+            />
+            <div className="flex-1">
+              <span className="font-bold text-xs">Include CNC Sheet (Between the Two Legs)</span>
+              <span className="text-[10px] text-slate-500 block">Laser-cut perforated architectural metal panel</span>
+            </div>
+            <span className="text-xs font-bold text-indigo-700">+₹1,500</span>
+          </label>
+        </div>
+
+        {/* 9. Front Screen Options: 6 options + Height (300 mm, 400 mm, 450 mm) */}
+        <div className="p-3.5 bg-white rounded-xl border border-slate-200">
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-xs font-black uppercase tracking-wider text-slate-900">
+              9. Front Screen Options: <span className="text-indigo-700">{frontScreen}</span>
+            </label>
+            <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
+              Height: {screenHeight}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3">
+            {[
+              { id: 'Acrylic sheet', label: 'Acrylic sheet', desc: 'Translucent Privacy' },
+              { id: 'Pin up board', label: 'Pin up board', desc: 'Fabric Pin-up Board' },
+              { id: 'Wooden partition', label: 'Wooden partition', desc: 'Laminated Timber' },
+              { id: 'Magnetic glass', label: 'Magnetic glass', desc: 'Tempered Glass' },
+              { id: 'Aluminum framing', label: 'Aluminum framing', desc: 'Extruded Frame' },
+              { id: '6 mm lacquer glass', label: '6 mm lacquer glass', desc: 'Back-Coated Gloss' }
+            ].map(sc => (
+              <button
+                key={sc.id}
+                type="button"
+                onClick={() => setFrontScreen(sc.id)}
+                className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer flex flex-col items-center justify-center ${
+                  frontScreen === sc.id
+                    ? 'border-indigo-600 bg-indigo-50/80 ring-2 ring-indigo-500/25 text-indigo-950 font-bold'
+                    : 'border-slate-200 bg-slate-50/60 text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                <span className="font-extrabold text-xs">{sc.label}</span>
+                <span className="text-[9px] text-slate-500">{sc.desc}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Height of front partition: 300 mm, 400 mm, 450 mm */}
+          <div className="pt-2.5 border-t border-slate-100">
+            <label className="block text-[11px] font-bold uppercase text-slate-700 mb-1.5">
+              Height of Front Partition:
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { id: '300 mm', label: '300 mm', desc: 'Standard (₹0)' },
+                { id: '400 mm', label: '400 mm', desc: 'Medium (+₹500)' },
+                { id: '450 mm', label: '450 mm', desc: 'Tall Privacy (+₹900)' }
+              ].map(h => (
+                <button
+                  key={h.id}
+                  type="button"
+                  onClick={() => setScreenHeight(h.id)}
+                  className={`p-2 rounded-lg border text-center transition-all cursor-pointer flex flex-col items-center justify-center ${
+                    screenHeight === h.id
+                      ? 'border-indigo-600 bg-indigo-600 text-white font-bold shadow-2xs'
+                      : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  <span className="font-bold text-xs">{h.label}</span>
+                  <span className={`text-[9px] ${screenHeight === h.id ? 'text-indigo-100' : 'text-slate-500'}`}>{h.desc}</span>
                 </button>
               ))}
             </div>
-
-            {/* Stepper for custom person count & Pod Footprint Preview */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
-              <div className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-slate-200 text-xs">
-                <span className="font-semibold text-slate-700">Custom Seater Count:</span>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setPersonQuantity(prev => Math.max(1, prev - 1))}
-                    className="w-7 h-7 rounded-md border border-slate-300 flex items-center justify-center font-black text-slate-700 hover:bg-slate-100 cursor-pointer"
-                    title="Decrease person count"
-                  >
-                    -
-                  </button>
-                  <input
-                    type="number"
-                    min="1"
-                    max="48"
-                    value={personQuantity}
-                    onChange={(e) => {
-                      const val = parseInt(e.target.value, 10);
-                      if (!isNaN(val) && val >= 1 && val <= 48) {
-                        setPersonQuantity(val);
-                      }
-                    }}
-                    className="w-10 text-center font-black text-sm text-slate-900 border border-slate-200 rounded py-0.5"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setPersonQuantity(prev => Math.min(48, prev + 1))}
-                    className="w-7 h-7 rounded-md border border-slate-300 flex items-center justify-center font-black text-slate-700 hover:bg-slate-100 cursor-pointer"
-                    title="Increase person count"
-                  >
-                    +
-                  </button>
-                </div>
-              </div>
-
-              {/* Calculated Pod Footprint */}
-              <div className="bg-indigo-50/60 border border-indigo-100 p-2.5 rounded-lg text-xs flex flex-col justify-center">
-                <span className="text-[10px] uppercase font-bold tracking-wider text-indigo-600 mb-0.5">
-                  Table Layout
-                </span>
-                <div className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
-                  <span>
-                    {personQuantity > 1 ? `Shared ${widthNum} mm Table • ${personQuantity} Workstations` : `Single ${widthNum} mm Desk`}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Layout arrangement selector if 2 or more persons */}
-            {personQuantity > 1 && (
-              <div className="mt-2 flex items-center gap-2 bg-slate-100 p-1.5 rounded-lg">
-                <span className="text-[11px] font-bold text-slate-700 ml-1">Arrangement:</span>
-                <button
-                  type="button"
-                  onClick={() => setLayoutType('linear')}
-                  className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
-                    layoutType === 'linear' ? 'bg-white text-indigo-700 shadow-xs ring-1 ring-slate-200 font-bold' : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <span>➡️ Side-by-Side on {widthNum}mm Table</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setLayoutType('cluster')}
-                  className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
-                    layoutType === 'cluster' ? 'bg-white text-indigo-700 shadow-xs ring-1 ring-slate-200 font-bold' : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <span>👥 Face-to-Face Pods</span>
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* 3. Material */}
-        <div className="pt-2 border-t border-slate-200">
-          <label className="block text-sm font-medium text-slate-700 mb-1.5">3. Material</label>
-          <select 
-            value={material}
-            onChange={(e) => setMaterial(e.target.value)}
-            className="w-full bg-white border-slate-300 rounded-lg shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-          >
-            <option value="PLPB">PLPB</option>
-            <option value="MDF">MDF</option>
-            <option value="HDHMR">HDHMR</option>
-            <option value="Plywood">Plywood</option>
-          </select>
-        </div>
-
-        {/* 4. Thickness */}
-        <div className="pt-2 border-t border-slate-200">
-          <label className="block text-sm font-medium text-slate-700 mb-1.5">4. Thickness</label>
-          <select 
-            value={thickness}
-            onChange={(e) => setThickness(e.target.value)}
-            className="w-full bg-white border-slate-300 rounded-lg shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-          >
-            <option value="18 mm">18 mm</option>
-            <option value="25 mm">25 mm</option>
-            <option value="36 mm">36 mm</option>
-          </select>
-        </div>
-
-        {/* 5. Table Top Colour */}
-        <div className="pt-2 border-t border-slate-200">
-          <label className="block text-sm font-medium text-slate-700 mb-1.5 flex items-center justify-between">
-            <span className="flex items-center gap-1.5">
-              5. Table Top Colour
-              <span 
-                className="w-3 h-3 rounded-full border border-slate-300 inline-block shadow-xs" 
-                style={{ backgroundColor: getTableTopHex(tableTopColor).main }} 
-              />
-            </span>
-          </label>
-          <select 
-            value={tableTopColor}
-            onChange={(e) => handleTableTopColorChange(e.target.value)}
-            className="w-full bg-white border-slate-300 rounded-lg shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 font-medium"
-          >
-            <option value="Frosty white">Frosty white</option>
-            <option value="Ghotic Gray">Ghotic Gray</option>
-            <option value="Teak">Teak</option>
-            <option value="Beach">Beach</option>
-            <option value="Custom Colour">Custom Colour</option>
-          </select>
-        </div>
-
-        {/* 6. Legs */}
-        <div className="pt-2 border-t border-slate-200">
-          <label className="block text-sm font-medium text-slate-700 mb-2">6. Legs</label>
-          <div className="flex bg-slate-200 p-1 rounded-lg mb-4">
-            <button 
-              type="button"
-              className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors cursor-pointer ${legMaterial === 'metal' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
-              onClick={() => { setLegMaterial('metal'); setLegStyle('Straight legs'); setLegColor('Black'); onColorChange?.(); }}
-            >
-              Metal
-            </button>
-            <button 
-              type="button"
-              className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors cursor-pointer ${legMaterial === 'wooden' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
-              onClick={() => { setLegMaterial('wooden'); setLegStyle('Straight leg'); setLegColor('Natural Teak'); onColorChange?.(); }}
-            >
-              Wooden
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1">Leg Style</label>
-              <select 
-                value={legStyle}
-                onChange={(e) => setLegStyle(e.target.value)}
-                className="w-full bg-white border-slate-300 rounded-lg shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-              >
-                {legMaterial === 'metal' ? (
-                  <>
-                    <option value="Straight legs">Straight legs</option>
-                    <option value="U shape legs">U shape legs</option>
-                    <option value="Angular legs">Angular legs</option>
-                  </>
-                ) : (
-                  <option value="Straight leg">Straight solid wood leg</option>
-                )}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1">Legs Size</label>
-              <select 
-                value={legSize}
-                onChange={(e) => setLegSize(e.target.value)}
-                className="w-full bg-white border-slate-300 rounded-lg shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 font-medium"
-              >
-                <option value="40 x 40">40 x 40</option>
-                <option value="50 x 50">50 x 50</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1 flex items-center gap-1.5 font-semibold">
-                Legs Colour
-                <span 
-                  className="w-2.5 h-2.5 rounded-full border border-slate-300 inline-block shadow-xs" 
-                  style={{ backgroundColor: getLegHex(legColor, legMaterial).main }} 
-                />
-              </label>
-              <select 
-                value={legColor}
-                onChange={(e) => handleLegColorChange(e.target.value)}
-                className="w-full bg-white border-slate-300 rounded-lg shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 font-medium"
-              >
-                {legMaterial === 'metal' ? (
-                  <>
-                    <option value="Black">Black</option>
-                    <option value="White">White</option>
-                    <option value="Silver / Grey">Silver / Grey</option>
-                    <option value="Anthracite">Anthracite</option>
-                    <option value="Custom Colour">Custom Colour</option>
-                  </>
-                ) : (
-                  <>
-                    <option value="Natural Teak">Natural Teak</option>
-                    <option value="Beach Wood">Beach Wood</option>
-                    <option value="Walnut">Walnut</option>
-                    <option value="Black Wood">Black Wood</option>
-                  </>
-                )}
-              </select>
-            </div>
           </div>
         </div>
-        
-        {/* 7. Front & Side Screen's */}
-        <div className="pt-2 border-t border-slate-200">
-          <div className="flex items-center justify-between mb-1.5">
-            <label className="block text-sm font-semibold text-slate-800">7. Screen Type (Privacy Partition)</label>
-            <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
-              {frontScreen} • {screenHeight} {screenQuantity > 1 && `(${screenQuantity} Screens)`}
-            </span>
-          </div>
-          <select 
-            value={frontScreen}
-            onChange={(e) => setFrontScreen(e.target.value)}
-            className="w-full bg-white border-slate-300 rounded-lg shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 font-medium"
-          >
-            <option value="Acrylic sheet">Acrylic sheet (Privacy Screen)</option>
-            <option value="Pin up board">Pin up board (Fabric Acoustic)</option>
-            <option value="Aluminium framing">Aluminium framing (Framed Glass/Acrylic)</option>
-            <option value="Magnetic glass">Magnetic glass</option>
-            <option value="Wooden">Wooden</option>
-            <option value="No Screen">No Screen</option>
-          </select>
 
-          {/* Screen Quantity Option */}
-          {frontScreen !== 'No Screen' && (
-            <div className="mt-3 bg-white p-3 rounded-lg border border-slate-200">
-              <div className="flex items-center justify-between mb-2">
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide">
-                  Screen Quantity & Placement:
-                </label>
-                <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">
-                  {screenQuantity === 1 ? '1 Screen (Front)' : screenQuantity === 2 ? '2 Screens (Front + 1 Side)' : '3 Screens (U-Shape Cubicle)'}
-                </span>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setScreenQuantity(1)}
-                  className={`py-2 px-2 text-xs font-bold rounded-lg border transition-all flex flex-col items-center gap-0.5 cursor-pointer ${
-                    screenQuantity === 1
-                      ? 'border-indigo-600 bg-indigo-50 text-indigo-900 ring-2 ring-indigo-500/20 shadow-xs'
-                      : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
-                  }`}
-                >
-                  <span className="font-black text-sm">1 Screen</span>
-                  <span className="text-[10px] text-slate-500 font-normal">Front Only</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setScreenQuantity(2)}
-                  className={`py-2 px-2 text-xs font-bold rounded-lg border transition-all flex flex-col items-center gap-0.5 cursor-pointer ${
-                    screenQuantity === 2
-                      ? 'border-indigo-600 bg-indigo-50 text-indigo-900 ring-2 ring-indigo-500/20 shadow-xs'
-                      : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
-                  }`}
-                >
-                  <span className="font-black text-sm">2 Screens</span>
-                  <span className="text-[10px] text-slate-500 font-normal">Front + 1 Side</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setScreenQuantity(3)}
-                  className={`py-2 px-2 text-xs font-bold rounded-lg border transition-all flex flex-col items-center gap-0.5 cursor-pointer ${
-                    screenQuantity === 3
-                      ? 'border-indigo-600 bg-indigo-50 text-indigo-900 ring-2 ring-indigo-500/20 shadow-xs'
-                      : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
-                  }`}
-                >
-                  <span className="font-black text-sm">3 Screens</span>
-                  <span className="text-[10px] text-slate-500 font-normal">U-Shape Cubicle</span>
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Vertical Middle Partition Option (Divider Between Seaters) */}
-          {frontScreen !== 'No Screen' && (
-            <div className="mt-3 bg-white p-3 rounded-lg border border-slate-200">
-              <div className="flex items-center justify-between mb-2">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide">
-                    Vertical Middle Partition (Divider Between Seaters):
-                  </label>
-                  <p className="text-[11px] text-slate-500">
-                    Perpendicular divider partition running front-to-back between workstations for individual privacy
-                  </p>
-                </div>
-                <span className={`text-[11px] font-bold px-2 py-0.5 rounded border ${
-                  middlePartition === 'Included' 
-                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200' 
-                    : 'bg-slate-100 text-slate-600 border-slate-200'
-                }`}>
-                  {middlePartition === 'Included' ? 'Middle Partition: Included' : 'No Middle Partition'}
-                </span>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setMiddlePartition('Included')}
-                  className={`py-2 px-3 rounded-lg text-xs font-bold border transition-all text-left flex items-center justify-between cursor-pointer ${
-                    middlePartition === 'Included'
-                      ? 'border-indigo-600 bg-indigo-50 text-indigo-900 ring-2 ring-indigo-500/20 shadow-xs'
-                      : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
-                  }`}
-                >
-                  <div className="flex flex-col">
-                    <span className="font-black text-xs">✓ Include Vertical Middle Partition</span>
-                    <span className="text-[10px] text-slate-500 font-normal">Cross-divider with clamp mounts</span>
-                  </div>
-                  {middlePartition === 'Included' && <Check className="w-4 h-4 text-indigo-600 shrink-0 ml-1" />}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMiddlePartition('None')}
-                  className={`py-2 px-3 rounded-lg text-xs font-bold border transition-all text-left flex items-center justify-between cursor-pointer ${
-                    middlePartition === 'None'
-                      ? 'border-slate-600 bg-slate-100 text-slate-900 ring-2 ring-slate-400/30 shadow-xs'
-                      : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
-                  }`}
-                >
-                  <div className="flex flex-col">
-                    <span className="font-black text-xs">No Middle Partition (Optional)</span>
-                    <span className="text-[10px] text-slate-500 font-normal">Open continuous workspace</span>
-                  </div>
-                  {middlePartition === 'None' && <Check className="w-4 h-4 text-slate-600 shrink-0 ml-1" />}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* 8. Front Screen Height */}
-        <div className="pt-2 border-t border-slate-200">
-          <label className="block text-sm font-medium text-slate-700 mb-1.5">8. Front Screen Height</label>
-          <select 
-            value={screenHeight}
-            onChange={(e) => setScreenHeight(e.target.value)}
-            className="w-full bg-white border-slate-300 rounded-lg shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 font-medium"
-          >
-            <option value="300MM">300MM (Standard)</option>
-            <option value="400MM">400MM (Medium)</option>
-            <option value="450MM">450MM (Tall Privacy)</option>
-          </select>
-        </div>
-
-        {/* 9. Screen Colours */}
-        <div className="pt-2 border-t border-slate-200">
-          <label className="block text-sm font-medium text-slate-700 mb-1.5 flex items-center justify-between">
-            <span className="flex items-center gap-1.5 font-semibold text-slate-800">
-              9. Screen Colours (Acrylic / Partition)
-              <span 
-                className="w-3 h-3 rounded-full border border-slate-300 inline-block shadow-xs" 
-                style={{ backgroundColor: getScreenHex(screenColor).fill }} 
-              />
-            </span>
-            <span className="text-xs font-bold text-slate-500">{screenColor}</span>
-          </label>
-          <select 
-            value={screenColor}
-            onChange={(e) => handleScreenColorChange(e.target.value)}
-            className="w-full bg-white border-slate-300 rounded-lg shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 font-medium"
-          >
-            <option value="Blue">Blue (Standard Translucent)</option>
-            <option value="Grey">Grey (Frosted Smoke)</option>
-            <option value="Green">Green (Fresh Tint)</option>
-            <option value="Red">Red (Ruby Tint)</option>
-            <option value="Orange">Orange (Amber Tint)</option>
-            <option value="Custom Colour">Custom Colour</option>
-          </select>
-        </div>
-
-        {/* 10. Modesty Panel */}
-        <div className="pt-2 border-t border-slate-200">
-          <div className="flex items-center justify-between mb-1.5">
-            <label className="block text-sm font-semibold text-slate-800">
-              10. Modesty Panel (Under-Desk Privacy Board)
+        {/* 10. Wiring and Electrical Options: Compulsory and already checked */}
+        <div className="p-3.5 bg-white rounded-xl border border-slate-200">
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-xs font-black uppercase tracking-wider text-slate-900">
+              10. Wiring and Electrical Options
             </label>
-            <span className={`text-[11px] font-bold px-2 py-0.5 rounded border ${modesty === 'None' ? 'bg-slate-100 text-slate-600 border-slate-200' : 'bg-emerald-50 text-emerald-800 border-emerald-200'}`}>
-              {modesty === 'None' ? 'Not Included' : 'Included in Workstation'}
+            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+              Compulsory & Checked by Default
             </span>
           </div>
-          <div className="grid grid-cols-2 gap-2 mb-2">
-            <button
-              type="button"
-              onClick={() => setModesty('Include Modesty Panel')}
-              className={`py-2 px-3 rounded-lg text-xs font-bold border transition-all text-left flex items-center justify-between cursor-pointer ${
-                modesty !== 'None'
-                  ? 'border-emerald-500 bg-emerald-50 text-emerald-900 ring-1 ring-emerald-500'
-                  : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
-              }`}
-            >
-              <span>Include Modesty Panel</span>
-              {modesty !== 'None' && <Check className="w-3.5 h-3.5 text-emerald-600" />}
-            </button>
-            <button
-              type="button"
-              onClick={() => setModesty('None')}
-              className={`py-2 px-3 rounded-lg text-xs font-bold border transition-all text-left flex items-center justify-between cursor-pointer ${
-                modesty === 'None'
-                  ? 'border-slate-500 bg-slate-100 text-slate-900 ring-1 ring-slate-400'
-                  : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
-              }`}
-            >
-              <span>No Modesty Panel</span>
-              {modesty === 'None' && <Check className="w-3.5 h-3.5 text-slate-600" />}
-            </button>
-          </div>
-          <p className="text-[11px] text-slate-500">
-            A 18mm modesty board installed beneath the desktop for legroom privacy and cable concealment.
+          <p className="text-[11px] text-slate-500 mb-2.5">
+            Compulsory and already checked. You may deselect them if you do not want wiring integration.
           </p>
-        </div>
 
-        {/* 11. Flip Box / Wire Raceway (Only one: Either Flip Box OR Wire Raceway OR None) */}
-        <div className="pt-2 border-t border-slate-200">
-          <div className="flex items-center justify-between mb-1.5">
-            <label className="block text-sm font-semibold text-slate-800">
-              11. Flip Box / Wire Raceway
-            </label>
-            <span className={`text-[11px] font-bold px-2 py-0.5 rounded border ${
-              electricFunction === 'None'
-                ? 'bg-slate-100 text-slate-600 border-slate-200'
-                : electricFunction === 'Flip Box'
-                  ? 'bg-cyan-50 text-cyan-800 border-cyan-200'
-                  : 'bg-amber-50 text-amber-800 border-amber-200'
+          <div className="space-y-2 mb-3">
+            <label className={`flex items-center gap-2.5 p-2.5 rounded-lg border transition-all cursor-pointer ${
+              wireManagement ? 'border-indigo-600 bg-indigo-50/50' : 'border-slate-200 hover:bg-slate-50'
             }`}>
-              {electricFunction === 'None' ? 'None (Plain Top)' : electricFunction}
-            </span>
-          </div>
-
-          <div className="grid grid-cols-3 gap-2">
-            <button
-              type="button"
-              onClick={() => setElectricFunction('None')}
-              className={`py-2 px-2 rounded-lg text-xs font-bold border transition-all text-center flex flex-col items-center justify-center gap-1 cursor-pointer ${
-                electricFunction === 'None'
-                  ? 'border-indigo-600 bg-indigo-50 text-indigo-950 ring-1 ring-indigo-500'
-                  : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
-              }`}
-            >
-              <span>🚫 None</span>
-              <span className="text-[10px] text-slate-400 font-normal">Plain Tabletop</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setElectricFunction('Flip Box')}
-              className={`py-2 px-2 rounded-lg text-xs font-bold border transition-all text-center flex flex-col items-center justify-center gap-1 cursor-pointer ${
-                electricFunction === 'Flip Box'
-                  ? 'border-cyan-500 bg-cyan-50 text-cyan-950 ring-1 ring-cyan-500'
-                  : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
-              }`}
-            >
-              <span>🔌 Flip Box</span>
-              <span className="text-[10px] text-slate-400 font-normal">1 Box / Person</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                if (!electricFunction.startsWith('Wire Raceway')) {
-                  setElectricFunction('Wire Raceway (2 Switch Holes)');
-                }
-              }}
-              className={`py-2 px-2 rounded-lg text-xs font-bold border transition-all text-center flex flex-col items-center justify-center gap-1 cursor-pointer ${
-                electricFunction.startsWith('Wire Raceway')
-                  ? 'border-amber-500 bg-amber-50 text-amber-950 ring-1 ring-amber-500'
-                  : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
-              }`}
-            >
-              <span>⚡ Wire Raceway</span>
-              <span className="text-[10px] text-slate-400 font-normal">1 Tray / Person</span>
-            </button>
-          </div>
-
-          {/* Wire Raceway Switch Cutout Holes Sub-Options (1, 2, or 3 Holes per person) */}
-          {electricFunction.startsWith('Wire Raceway') && (
-            <div className="mt-2.5 p-2.5 bg-amber-50/60 rounded-lg border border-amber-200">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs font-semibold text-amber-950 flex items-center gap-1">
-                  <span>⚡ Switch Cutout Holes (Per Person):</span>
-                </span>
-                <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded">
-                  1 Tray Each
-                </span>
+              <input
+                type="checkbox"
+                checked={wireManagement}
+                onChange={(e) => setWireManagement(e.target.checked)}
+                className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300"
+              />
+              <div className="flex-1">
+                <span className="text-xs font-bold text-slate-800">Wire Management</span>
+                <span className="text-[10px] text-slate-500 block">Under-desk clips, routing guides & vertical snake wire manager</span>
               </div>
-              <div className="grid grid-cols-3 gap-1.5">
+              <span className="text-xs font-bold text-slate-600">+₹350</span>
+            </label>
+
+            <label className={`flex items-center gap-2.5 p-2.5 rounded-lg border transition-all cursor-pointer ${
+              wireRaceway ? 'border-indigo-600 bg-indigo-50/50' : 'border-slate-200 hover:bg-slate-50'
+            }`}>
+              <input
+                type="checkbox"
+                checked={wireRaceway}
+                onChange={(e) => setWireRaceway(e.target.checked)}
+                className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300"
+              />
+              <div className="flex-1">
+                <span className="text-xs font-bold text-slate-800">Wire Raceway</span>
+                <span className="text-[10px] text-slate-500 block">Horizontal under-desk metal cable raceway channel</span>
+              </div>
+              <span className="text-xs font-bold text-slate-600">+₹500</span>
+            </label>
+          </div>
+
+          {/* When Wire Raceway is checked, choose switches: 1 switch, 2 switches, 3 switches */}
+          {wireRaceway && (
+            <div className="p-2.5 bg-indigo-50/60 rounded-xl border border-indigo-100">
+              <label className="block text-[11px] font-bold uppercase text-indigo-900 mb-1.5">
+                Number of Switches in Wire Raceway:
+              </label>
+              <div className="grid grid-cols-3 gap-2">
                 {[
-                  { id: 'Wire Raceway (1 Switch Hole)', label: '1 Switch Hole', desc: '1 Module / Skt' },
-                  { id: 'Wire Raceway (2 Switch Holes)', label: '2 Switch Holes', desc: '2 Modules (Std)' },
-                  { id: 'Wire Raceway (3 Switch Holes)', label: '3 Switch Holes', desc: '3 Modules' },
-                ].map((opt) => (
+                  { id: '1 switch', label: '1 switch', desc: '1 Module (+₹400)' },
+                  { id: '2 switches', label: '2 switches', desc: '2 Modules (+₹550)' },
+                  { id: '3 switches', label: '3 switches', desc: '3 Modules (+₹700)' }
+                ].map(sw => (
                   <button
-                    key={opt.id}
+                    key={sw.id}
                     type="button"
-                    onClick={() => setElectricFunction(opt.id)}
-                    className={`p-1.5 rounded-md text-xs font-bold border transition-all text-center flex flex-col items-center justify-center cursor-pointer ${
-                      electricFunction === opt.id || (electricFunction === 'Wire Raceway' && opt.id === 'Wire Raceway (2 Switch Holes)')
-                        ? 'border-amber-600 bg-amber-600 text-white shadow-xs'
-                        : 'border-amber-200 bg-white text-amber-900 hover:bg-amber-100/50'
+                    onClick={() => setRacewaySwitches(sw.id as any)}
+                    className={`p-2 rounded-lg border text-center transition-all cursor-pointer flex flex-col items-center justify-center ${
+                      racewaySwitches === sw.id
+                        ? 'border-indigo-600 bg-indigo-600 text-white font-bold shadow-2xs'
+                        : 'border-indigo-200 bg-white text-indigo-900 hover:bg-indigo-100/50'
                     }`}
                   >
-                    <span>{opt.label}</span>
-                    <span className={`text-[9px] font-normal ${
-                      electricFunction === opt.id || (electricFunction === 'Wire Raceway' && opt.id === 'Wire Raceway (2 Switch Holes)')
-                        ? 'text-amber-100'
-                        : 'text-amber-700'
-                    }`}>
-                      {opt.desc}
+                    <span className="font-bold text-xs">{sw.label}</span>
+                    <span className={`text-[9px] ${racewaySwitches === sw.id ? 'text-indigo-100' : 'text-indigo-600'}`}>
+                      {sw.desc}
                     </span>
                   </button>
                 ))}
               </div>
             </div>
           )}
-
-          <p className="text-[11px] text-slate-500 mt-1.5">
-            Each person gets their own dedicated Flip Box on top or Under-Desk Wire Raceway tray with custom switch cutouts.
-          </p>
         </div>
-        
-        {/* 12. Add-ons */}
-        <div className="pt-2 border-t border-slate-200">
-          <label className="block text-sm font-medium text-slate-700 mb-2">12. Add-ons</label>
+
+        {/* 11. Storage & Pedestal Options (3-drawer pedestal, Drawer, Condrawer - NO keyboard tray!) */}
+        <div className="p-3.5 bg-white rounded-xl border border-slate-200">
+          <label className="block text-xs font-black uppercase tracking-wider text-slate-900 mb-2">
+            11. Storage & Pedestal Options
+          </label>
           <div className="space-y-2">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input 
-                type="checkbox" 
-                checked={addons.includes('3-Drawer Mobile Pedestal')}
-                onChange={() => toggleAddon('3-Drawer Mobile Pedestal')}
-                className="rounded border-slate-300 text-amber-500 focus:ring-amber-500" 
+            <label className={`flex items-center gap-2.5 p-2.5 rounded-lg border transition-all cursor-pointer ${
+              pedestal3Drawer ? 'border-indigo-600 bg-indigo-50/50' : 'border-slate-200 hover:bg-slate-50'
+            }`}>
+              <input
+                type="checkbox"
+                checked={pedestal3Drawer}
+                onChange={(e) => setPedestal3Drawer(e.target.checked)}
+                className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300"
               />
-              <span className="text-sm text-slate-700">3-Drawer Mobile Pedestal</span>
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input 
-                type="checkbox" 
-                checked={addons.includes('Keyboard Tray')}
-                onChange={() => toggleAddon('Keyboard Tray')}
-                className="rounded border-slate-300 text-amber-500 focus:ring-amber-500" 
-              />
-              <span className="text-sm text-slate-700">Keyboard Tray</span>
-            </label>
-            <label className="flex items-start gap-2.5 cursor-pointer">
-              <input 
-                type="checkbox" 
-                checked={addons.includes('CPU Stand')}
-                onChange={() => toggleAddon('CPU Stand')}
-                className="mt-0.5 rounded border-slate-300 text-amber-500 focus:ring-amber-500" 
-              />
-              <div>
-                <span className="text-sm font-medium text-slate-800">Mobile Metal CPU Stand on Wheels</span>
-                <p className="text-[11px] text-slate-500">Adjustable black steel dolly with 4 swivel caster wheels & protective rubber side grips.</p>
+              <div className="flex-1">
+                <span className="text-xs font-bold text-slate-800">3-Drawer Pedestal</span>
+                <span className="text-[10px] text-slate-500 block">Mobile 3-drawer lockable storage pedestal unit</span>
               </div>
+              <span className="text-xs font-bold text-indigo-700">+₹3,500</span>
+            </label>
+
+            <label className={`flex items-center gap-2.5 p-2.5 rounded-lg border transition-all cursor-pointer ${
+              drawer ? 'border-indigo-600 bg-indigo-50/50' : 'border-slate-200 hover:bg-slate-50'
+            }`}>
+              <input
+                type="checkbox"
+                checked={drawer}
+                onChange={(e) => setDrawer(e.target.checked)}
+                className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300"
+              />
+              <div className="flex-1">
+                <span className="text-xs font-bold text-slate-800">Drawer</span>
+                <span className="text-[10px] text-slate-500 block">Single under-desk personal slide-out storage drawer</span>
+              </div>
+              <span className="text-xs font-bold text-indigo-700">+₹1,200</span>
+            </label>
+
+            <label className={`flex items-center gap-2.5 p-2.5 rounded-lg border transition-all cursor-pointer ${
+              condrawer ? 'border-indigo-600 bg-indigo-50/50' : 'border-slate-200 hover:bg-slate-50'
+            }`}>
+              <input
+                type="checkbox"
+                checked={condrawer}
+                onChange={(e) => setCondrawer(e.target.checked)}
+                className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300"
+              />
+              <div className="flex-1">
+                <span className="text-xs font-bold text-slate-800">Condrawer</span>
+                <span className="text-[10px] text-slate-500 block">Concealed slim stationary & document condrawer</span>
+              </div>
+              <span className="text-xs font-bold text-indigo-700">+₹950</span>
             </label>
           </div>
         </div>
 
+        {/* 12. Colors & Finishes (Updates 3D View Live!) */}
+        <div className="p-3.5 bg-white rounded-xl border border-slate-200">
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-xs font-black uppercase tracking-wider text-slate-900">
+              12. Colors & Surface Finishes
+            </label>
+            <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+              Live 3D Update
+            </span>
+          </div>
+          <p className="text-[11px] text-slate-500 mb-3">
+            Select tabletop, privacy screen, and understructure metal colors. Any change immediately reflects in the 3D model.
+          </p>
+
+          <div className="space-y-3.5">
+            {/* Tabletop Color / Finish */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-xs font-bold text-slate-800">Tabletop Finish:</span>
+                <span className="text-xs font-bold text-indigo-700">{tableTopColor}</span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {[
+                  { name: 'Frosty white', bg: '#F8FAFC', border: '#cbd5e1', text: '#0f172a', desc: 'Clean White' },
+                  { name: 'Classic Walnut', bg: '#3e2723', border: '#23140b', text: '#ffffff', desc: 'Rich Walnut Wood' },
+                  { name: 'Natural Teak', bg: '#854d0e', border: '#713f12', text: '#ffffff', desc: 'Warm Teak Wood' },
+                  { name: 'Bavarian Beech', bg: '#d4a373', border: '#b58351', text: '#451a03', desc: 'Light Natural Beech' },
+                  { name: 'Ghotic Gray', bg: '#475569', border: '#334155', text: '#ffffff', desc: 'Architectural Stone' },
+                  { name: 'Charcoal Black', bg: '#1e293b', border: '#0f172a', text: '#ffffff', desc: 'Matte Charcoal' }
+                ].map(c => (
+                  <button
+                    key={c.name}
+                    type="button"
+                    onClick={() => setTableTopColor(c.name)}
+                    className={`p-2 rounded-xl border text-left transition-all cursor-pointer flex items-center gap-2 ${
+                      tableTopColor === c.name
+                        ? 'border-indigo-600 bg-indigo-50/80 ring-2 ring-indigo-500/25'
+                        : 'border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span 
+                      className="w-5 h-5 rounded-full shrink-0 shadow-xs border"
+                      style={{ backgroundColor: c.bg, borderColor: c.border }}
+                    />
+                    <div className="min-w-0">
+                      <span className="text-xs font-bold text-slate-900 block truncate">{c.name}</span>
+                      <span className="text-[9px] text-slate-500 block truncate">{c.desc}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Front Screen Color */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-xs font-bold text-slate-800">Front Screen Color:</span>
+                <span className="text-xs font-bold text-indigo-700">{screenColor}</span>
+              </div>
+              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                {[
+                  { name: 'Blue', bg: '#2563eb', border: '#1d4ed8', label: 'Ocean Blue' },
+                  { name: 'Grey', bg: '#64748b', border: '#475569', label: 'Slate Grey' },
+                  { name: 'Green', bg: '#16a34a', border: '#15803d', label: 'Forest Green' },
+                  { name: 'Red', bg: '#dc2626', border: '#b91c1c', label: 'Crimson Red' },
+                  { name: 'Orange', bg: '#ea580c', border: '#c2410c', label: 'Sunset Orange' },
+                  { name: 'Amber', bg: '#d97706', border: '#b45309', label: 'Warm Amber' }
+                ].map(sc => (
+                  <button
+                    key={sc.name}
+                    type="button"
+                    onClick={() => setScreenColor(sc.name)}
+                    className={`p-1.5 rounded-xl border text-center transition-all cursor-pointer flex flex-col items-center justify-center ${
+                      screenColor === sc.name
+                        ? 'border-indigo-600 bg-indigo-50 ring-2 ring-indigo-500/25'
+                        : 'border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span 
+                      className="w-5 h-5 rounded-full shadow-xs mb-1"
+                      style={{ backgroundColor: sc.bg }}
+                    />
+                    <span className="text-[10px] font-bold text-slate-800 truncate">{sc.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Leg & Understructure Metal Color */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-xs font-bold text-slate-800">Understructure Leg Color:</span>
+                <span className="text-xs font-bold text-indigo-700">{legColor}</span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {[
+                  { name: 'Black', bg: '#0f172a', border: '#020617', desc: 'Matte Black' },
+                  { name: 'White', bg: '#f8fafc', border: '#94a3b8', desc: 'Pure White' },
+                  { name: 'Silver / Grey', bg: '#94a3b8', border: '#64748b', desc: 'Metallic Silver' },
+                  { name: 'Anthracite', bg: '#334155', border: '#1e293b', desc: 'Dark Graphite' }
+                ].map(lc => (
+                  <button
+                    key={lc.name}
+                    type="button"
+                    onClick={() => setLegColor(lc.name)}
+                    className={`p-2 rounded-xl border text-left transition-all cursor-pointer flex items-center gap-2 ${
+                      legColor === lc.name
+                        ? 'border-indigo-600 bg-indigo-50/80 ring-2 ring-indigo-500/25'
+                        : 'border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span 
+                      className="w-5 h-5 rounded-full shrink-0 shadow-xs border"
+                      style={{ backgroundColor: lc.bg, borderColor: lc.border }}
+                    />
+                    <div className="min-w-0">
+                      <span className="text-xs font-bold text-slate-900 block truncate">{lc.name}</span>
+                      <span className="text-[9px] text-slate-500 block truncate">{lc.desc}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Real-time Configured Pricing Summary */}
-        <div className="pt-4 border-t border-slate-200">
+        <div className="pt-2">
           <div className="p-4 bg-slate-900 text-white rounded-xl shadow-sm">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
-                  Custom Workstation Configuration Price
+                  Configured Workstation Price ({personQuantity}P)
                 </span>
                 <div className="flex items-baseline gap-2 mt-0.5">
                   <span className="text-2xl font-black text-white">₹{totalCalculatedPrice.toLocaleString()}</span>
-                  <span className="text-xs text-slate-400 line-through">₹{Math.floor(totalCalculatedPrice * 1.2).toLocaleString()}</span>
+                  <span className="text-xs text-slate-400 line-through">₹{Math.floor(totalCalculatedPrice * 1.25).toLocaleString()}</span>
                   <span className="text-xs font-bold text-emerald-400">20% Off</span>
                 </div>
               </div>
@@ -3096,26 +3313,99 @@ function WorkstationSetup({
             {/* Quick Spec Highlights */}
             <div className="mt-3 pt-3 border-t border-slate-800 grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] text-slate-300">
               <div>
-                <span className="text-slate-500 block text-[10px]">SIZE</span>
-                <span className="font-semibold text-white truncate block">{sizeType === 'per_person' ? `${width} x ${depth}` : totalSize}</span>
+                <span className="text-slate-500 block text-[10px]">STRUCTURE & SIZE</span>
+                <span className="font-semibold text-white truncate block">
+                  {workstationStructure === 'wall-facing' ? 'Wall-facing' : 'Face-to-face'} • {width}×{depth}
+                </span>
               </div>
               <div>
                 <span className="text-slate-500 block text-[10px]">MATERIAL & THICKNESS</span>
                 <span className="font-semibold text-white truncate block">{material} • {thickness}</span>
               </div>
               <div>
-                <span className="text-slate-500 block text-[10px]">TABLE TOP FINISH</span>
-                <span className="font-semibold text-amber-300 truncate block flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full border border-slate-600" style={{ backgroundColor: getTableTopHex(tableTopColor).main }} />
-                  {tableTopColor}
+                <span className="text-slate-500 block text-[10px]">LEGS & UNDERSTRUCTURE</span>
+                <span className="font-semibold text-amber-300 truncate block">
+                  {metalPipeThickness} • {legStyle} {includeCncSheet ? '+ CNC' : ''}
                 </span>
               </div>
               <div>
-                <span className="text-slate-500 block text-[10px]">SCREEN & LEGS</span>
-                <span className="font-semibold text-blue-300 truncate block flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full border border-slate-600" style={{ backgroundColor: getScreenHex(screenColor).fill }} />
-                  {screenColor} • <span className="w-2 h-2 rounded-full border border-slate-600 inline-block" style={{ backgroundColor: getLegHex(legColor, legMaterial).main }} /> {legColor} ({legSize})
+                <span className="text-slate-500 block text-[10px]">SCREEN & WIRING</span>
+                <span className="font-semibold text-blue-300 truncate block">
+                  {frontScreen} ({screenHeight}) {wireRaceway ? `• ${racewaySwitches}` : ''}
                 </span>
+              </div>
+            </div>
+
+            {/* Approximate Cost Breakdown Panel */}
+            <div className="mt-4 pt-3.5 border-t border-slate-800">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-amber-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <span>📊 Approximate Cost Breakdown</span>
+                </span>
+                <span className="text-[10px] text-slate-400">Itemized additions</span>
+              </div>
+              
+              <div className="space-y-1.5 text-xs">
+                <div className="flex items-center justify-between text-slate-300">
+                  <span>Base Workstation ({personQuantity}P • {width}×{depth} {workstationStructure === 'wall-facing' ? 'Wall-Facing' : 'Face-to-Face'})</span>
+                  <span className="font-bold text-white">₹{effectiveBasePrice.toLocaleString()}</span>
+                </div>
+
+                <div className="flex items-center justify-between text-slate-300">
+                  <span>Tabletop Substrate ({material})</span>
+                  <span className="font-bold text-white">{materialCost > 0 ? `+₹${materialCost.toLocaleString()}` : 'Included (₹0)'}</span>
+                </div>
+
+                <div className="flex items-center justify-between text-slate-300">
+                  <span>Tabletop Thickness ({thickness})</span>
+                  <span className="font-bold text-white">{thicknessCost > 0 ? `+₹${thicknessCost.toLocaleString()}` : 'Standard (₹0)'}</span>
+                </div>
+
+                <div className="flex items-center justify-between text-slate-300">
+                  <span>Laminate Finish</span>
+                  <span className="font-bold text-white">
+                    {isLaminateApplicable ? (totalLaminateCost > 0 ? `+₹${totalLaminateCost.toLocaleString()} (${laminateFront ? 'Front ' : ''}${laminateBack ? 'Back' : ''})` : 'Standard (₹0)') : 'N/A for PLPB'}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between text-slate-300">
+                  <span>Understructure Pipe & Legs ({metalPipeThickness} • {legStyle})</span>
+                  <span className="font-bold text-white">{pipeCost + legStyleCost > 0 ? `+₹${(pipeCost + legStyleCost).toLocaleString()}` : 'Standard (₹0)'}</span>
+                </div>
+
+                {includeCncSheet && (
+                  <div className="flex items-center justify-between text-slate-300">
+                    <span>CNC Sheet (Understructure Modesty Panel)</span>
+                    <span className="font-bold text-amber-400">+₹{cncCost.toLocaleString()}</span>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between text-slate-300">
+                  <div className="flex items-center gap-1">
+                    <span>Front Screen ({frontScreen} • {screenHeight})</span>
+                    {(frontScreen === 'Pin up board' || frontScreen === 'Pinna board') && (
+                      <span className="text-[10px] text-emerald-400 font-bold">(Approx +₹600 vs Acrylic)</span>
+                    )}
+                  </div>
+                  <span className="font-bold text-white">{screenCost + screenHeightCost > 0 ? `+₹${(screenCost + screenHeightCost).toLocaleString()} approx` : 'Standard (₹0)'}</span>
+                </div>
+
+                <div className="flex items-center justify-between text-slate-300">
+                  <span>Wiring & Electrical ({wireManagement ? 'Wire Mgmt' : ''}{wireRaceway ? ` + Raceway ${racewaySwitches}` : ''})</span>
+                  <span className="font-bold text-white">{totalElectricCost > 0 ? `+₹${totalElectricCost.toLocaleString()}` : 'None (₹0)'}</span>
+                </div>
+
+                {totalStorageCost > 0 && (
+                  <div className="flex items-center justify-between text-slate-300">
+                    <span>Storage Units ({[pedestal3Drawer ? '3-Drawer Pedestal' : '', drawer ? 'Drawer' : '', condrawer ? 'Condrawer' : ''].filter(Boolean).join(', ')})</span>
+                    <span className="font-bold text-white">+₹{totalStorageCost.toLocaleString()}</span>
+                  </div>
+                )}
+
+                <div className="pt-2 mt-2 border-t border-slate-800 flex items-center justify-between font-extrabold text-white">
+                  <span className="text-amber-300">Total Approximate Workstation Cost:</span>
+                  <span className="text-base text-amber-300">₹{totalCalculatedPrice.toLocaleString()}</span>
+                </div>
               </div>
             </div>
           </div>

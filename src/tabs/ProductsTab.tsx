@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Package, Plus, Search, Edit, Trash2 } from 'lucide-react';
-import { subscribeToProducts, deleteProduct, saveProduct, updateProductData, Product } from '../lib/products';
+import { Package, Plus, Search, Edit, Trash2, Eye } from 'lucide-react';
+import { subscribeToProducts, deleteProduct, saveProduct, updateProductData, Product, parsePriceNumber, resolveVariantPriceMode } from '../lib/products';
 import { subscribeToVendors, Vendor } from '../lib/vendors';
 import { NewProductModal } from '../components/NewProductModal';
+import { ProductDetailModal } from '../components/ProductDetailModal';
 
 export function ProductsTab({ searchQuery = '' }: { searchQuery?: string }) {
   const [products, setProducts] = useState<Product[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [selectedProductForDetail, setSelectedProductForDetail] = useState<Product | null>(null);
 
   useEffect(() => {
     const unsubProducts = subscribeToProducts(setProducts);
@@ -98,8 +100,11 @@ export function ProductsTab({ searchQuery = '' }: { searchQuery?: string }) {
               {filteredProducts.map(product => (
                 <tr key={product.docId || product.id} className="hover:bg-slate-50 transition-colors">
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center">
-                      <div className="w-10 h-10 rounded bg-slate-100 flex items-center justify-center mr-3 overflow-hidden shrink-0">
+                    <div 
+                      onClick={() => setSelectedProductForDetail(product)}
+                      className="flex items-center cursor-pointer group"
+                    >
+                      <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center mr-3 overflow-hidden shrink-0 group-hover:ring-2 group-hover:ring-indigo-500/30 transition-all">
                          {product.details?.productImageData ? (
                            <img src={product.details.productImageData} alt={product.name} className="w-full h-full object-cover" />
                          ) : (
@@ -108,7 +113,7 @@ export function ProductsTab({ searchQuery = '' }: { searchQuery?: string }) {
                       </div>
                       <div className="flex flex-col max-w-md">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-semibold text-slate-800 text-sm">{product.name || (product as any).productName || 'Untitled'}</span>
+                          <span className="font-semibold text-slate-800 text-sm group-hover:text-indigo-600 transition-colors">{product.name || (product as any).productName || 'Untitled'}</span>
                           {product.variants && product.variants.length > 0 && (
                             <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
                               {product.variants.length} variants
@@ -126,8 +131,22 @@ export function ProductsTab({ searchQuery = '' }: { searchQuery?: string }) {
                           )}
                         </div>
 
-                        {/* Typed Product Description (Only actual user typed description) */}
+                        {/* Structured Specs or Typed Product Description */}
                         {(() => {
+                          const specs = product.specifications || product.details?.specifications || [];
+                          if (specs.length > 0) {
+                            const specLine = specs
+                              .filter(s => s.label && s.value)
+                              .map(s => `${s.label}: ${s.value}`)
+                              .join(' · ');
+                            if (specLine) {
+                              return (
+                                <p className="text-xs text-slate-500 line-clamp-1 mt-0.5" title={specLine}>
+                                  {specLine}
+                                </p>
+                              );
+                            }
+                          }
                           const typedDesc = product.description || product.details?.details || product.details?.description;
                           if (typedDesc) {
                             return (
@@ -139,19 +158,30 @@ export function ProductsTab({ searchQuery = '' }: { searchQuery?: string }) {
                           return null;
                         })()}
 
-                        {/* Color Variants with Individual Prices */}
-                        {product.variants && product.variants.length > 0 && (
-                          <div className="text-xs text-slate-400 mt-1 flex items-center gap-1.5 flex-wrap">
-                            {product.variants.slice(0, 4).map((v, vi) => (
-                              <span key={vi} className="inline-flex items-center gap-1 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200 text-[10px] font-medium text-slate-700">
-                                {v.colorCode && <span className="w-2 h-2 rounded-full border border-slate-300" style={{ backgroundColor: v.colorCode }} />}
-                                <span>{v.color || v.size}</span>
-                                {v.price && <span className="text-indigo-600 font-bold">₹{typeof v.price === 'string' ? v.price : Number(v.price).toLocaleString()}</span>}
-                              </span>
-                            ))}
-                            {product.variants.length > 4 && <span className="text-[10px] font-semibold text-slate-400">+{product.variants.length - 4} more</span>}
-                          </div>
-                        )}
+                        {/* Color & Variant Options with Individual Prices */}
+                        {product.variants && product.variants.length > 0 && (() => {
+                          const baseNum = product.salesRate || parsePriceNumber(product.price || product.details?.perUnitPrice || product.details?.totalUnitPrice) || 0;
+                          return (
+                            <div className="text-xs text-slate-400 mt-1 flex items-center gap-1.5 flex-wrap">
+                              {product.variants.slice(0, 4).map((v, vi) => {
+                                const vPrice = parsePriceNumber(v.price);
+                                const vMode = resolveVariantPriceMode(v, baseNum);
+                                return (
+                                  <span key={vi} className="inline-flex items-center gap-1 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200 text-[10px] font-medium text-slate-700">
+                                    {v.colorCode && <span className="w-2 h-2 rounded-full border border-slate-300" style={{ backgroundColor: v.colorCode }} />}
+                                    <span>{v.color || v.size || v.name}</span>
+                                    {vPrice > 0 && (
+                                      <span className="text-indigo-600 font-bold">
+                                        {vMode === 'addon' ? '+₹' : '₹'}{vPrice.toLocaleString()}
+                                      </span>
+                                    )}
+                                  </span>
+                                );
+                              })}
+                              {product.variants.length > 4 && <span className="text-[10px] font-semibold text-slate-400">+{product.variants.length - 4} more</span>}
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                   </td>
@@ -161,28 +191,45 @@ export function ProductsTab({ searchQuery = '' }: { searchQuery?: string }) {
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600 font-semibold">
-                    {product.variants && product.variants.length > 0 ? (
-                      <div>
-                        <span className="text-xs text-slate-400 font-normal">From </span>
-                        ₹{Math.min(...product.variants.map(v => typeof v.price === 'string' ? parseFloat(v.price.replace(/[^0-9.]/g, '')) || 0 : v.price)).toLocaleString()}
-                      </div>
-                    ) : (
-                      product.price || '-'
-                    )}
+                    {(() => {
+                      const baseNum = product.salesRate || parsePriceNumber(product.price || product.details?.perUnitPrice || product.details?.totalUnitPrice) || 0;
+                      const totalPrices = (product.variants || [])
+                        .filter(v => resolveVariantPriceMode(v, baseNum) === 'total')
+                        .map(v => parsePriceNumber(v.price))
+                        .filter(p => p > 0);
+                      if (totalPrices.length > 0) {
+                        return (
+                          <div>
+                            <span className="text-xs text-slate-400 font-normal">From </span>
+                            ₹{Math.min(...totalPrices).toLocaleString()}
+                          </div>
+                        );
+                      }
+                      return baseNum > 0 ? `₹${baseNum.toLocaleString()}` : (product.price || '-');
+                    })()}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">
                     {product.vendorName || '-'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <button 
+                      onClick={() => setSelectedProductForDetail(product)}
+                      title="View Product Page & Description"
+                      className="text-slate-500 hover:text-indigo-600 mr-3.5 p-1 rounded-md hover:bg-slate-100 transition-colors cursor-pointer"
+                    >
+                      <Eye className="w-4 h-4" />
+                    </button>
+                    <button 
                       onClick={() => { setSelectedProduct(product); setIsModalOpen(true); }}
-                      className="text-indigo-600 hover:text-indigo-900 mr-4"
+                      title="Edit Product"
+                      className="text-indigo-600 hover:text-indigo-900 mr-3.5 p-1 rounded-md hover:bg-indigo-50 transition-colors cursor-pointer"
                     >
                       <Edit className="w-4 h-4" />
                     </button>
                     <button 
                       onClick={() => handleDeleteProduct(product)}
-                      className="text-red-600 hover:text-red-900 cursor-pointer"
+                      title="Delete Product"
+                      className="text-red-600 hover:text-red-900 p-1 rounded-md hover:bg-red-50 transition-colors cursor-pointer"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -209,6 +256,13 @@ export function ProductsTab({ searchQuery = '' }: { searchQuery?: string }) {
         vendors={vendors}
         onAddProduct={handleAddProduct}
         initialData={selectedProduct}
+      />
+
+      <ProductDetailModal 
+        isOpen={!!selectedProductForDetail}
+        onClose={() => setSelectedProductForDetail(null)}
+        product={selectedProductForDetail}
+        vendor={selectedProductForDetail?.vendorId ? vendors.find(v => v.id === selectedProductForDetail.vendorId) || null : null}
       />
 
       {/* Delete Confirmation Modal */}

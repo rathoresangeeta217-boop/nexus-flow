@@ -1,30 +1,61 @@
 {
-  "collections": [
-    {
-      "name": "orders",
-      "fields": {
-        "id": "string",
-        "customerName": "string",
-        "companyName": "string",
-        "mobileNumber": "string",
-        "email": "string",
-        "address": "string",
-        "gst": "string",
-        "amount": "string",
-        "status": "string",
-        "items": "number",
-        "createdAt": "timestamp",
-        "quotationFileName": "string",
-        "quotationFileData": "string",
-        "poFileName": "string",
-        "poFileData": "string",
-        "drawingFileName": "string",
-        "drawingFileData": "string",
-        "checklistFileName": "string",
-        "checklistFileData": "string",
-        "ocFileName": "string",
-        "ocFileData": "string"
-      }
+  "entities": {
+    "Order": {
+      "title": "Order",
+      "description": "Customer order record across production, dispatch, and installation.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "customerName": { "type": "string" },
+        "companyName": { "type": "string" },
+        "mobileNumber": { "type": "string" },
+        "email": { "type": "string" },
+        "address": { "type": "string" },
+        "gst": { "type": "string" },
+        "amount": { "type": "string" },
+        "status": { "type": "string" },
+        "items": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "customerName", "mobileNumber"]
+    },
+    "Quotation": {
+      "title": "Quotation",
+      "description": "Commercial quotation created for a buyer with category-specific product items.",
+      "type": "object",
+      "properties": {
+        "quotationNo": { "type": "string", "maxLength": 64 },
+        "quotationDate": { "type": "string", "maxLength": 32 },
+        "validTillDate": { "type": "string", "maxLength": 32 },
+        "buyerName": { "type": "string", "maxLength": 150 },
+        "mobileNumber": { "type": "string", "maxLength": 40 },
+        "companyName": { "type": "string", "maxLength": 200 },
+        "email": { "type": "string", "maxLength": 160 },
+        "gstNumber": { "type": "string", "maxLength": 32 },
+        "address": { "type": "string", "maxLength": 500 },
+        "subtotal": { "type": "number" },
+        "discountTotal": { "type": "number" },
+        "gstRate": { "type": "number" },
+        "gstAmount": { "type": "number" },
+        "grandTotal": { "type": "number" },
+        "paymentTerms": { "type": "string", "maxLength": 200 },
+        "notes": { "type": "string", "maxLength": 2000 },
+        "status": { "type": "string", "enum": ["draft", "sent", "approved", "converted"] },
+        "createdBy": { "type": "string", "maxLength": 160 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["quotationNo", "buyerName", "mobileNumber", "grandTotal", "status"]
     }
-  ]
+  },
+  "firestore": {
+    "/orders/{orderId}": {
+      "schema": { "$ref": "#/entities/Order" },
+      "description": "Customer orders collection"
+    },
+    "/quotations/{quotationId}": {
+      "schema": { "$ref": "#/entities/Quotation" },
+      "description": "Customer commercial quotations created from Quotations or Storefront portals"
+    }
+  }
 }

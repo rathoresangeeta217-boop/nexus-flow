@@ -10,10 +10,30 @@ export interface OrderProduct {
   isDispatched: boolean;
   requiresInstallation?: boolean;
   dispatchedQuantity?: number;
+  scheduledQuantity?: number; // Cumulative quantity already scheduled/dispatched across previous challans
   size?: string;
   image?: string;
   rate?: string;
   amount?: string;
+  description?: string;
+  details?: any;
+}
+
+export interface DeliveryChallanRecord {
+  id: string;
+  challanNumber: string;
+  createdAt: string;
+  vehicleNumber?: string;
+  driverName?: string;
+  driverMobile?: string;
+  logisticCharges?: string;
+  reasonForTransport?: string;
+  items: {
+    productId?: string;
+    name: string;
+    quantity: number;
+    size?: string;
+  }[];
 }
 
 export interface OrderDetails {
@@ -67,7 +87,23 @@ export interface OrderDetails {
   installationDate?: string;
   deliveryDate?: string;
   scheduledReason?: 'CUSTOMER ISSUE' | 'LOGISTIC ISSUE' | 'PAYMENT DELAY' | 'UNSATISFACTION' | string;
+  deliveryChallans?: DeliveryChallanRecord[];
 }
+
+export const getProductScheduledQty = (product: OrderProduct, order?: Order): number => {
+  // If deliveryChallans exist, compute cumulative quantity from actual generated delivery challans
+  if (order?.details?.deliveryChallans && order.details.deliveryChallans.length > 0) {
+    let sum = 0;
+    for (const ch of order.details.deliveryChallans) {
+      const match = ch.items?.find(i => i.productId === product.id || (i.name && i.name.toLowerCase() === product.name.toLowerCase()));
+      if (match) sum += (Number(match.quantity) || 0);
+    }
+    return sum;
+  }
+
+  // If no delivery challans exist yet, items are NOT scheduled into a challan
+  return 0;
+};
 
 export interface Order {
   id: string;
@@ -111,7 +147,21 @@ const removeUndefined = (obj: any): any => {
 
 export const saveOrder = async (orderData: Partial<Order>) => {
   const finalData = removeUndefined(orderData);
-  const targetId = finalData.id || `ORD-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}${String(Math.floor(Math.random() * 1000)).padStart(3, '0')}`;
+  let targetId = finalData.id;
+  if (!targetId && finalData.docId) {
+    try {
+      const cached = await getCachedOrders();
+      const existing = cached.find(o => o.docId === finalData.docId || o.id === finalData.docId);
+      if (existing?.id) {
+        targetId = existing.id;
+      }
+    } catch (e) {
+      // fallback
+    }
+  }
+  if (!targetId) {
+    targetId = `ORD-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}${String(Math.floor(Math.random() * 1000)).padStart(3, '0')}`;
+  }
   finalData.id = targetId;
 
   // Persist to local cache immediately so zero data is lost

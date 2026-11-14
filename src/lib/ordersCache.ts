@@ -6,6 +6,60 @@ const ORDERS_BACKUP_LS_KEY = 'srk_orders_backup_v2';
 
 export const BASELINE_ORDERS: Order[] = [
   {
+    id: "ORD-2026-8661661",
+    docId: "egLKspSQPXsyVnO7cRRK",
+    customer: "Ankit Kumar Goyal",
+    amount: "Rs. 95,238",
+    date: "Nov 4, 2026",
+    status: "New Order",
+    items: 3,
+    createdAt: { seconds: 1793795028 },
+    details: {
+      totalAmount: "Rs. 95,238",
+      customerName: "Ankit Kumar Goyal",
+      companyName: "Ankit Kumar Goyal",
+      mobileNumber: "8209181633",
+      employeeName: "Abhilasha verma",
+      deliveryDate: "2026-11-07",
+      advancePayment: "Rs. 61,000",
+      transportationCharges: "Rs. 900",
+      installationCharges: "Rs. 1,000",
+      quotationFileName: "SRK_Quotation_SMFC-471039-11-26-R4 (2).pdf",
+      products: [
+        {
+          id: "k0zygjvjq",
+          name: "Accent Lounge Chair",
+          quantity: 1,
+          rate: "Rs. 13,500",
+          amount: "Rs. 13,500",
+          size: "Size: Standard",
+          description: "Remarks: - Ready in Stock",
+          isDispatched: false
+        },
+        {
+          id: "6wa32o6gk",
+          name: "Sofa Seating 3+1",
+          quantity: 1,
+          rate: "Rs. 35,200",
+          amount: "Rs. 35,200",
+          size: "Size: Standard",
+          description: "Remarks: - Ready in stock",
+          isDispatched: false
+        },
+        {
+          id: "i6zxjy6vt",
+          name: "Bed",
+          quantity: 1,
+          rate: "Rs. 30,400",
+          amount: "Rs. 30,400",
+          size: "",
+          description: "Remarks: - MADE IN PLY LAMINATED AND COLOUR SHADE IS DECIDED SOON",
+          isDispatched: false
+        }
+      ]
+    }
+  },
+  {
     id: "ORD-2026-4470109",
     docId: "ord_4470109",
     customer: "FEB TELE INDIA",

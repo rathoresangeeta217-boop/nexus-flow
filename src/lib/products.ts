@@ -27,15 +27,55 @@ export interface ProductVariant {
   sideStorage?: string;
   electricOption?: string;
   price: string | number;
+  priceMode?: 'total' | 'addon';
   originalPrice?: string | number;
   imageName?: string;
   imageData?: string;
   sku?: string;
 }
 
+export const parsePriceNumber = (val: string | number | undefined | null): number => {
+  if (typeof val === 'number') return Number.isFinite(val) ? val : 0;
+  if (typeof val === 'string') {
+    const parsed = parseFloat(val.replace(/[^0-9.]/g, ''));
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+};
+
+export const resolveVariantPriceMode = (
+  variant: ProductVariant,
+  baseProductPrice: number
+): 'total' | 'addon' => {
+  if (variant.priceMode === 'total' || variant.priceMode === 'addon') {
+    return variant.priceMode;
+  }
+  const vType = variant.variantType;
+  if (vType === 'side_storage' || vType === 'electric' || variant.sideStorage || variant.electricOption) {
+    return 'addon';
+  }
+  if (vType === 'size' || (variant.size && vType !== 'custom')) {
+    return 'total';
+  }
+  if (vType === 'color' || ((variant.colorCode || variant.color) && vType !== 'custom')) {
+    return 'total';
+  }
+  const vPrice = parsePriceNumber(variant.price);
+  if (vPrice > 0 && (baseProductPrice <= 0 || vPrice >= baseProductPrice * 0.6)) {
+    return 'total';
+  }
+  return 'addon';
+};
+
+export interface ProductSpecification {
+  label: string;
+  value: string;
+}
+
 export interface ProductDetails {
   productName?: string;
   specification?: string;
+  specifications?: ProductSpecification[];
   price?: string; // keeping for backwards compatibility, but we might use totalUnitPrice/perUnitPrice
   vendorName?: string;
   vendorId?: string;
@@ -57,6 +97,7 @@ export interface Product {
   name: string;
   productName?: string;
   specification?: string;
+  specifications?: ProductSpecification[];
   description?: string;
   price: string;
   salesRate?: number;
@@ -169,6 +210,14 @@ export const saveProduct = async (productData: Partial<Product> & { productName?
   const cleanDetails = { ...finalData.details };
   delete cleanDetails.productImageData;
   delete cleanDetails.images;
+  const cleanSpecs: ProductSpecification[] = Array.isArray(finalData.specifications)
+    ? finalData.specifications
+        .filter((s: any) => s && (String(s.label || '').trim() || String(s.value || '').trim()))
+        .map((s: any) => ({
+          label: String(s.label || '').trim(),
+          value: String(s.value || '').trim(),
+        }))
+    : [];
 
   const docRef = await addDoc(getProductsCollection(), {
     ...docPayload,
@@ -176,6 +225,7 @@ export const saveProduct = async (productData: Partial<Product> & { productName?
     productName: resolvedName,
     category: resolvedCategory,
     description: resolvedDescription,
+    specifications: cleanSpecs,
     variants: cleanVariants,
     hasVariants: cleanVariants.length > 0,
     details: {
@@ -183,7 +233,8 @@ export const saveProduct = async (productData: Partial<Product> & { productName?
       productName: resolvedName,
       category: resolvedCategory,
       details: resolvedDescription,
-      description: resolvedDescription
+      description: resolvedDescription,
+      specifications: cleanSpecs,
     },
     imageCount: multiImages.length,
     hasSpin360: spin360Frames.length > 0,
@@ -377,6 +428,14 @@ export const updateProductData = async (docId: string, productData: Partial<Prod
     updates.variants = cleanVariants;
     updates.hasVariants = cleanVariants.length > 0;
   }
+  if (Array.isArray(finalData.specifications)) {
+    updates.specifications = finalData.specifications
+      .filter((s: any) => s && (String(s.label || '').trim() || String(s.value || '').trim()))
+      .map((s: any) => ({
+        label: String(s.label || '').trim(),
+        value: String(s.value || '').trim(),
+      }));
+  }
   if (updates.details) {
     const cleanDetails = { ...updates.details };
     delete cleanDetails.productImageData;
@@ -385,7 +444,8 @@ export const updateProductData = async (docId: string, productData: Partial<Prod
       ...cleanDetails,
       ...(resolvedName ? { productName: resolvedName } : {}),
       ...(resolvedCategory ? { category: resolvedCategory } : {}),
-      ...(resolvedDescription !== undefined ? { details: resolvedDescription, description: resolvedDescription } : {})
+      ...(resolvedDescription !== undefined ? { details: resolvedDescription, description: resolvedDescription } : {}),
+      ...(Array.isArray(updates.specifications) ? { specifications: updates.specifications } : {}),
     };
   }
   

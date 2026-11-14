@@ -305,7 +305,9 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
       
       if (order?.docId || order?.id) {
         await saveOrder({
+          ...order,
           docId: order.docId || order.id,
+          id: order.id,
           details: {
             ...(order.details || {}),
             deliveryDate: finalDeliveryDate
@@ -314,6 +316,11 @@ export function PaymentManagementModal({ isOpen, onClose, order }: PaymentManage
         if (order.details) {
           order.details.deliveryDate = finalDeliveryDate;
         }
+      }
+
+      // Dispatch window event so tabs immediately refresh payments
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('payments-updated'));
       }
 
       // Success notification

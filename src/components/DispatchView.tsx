@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
@@ -9,7 +9,7 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
 ).toString();
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft, X, Save, Package, CheckSquare, Image as ImageIcon, Plus, Trash2, Edit2, FileText, Check, Truck, User, MapPin, Phone, Wrench, Send, ClipboardList, ShieldAlert, AlertTriangle, Download, Loader2, CheckCircle2, Clock } from 'lucide-react';
-import { Order, OrderProduct, saveOrder, subscribeToOrders, getOverdueUnconfirmedDispatches } from '../lib/orders';
+import { Order, OrderProduct, saveOrder, subscribeToOrders, getOverdueUnconfirmedDispatches, getProductScheduledQty, DeliveryChallanRecord } from '../lib/orders';
 import { Product, subscribeToProducts } from '../lib/products';
 import { getProductFile } from '../lib/fileStorage';
 import { Badge } from './Badge';
@@ -28,6 +28,31 @@ interface DispatchViewProps {
 export function DispatchView({ order, onBack, isInstallationView = false }: DispatchViewProps) {
   const { profile } = useAuth();
   const isSuperAdmin = profile?.role === 'super_admin';
+
+  // Helpers to track scheduled and remaining quantities per product based on actual Delivery Challans
+  const getProductChallanQty = (p: OrderProduct): number => {
+    if (order?.details?.deliveryChallans && order.details.deliveryChallans.length > 0) {
+      let sum = 0;
+      for (const ch of order.details.deliveryChallans) {
+        const match = ch.items?.find(i => i.productId === p.id || (i.name && i.name.toLowerCase() === p.name.toLowerCase()));
+        if (match) sum += (Number(match.quantity) || 0);
+      }
+      return sum;
+    }
+    return 0;
+  };
+
+  const isProductFullyScheduled = (p: OrderProduct): boolean => {
+    const challanQty = getProductChallanQty(p);
+    return p.quantity > 0 && challanQty >= p.quantity;
+  };
+
+  const getRemainingQty = (p: OrderProduct): number => {
+    const challanQty = getProductChallanQty(p);
+    return Math.max(0, (p.quantity || 1) - challanQty);
+  };
+
+
   const [products, setProducts] = useState<OrderProduct[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [quotationFile, setQuotationFile] = useState<string | null>(null);
@@ -86,6 +111,32 @@ export function DispatchView({ order, onBack, isInstallationView = false }: Disp
   const [placeOfSupply, setPlaceOfSupply] = useState(order.details?.placeOfSupply || '');
   const [reasonForTransport, setReasonForTransport] = useState(order.details?.reasonForTransport || order.reasonForTransport || 'Delivery');
   const [scheduledReason, setScheduledReason] = useState(order.details?.scheduledReason || '');
+
+  // An order only requires a scheduled reason if it was scheduled to dispatch and after 2 days (48 hrs) has not moved to history
+  const isOrderScheduledOverdue = useMemo(() => {
+    if (order.status !== 'Scheduled Dispatched') return false;
+    const historyStatuses = ['Dispatched', 'Installation Pending', 'Installation In Progress', 'Installation Complete', 'Delivered', 'Completed'];
+    if (historyStatuses.includes(order.status)) return false;
+
+    const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+
+    let refTime: number | null = null;
+    if (order.details?.challanApprovedAt) {
+      refTime = new Date(order.details.challanApprovedAt).getTime();
+    } else if (order.details?.installationDate) {
+      refTime = new Date(order.details.installationDate).getTime();
+    } else if (order.updatedAt) {
+      refTime = typeof order.updatedAt === 'string' ? new Date(order.updatedAt).getTime() : (order.updatedAt?.seconds ? order.updatedAt.seconds * 1000 : null);
+    } else if (order.createdAt) {
+      refTime = typeof order.createdAt === 'string' ? new Date(order.createdAt).getTime() : (order.createdAt?.seconds ? order.createdAt.seconds * 1000 : null);
+    } else if (order.date) {
+      refTime = new Date(order.date).getTime();
+    }
+
+    if (!refTime || isNaN(refTime)) return false;
+    return (now - refTime) > TWO_DAYS_MS;
+  }, [order.status, order.details?.challanApprovedAt, order.details?.installationDate, order.updatedAt, order.createdAt, order.date]);
 
   useEffect(() => {
     setDispatchAddress(order.details?.address || order.dispatchAddress || '');
@@ -176,7 +227,21 @@ export function DispatchView({ order, onBack, isInstallationView = false }: Disp
   useEffect(() => {
     if (order) {
       if (order.details?.products && order.details.products.length > 0) {
-        setProducts(order.details.products);
+        const initialProducts = order.details.products.map(p => {
+          const sched = getProductChallanQty(p);
+          const isFull = p.quantity > 0 && sched >= p.quantity;
+          const rem = Math.max(0, (p.quantity || 1) - sched);
+          const isSelected = isFull ? false : (p.isDispatched !== undefined ? Boolean(p.isDispatched) : true);
+          return {
+            ...p,
+            scheduledQuantity: sched,
+            isDispatched: isSelected,
+            dispatchedQuantity: isSelected 
+              ? (Number(p.dispatchedQuantity) > 0 ? Number(p.dispatchedQuantity) : (rem > 0 ? rem : p.quantity))
+              : 0
+          };
+        });
+        setProducts(initialProducts);
       } else {
         const itemCount = order.items || 1;
         const mockProducts: OrderProduct[] = Array.from({ length: itemCount }).map((_, i) => ({
@@ -184,7 +249,8 @@ export function DispatchView({ order, onBack, isInstallationView = false }: Disp
           name: '',
           quantity: 1,
           size: '',
-          isDispatched: false
+          isDispatched: false,
+          scheduledQuantity: 0
         }));
         setProducts(mockProducts);
       }
@@ -198,6 +264,9 @@ export function DispatchView({ order, onBack, isInstallationView = false }: Disp
   }, [order]);
 
   const toggleDispatch = (product: OrderProduct) => {
+    const remaining = getRemainingQty(product);
+    const defaultQty = remaining > 0 ? remaining : (product.quantity || 1);
+
     if (product.isDispatched) {
       const updated = products.map(p => p.id === product.id ? { ...p, isDispatched: false, dispatchedQuantity: 0 } : p);
       setProducts(updated);
@@ -208,29 +277,31 @@ export function DispatchView({ order, onBack, isInstallationView = false }: Disp
         }).catch(err => console.error('Error auto-saving uncheck:', err));
       }
     } else {
-      if (product.quantity <= 1) {
-        const updated = products.map(p => p.id === product.id ? { ...p, isDispatched: true, dispatchedQuantity: product.quantity } : p);
-        setProducts(updated);
-        if (order.id || order.docId) {
-          saveOrder({
-            ...order,
-            details: { ...order.details, products: updated }
-          }).catch(err => console.error('Error auto-saving check:', err));
-        }
-      } else {
-        setDispatchPromptProduct(product);
-        setDispatchQty(product.quantity);
+      const updated = products.map(p => p.id === product.id ? { ...p, isDispatched: true, dispatchedQuantity: defaultQty } : p);
+      setProducts(updated);
+      if (order.id || order.docId) {
+        saveOrder({
+          ...order,
+          details: { ...order.details, products: updated }
+        }).catch(err => console.error('Error auto-saving check:', err));
       }
     }
   };
 
   const toggleSelectAll = () => {
-    const allSelected = products.length > 0 && products.every(p => p.isDispatched);
-    const updated = products.map(p => ({
-      ...p,
-      isDispatched: !allSelected,
-      dispatchedQuantity: !allSelected ? p.quantity : 0
-    }));
+    const unscheduled = products.filter(p => !isProductFullyScheduled(p));
+    const targetPool = unscheduled.length > 0 ? unscheduled : products;
+    const allSelected = targetPool.length > 0 && targetPool.every(p => p.isDispatched);
+
+    const updated = products.map(p => {
+      const rem = getRemainingQty(p);
+      const defaultQty = rem > 0 ? rem : (p.quantity || 1);
+      return {
+        ...p,
+        isDispatched: !allSelected,
+        dispatchedQuantity: !allSelected ? defaultQty : 0
+      };
+    });
     setProducts(updated);
     if (order.id || order.docId) {
       saveOrder({
@@ -266,8 +337,10 @@ export function DispatchView({ order, onBack, isInstallationView = false }: Disp
 
   const confirmDispatchQty = (qty: number) => {
     if (!dispatchPromptProduct) return;
+    const maxAllowed = getRemainingQty(dispatchPromptProduct);
+    const validQty = Math.min(maxAllowed, Math.max(1, qty));
     const updated = products.map(p => 
-      p.id === dispatchPromptProduct.id ? { ...p, isDispatched: true, dispatchedQuantity: qty } : p
+      p.id === dispatchPromptProduct.id ? { ...p, isDispatched: true, dispatchedQuantity: validQty } : p
     );
     setProducts(updated);
     if (order.id || order.docId) {
@@ -493,13 +566,45 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
     return Math.max(0, displayTotalAmt - receivedPhasesTotal - totalGstSubtracted);
   };
 
-  const isPartialDispatch = products.length > 0 && products.some(p => !p.isDispatched || (p.dispatchedQuantity !== undefined && p.dispatchedQuantity !== null && p.dispatchedQuantity < p.quantity));
-  const dispatchedItemsList = products.filter(p => p.isDispatched);
-  const heldBackItemsList = products.filter(p => !p.isDispatched || (p.dispatchedQuantity !== undefined && p.dispatchedQuantity !== null && p.dispatchedQuantity < p.quantity));
+  const activeUnscheduledProducts = products.filter(p => !isProductFullyScheduled(p));
+  const isPartialDispatch = activeUnscheduledProducts.length > 0 && activeUnscheduledProducts.some(p => {
+    const rem = getRemainingQty(p);
+    return !p.isDispatched || (p.dispatchedQuantity !== undefined && p.dispatchedQuantity !== null && p.dispatchedQuantity < rem);
+  });
+  const dispatchedItemsList = activeUnscheduledProducts.filter(p => p.isDispatched && (p.dispatchedQuantity || getRemainingQty(p)) > 0);
+  const heldBackItemsList = activeUnscheduledProducts.filter(p => {
+    const rem = getRemainingQty(p);
+    return !p.isDispatched || (p.dispatchedQuantity !== undefined && p.dispatchedQuantity !== null && p.dispatchedQuantity < rem);
+  });
 
   const handleChallanClick = () => {
-    const anyChecked = products.some(p => p.isDispatched);
-    if (!anyChecked) {
+    let itemsToDispatch = products.filter(p => p.isDispatched);
+
+    // If no items are explicitly checked, auto-select all available items so the user is never blocked!
+    if (itemsToDispatch.length === 0) {
+      const unscheduled = products.filter(p => !isProductFullyScheduled(p));
+      const pool = unscheduled.length > 0 ? unscheduled : products;
+      const autoSelected = products.map(p => {
+        const inPool = pool.some(item => item.id === p.id);
+        const rem = getRemainingQty(p);
+        const defaultQty = rem > 0 ? rem : (p.quantity || 1);
+        return {
+          ...p,
+          isDispatched: inPool,
+          dispatchedQuantity: inPool ? defaultQty : 0
+        };
+      });
+      setProducts(autoSelected);
+      itemsToDispatch = autoSelected.filter(p => p.isDispatched);
+      if (order.id || order.docId) {
+        saveOrder({
+          ...order,
+          details: { ...order.details, products: autoSelected }
+        }).catch(err => console.error('Error auto-saving selected items:', err));
+      }
+    }
+
+    if (itemsToDispatch.length === 0) {
       setAlertMessage('Please select at least one item to generate a Challan.');
       return;
     }
@@ -513,15 +618,16 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
     );
 
     const allOverdue = getOverdueUnconfirmedDispatches(allOrders);
-    if (allOverdue.length > 0 && !isAnshuman) {
-      const overdue = allOverdue[0];
+    const unexplainedOverdue = allOverdue.filter(o => !o.details?.scheduledReason);
+    if (unexplainedOverdue.length > 0 && !isAnshuman) {
+      const overdue = unexplainedOverdue[0];
       alert(
         `❌ DELIVERY CHALLAN GENERATION BLOCKED!\n\n` +
         `Term Enforcement: It is compulsory to confirm dispatch within 2 days of Delivery Challan creation or Scheduled Dispatch.\n\n` +
-        `Order #${overdue.id} (${overdue.customer}) has a Delivery Challan / Scheduled Dispatch created over 2 days ago that is pending dispatch confirmation.\n\n` +
-        `You MUST confirm dispatch for Order #${overdue.id} before generating any new Delivery Challan!`
+        `Order #${overdue.id} (${overdue.customer}) has a Delivery Challan / Scheduled Dispatch created over 2 days ago without a delay reason.\n\n` +
+        `You MUST confirm dispatch or set a scheduled reason for Order #${overdue.id} before generating any new Delivery Challan!`
       );
-      setAlertMessage(`❌ Term Violation: Order #${overdue.id} (${overdue.customer}) is overdue for dispatch confirmation (> 2 days). Please confirm dispatch for Order #${overdue.id} first.`);
+      setAlertMessage(`❌ Term Violation: Order #${overdue.id} (${overdue.customer}) is overdue for dispatch confirmation (> 2 days). Please confirm dispatch or record reason.`);
       return;
     }
 
@@ -571,13 +677,14 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
     );
 
     const allOverdue = getOverdueUnconfirmedDispatches(allOrders);
-    if (allOverdue.length > 0 && !isAnshuman) {
-      const overdue = allOverdue[0];
+    const unexplainedOverdue = allOverdue.filter(o => !o.details?.scheduledReason);
+    if (unexplainedOverdue.length > 0 && !isAnshuman) {
+      const overdue = unexplainedOverdue[0];
       alert(
         `❌ DELIVERY CHALLAN GENERATION BLOCKED!\n\n` +
         `Term Enforcement: It is compulsory to confirm dispatch within 2 days of Delivery Challan creation or Scheduled Dispatch.\n\n` +
-        `Order #${overdue.id} (${overdue.customer}) has a Delivery Challan or Scheduled Dispatch created over 2 days ago that is pending dispatch confirmation.\n\n` +
-        `You MUST confirm dispatch for Order #${overdue.id} before generating any new Delivery Challan!`
+        `Order #${overdue.id} (${overdue.customer}) has a Delivery Challan or Scheduled Dispatch created over 2 days ago without a delay reason.\n\n` +
+        `You MUST confirm dispatch or set a scheduled reason for Order #${overdue.id} before generating any new Delivery Challan!`
       );
       setShowFarePrompt(false);
       return;
@@ -585,8 +692,32 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
 
     setIsGeneratingChallan(true);
     try {
+      // 1. Gather items actively selected for this specific challan
+      let itemsForThisChallan = products.filter(p => p.isDispatched);
+      if (itemsForThisChallan.length === 0) {
+        itemsForThisChallan = products;
+      }
+
+      const pastChallans = order.details?.deliveryChallans || [];
+      const challanSeq = pastChallans.length + 1;
+      const challanNumber = `CHL-${order.id || order.docId}${pastChallans.length > 0 ? `-${challanSeq}` : ''}`;
+
       const enhancedOrder = {
         ...order,
+        challanNumber,
+        challanItems: itemsForThisChallan.map(p => {
+          const rem = getRemainingQty(p);
+          const validQty = (p.dispatchedQuantity !== undefined && p.dispatchedQuantity !== null && Number(p.dispatchedQuantity) > 0)
+            ? Number(p.dispatchedQuantity)
+            : (rem > 0 ? rem : (p.quantity || 1));
+          return {
+            id: p.id,
+            name: p.name,
+            quantity: validQty,
+            size: p.size || '',
+            scheduledQuantity: p.scheduledQuantity
+          };
+        }),
         vehicleNumber: vehicleNumber || order.vehicleNumber || order.details?.vehicleNumber,
         driverName: driverName || order.driverName || order.details?.driverName,
         driverMobile: driverMobile || order.driverMobile || order.details?.driverMobile,
@@ -598,7 +729,6 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
         reasonForTransport: reasonForTransport || order.details?.reasonForTransport,
         details: {
           ...order.details,
-          products,
           vehicleNumber: vehicleNumber || order.vehicleNumber || order.details?.vehicleNumber,
           driverName: driverName || order.driverName || order.details?.driverName,
           driverMobile: driverMobile || order.driverMobile || order.details?.driverMobile,
@@ -612,29 +742,76 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
         }
       };
 
-      // 1. Generate & download PDF
+      // 1. Generate & download PDF with ONLY the active items for this challan
       const result: any = await generateDispatchPDF(enhancedOrder, showFare, 'Challan');
       if (result && result.blobUrl) {
         setLastDownloadedChallan({ url: result.blobUrl, fileName: result.fileName });
       }
       
-      // 2. Auto-save current products selection AND driver details to Firestore
+      // 2. Compute updated products: scheduledQuantity increments by dispatched qty, selection resets for future challans
+      const updatedProducts = products.map(p => {
+        if (isProductFullyScheduled(p)) {
+          return { ...p, isDispatched: false, dispatchedQuantity: 0 };
+        }
+        const isDispatchedInThisChallan = p.isDispatched && ((p.dispatchedQuantity || getRemainingQty(p)) > 0);
+        const qtyDispatched = isDispatchedInThisChallan 
+          ? ((p.dispatchedQuantity !== undefined && p.dispatchedQuantity !== null && p.dispatchedQuantity > 0) ? p.dispatchedQuantity : getRemainingQty(p))
+          : 0;
+        const newSched = (Number(p.scheduledQuantity) || 0) + qtyDispatched;
+        return {
+          ...p,
+          scheduledQuantity: newSched,
+          isDispatched: false, // Reset selection for next challan!
+          dispatchedQuantity: 0
+        };
+      });
+
+      // 3. New Delivery Challan Record
+      const newChallanRecord: DeliveryChallanRecord = {
+        id: challanNumber,
+        challanNumber,
+        createdAt: new Date().toISOString(),
+        vehicleNumber: enhancedOrder.vehicleNumber,
+        driverName: enhancedOrder.driverName,
+        driverMobile: enhancedOrder.driverMobile,
+        logisticCharges: enhancedOrder.logisticCharges,
+        reasonForTransport: enhancedOrder.reasonForTransport,
+        items: itemsForThisChallan.map(p => ({
+          productId: p.id,
+          name: p.name,
+          quantity: (p.dispatchedQuantity !== undefined && p.dispatchedQuantity !== null && p.dispatchedQuantity > 0) ? p.dispatchedQuantity : getRemainingQty(p),
+          size: p.size || ''
+        }))
+      };
+
+      const updatedChallans = [...pastChallans, newChallanRecord];
+      const allFullyScheduled = updatedProducts.every(p => (Number(p.scheduledQuantity) || 0) >= (p.quantity || 1));
+
+      // 4. Auto-save updated products selection AND driver details to Firestore
       if (order.id || order.docId) {
         try {
           await saveOrder({
             ...order,
+            status: allFullyScheduled ? (['Dispatched', 'Out for Delivery', 'Delivered', 'Completed'].includes(order.status) ? order.status : 'Scheduled Dispatched') : (order.status === 'New Order' || order.status === 'Confirmed' ? 'Scheduled Dispatched' : order.status),
             vehicleNumber: enhancedOrder.vehicleNumber,
             driverName: enhancedOrder.driverName,
             driverMobile: enhancedOrder.driverMobile,
             dispatchAddress: enhancedOrder.dispatchAddress,
-            details: enhancedOrder.details
+            details: {
+              ...enhancedOrder.details,
+              products: updatedProducts,
+              deliveryChallans: updatedChallans,
+              challanApprovalStatus: undefined, // reset for future challans
+              challanPendingReason: undefined
+            }
           });
         } catch (err) {
           console.error('Failed to auto-save products and driver details on challan generation:', err);
         }
       }
 
-      setAlertMessage('✅ Delivery Challan PDF generated and downloaded successfully!');
+      setProducts(updatedProducts);
+      setAlertMessage(`✅ Delivery Challan #${challanSeq} generated & downloaded! Fully scheduled items are now grayed out and excluded from future challans.`);
       setShowFarePrompt(false);
       
       // 3. Check for customer phone to open WhatsApp
@@ -694,6 +871,25 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
     if (!order || (!order.docId && !order.id)) return;
     setIsSaving(true);
     try {
+      // Compute updated products with incremented scheduled quantities
+      const anyDispatched = products.some(p => p.isDispatched);
+      const updatedProducts = products.map(p => {
+        if (isProductFullyScheduled(p)) {
+          return { ...p, isDispatched: false, dispatchedQuantity: 0 };
+        }
+        const isDispatchedThisTime = p.isDispatched && ((p.dispatchedQuantity || getRemainingQty(p)) > 0);
+        const qtyDispatched = isDispatchedThisTime
+          ? ((p.dispatchedQuantity !== undefined && p.dispatchedQuantity !== null && p.dispatchedQuantity > 0) ? p.dispatchedQuantity : getRemainingQty(p))
+          : 0;
+        const newSched = (Number(p.scheduledQuantity) || 0) + (anyDispatched ? qtyDispatched : 0);
+        return {
+          ...p,
+          scheduledQuantity: newSched,
+          isDispatched: false, // Reset selection for next time
+          dispatchedQuantity: 0
+        };
+      });
+
       const updatedOrder = {
         ...order,
         items: products.length, // update item count
@@ -703,7 +899,7 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
         dispatchAddress,
         details: {
           ...order.details,
-          products: products,
+          products: updatedProducts,
           dispatchAddress,
           address: dispatchAddress,
           vehicleNumber,
@@ -736,11 +932,13 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
         isSuperAdmin
       );
 
-      if (!isAlreadyScheduledOrDispatched || order.status === 'Scheduled Dispatched') {
+      // An order only requires a delay reason if it was already scheduled > 2 days ago and has not moved to history
+      if (isOrderScheduledOverdue) {
         if (!scheduledReason) {
           alert(
-            `❌ MANDATORY REASON REQUIRED FOR SCHEDULED ORDERS:\n\n` +
-            `Please select the reason why this order is scheduled and not yet confirmed dispatched:\n\n` +
+            `⚠️ DELAY REASON REQUIRED (> 2 DAYS IN SCHEDULED):\n\n` +
+            `This order has been in Scheduled Dispatch for over 2 days and has not yet moved to History (Dispatched).\n\n` +
+            `Please select the reason for the delay:\n\n` +
             `1. CUSTOMER ISSUE\n` +
             `2. LOGISTIC ISSUE\n` +
             `3. PAYMENT DELAY\n` +
@@ -753,14 +951,14 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
 
       if (!isAlreadyScheduledOrDispatched) {
         const allOverdue = getOverdueUnconfirmedDispatches(allOrders);
-        const otherOverdue = allOverdue.filter(o => o.id !== order.id && o.docId !== order.docId);
+        const otherOverdue = allOverdue.filter(o => o.id !== order.id && o.docId !== order.docId && !o.details?.scheduledReason);
         if (otherOverdue.length > 0 && !isAnshuman) {
           const overdue = otherOverdue[0];
           alert(
             `❌ SCHEDULING DISPATCH BLOCKED!\n\n` +
             `Term Enforcement: It is compulsory to confirm dispatch within 2 days of Delivery Challan creation or Scheduled Dispatch.\n\n` +
-            `Order #${overdue.id} (${overdue.customer}) has an unconfirmed delivery challan / scheduled dispatch created over 2 days ago.\n\n` +
-            `You must confirm dispatch for Order #${overdue.id} before scheduling another order.`
+            `Order #${overdue.id} (${overdue.customer}) has an unconfirmed delivery challan / scheduled dispatch created over 2 days ago without a delay reason.\n\n` +
+            `You must confirm dispatch or record a delay reason for Order #${overdue.id} before scheduling another order.`
           );
           setIsSaving(false);
           return;
@@ -774,6 +972,7 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
       }
       
       await saveOrder(updatedOrder);
+      setProducts(updatedProducts);
       setAlertMessage('Driver and dispatch details saved successfully!');
       setShowDispatchForm(false);
       if (!isAlreadyScheduledOrDispatched) {
@@ -1074,13 +1273,43 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm flex flex-col h-full">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50">
               <h3 className="font-semibold text-slate-800">Order Items</h3>
-              <div className="flex items-center gap-4">
-                <button 
-                  onClick={toggleSelectAll}
-                  className="text-sm font-medium text-indigo-600 hover:text-indigo-800 transition-colors"
-                >
-                  {products.length > 0 && products.every(p => p.isDispatched) ? 'Deselect All' : 'Select All'}
-                </button>
+              <div className="flex items-center gap-3">
+                {(() => {
+                  const allSelected = products.length > 0 && products.every(p => p.isDispatched);
+                  return (
+                    <button 
+                      onClick={toggleSelectAll}
+                      className="text-sm font-medium text-indigo-600 hover:text-indigo-800 transition-colors"
+                    >
+                      {allSelected ? 'Deselect All' : 'Select All'}
+                    </button>
+                  );
+                })()}
+
+                {isSuperAdmin && products.some(p => (Number(p.scheduledQuantity) || 0) > 0) && (
+                  <button
+                    onClick={async () => {
+                      if (!window.confirm('Reset all scheduled quantities back to 0 for this order? This will un-gray all items and allow creating new challans from scratch.')) return;
+                      const reset = products.map(p => ({ ...p, scheduledQuantity: 0, isDispatched: false, dispatchedQuantity: 0 }));
+                      setProducts(reset);
+                      await saveOrder({
+                        ...order,
+                        details: {
+                          ...order.details,
+                          products: reset,
+                          deliveryChallans: [],
+                          challanApprovalStatus: undefined
+                        }
+                      });
+                      setAlertMessage('Scheduled quantities reset successfully.');
+                    }}
+                    className="text-xs font-semibold text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 px-2.5 py-1 rounded-md border border-rose-200 transition-colors"
+                    title="Super Admin: Reset scheduled quantities"
+                  >
+                    Reset Schedule
+                  </button>
+                )}
+
                 <button 
                   onClick={addProduct}
                   className="flex items-center text-sm font-medium text-emerald-600 hover:text-emerald-800"
@@ -1200,20 +1429,36 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
                   : products;
 
                 return listToRender.map((product, idx) => {
+                  const isFullyScheduled = isProductFullyScheduled(product);
+                  const schedQty = Number(product.scheduledQuantity) || 0;
+                  const remQty = getRemainingQty(product);
                   const effectiveInstallQty = (product.dispatchedQuantity !== undefined && product.dispatchedQuantity !== null && Number(product.dispatchedQuantity) > 0)
                     ? Number(product.dispatchedQuantity)
-                    : product.quantity;
+                    : (schedQty > 0 ? schedQty : product.quantity);
                   const isPartial = Boolean(product.dispatchedQuantity !== undefined && product.dispatchedQuantity !== null && product.dispatchedQuantity > 0 && product.dispatchedQuantity < product.quantity);
 
                   return (
-                <div key={`${product.id || "k"}-${idx}`} className="flex flex-col sm:flex-row sm:items-center p-4 sm:p-6 hover:bg-slate-50 transition-colors gap-4 group">
+                <div 
+                  key={`${product.id || "k"}-${idx}`} 
+                  className={`flex flex-col sm:flex-row sm:items-center p-4 sm:p-6 transition-all gap-4 group ${
+                    isFullyScheduled && !isInstallationView
+                      ? 'bg-slate-100/90 border border-slate-200/90 text-slate-400 opacity-60 select-none grayscale-[30%]'
+                      : schedQty > 0 && !isInstallationView
+                      ? 'bg-amber-50/30 hover:bg-slate-50 border border-amber-200/60'
+                      : 'hover:bg-slate-50 border-transparent'
+                  }`}
+                >
                   {!isInstallationView && (
                     <div 
                       className="flex-shrink-0 pt-1 sm:pt-0 cursor-pointer"
                       onClick={() => { 
                         if (editingId !== product.id) toggleDispatch(product); 
                       }}
-                      title={product.isDispatched ? "Click to uncheck (remove from Challan)" : "Click to select for Challan"}
+                      title={
+                        product.isDispatched 
+                          ? "Click to uncheck (remove from Challan)" 
+                          : "Click to select for Challan"
+                      }
                     >
                       <div className={`w-6 h-6 rounded border flex items-center justify-center transition-colors ${product.isDispatched ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm' : 'border-slate-300 bg-white hover:border-indigo-500'}`}>
                         {product.isDispatched && <CheckSquare className="w-4 h-4" />}
@@ -1221,7 +1466,7 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
                     </div>
                   )}
                   
-                  <div className="flex-shrink-0 w-16 h-16 bg-slate-100 rounded-lg overflow-hidden flex items-center justify-center border border-slate-200 relative group">
+                  <div className={`flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden flex items-center justify-center border border-slate-200 relative group ${isFullyScheduled && !isInstallationView ? 'bg-slate-200/70 grayscale-[50%]' : 'bg-slate-100'}`}>
                     {editingId === product.id ? (
                       <label className="cursor-pointer w-full h-full relative block">
                         {editImage || matchedImages[product.id] ? (
@@ -1310,10 +1555,23 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
                         </div>
                       </div>
                     ) : (
-                      <div className={!isInstallationView ? "cursor-pointer" : ""} onClick={() => { if (!isInstallationView) startEdit(product); }}>
-                        <h4 className="text-base font-bold text-slate-800">
-                          {product.name || <span className="text-slate-400 italic">Click to select product...</span>}
-                        </h4>
+                      <div className={!isInstallationView && !isFullyScheduled ? "cursor-pointer" : ""} onClick={() => { if (!isInstallationView && !isFullyScheduled) startEdit(product); }}>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h4 className={`text-base font-bold ${isFullyScheduled && !isInstallationView ? 'text-slate-500' : 'text-slate-800'}`}>
+                            {product.name || <span className="text-slate-400 italic">Click to select product...</span>}
+                          </h4>
+                          {isFullyScheduled && !isInstallationView && (
+                            <span className="text-[10px] font-extrabold uppercase tracking-wider bg-slate-200 text-slate-600 px-2 py-0.5 rounded border border-slate-300 shadow-2xs">
+                              ✓ Full Qty Scheduled
+                            </span>
+                          )}
+                          {!isFullyScheduled && schedQty > 0 && !isInstallationView && (
+                            <span className="text-[10px] font-extrabold uppercase tracking-wider bg-amber-100 text-amber-900 px-2 py-0.5 rounded border border-amber-300">
+                              Partial Remaining
+                            </span>
+                          )}
+                        </div>
+
                         <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-500">
                           {product.size && (
                             <span className="bg-slate-100 px-2 py-0.5 rounded text-slate-600 font-medium border border-slate-200">
@@ -1331,9 +1589,29 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
                                 </span>
                               )}
                             </div>
+                          ) : isFullyScheduled ? (
+                            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                              <span className="bg-slate-200/80 text-slate-600 px-2 py-0.5 rounded border border-slate-300 font-medium">
+                                Total Qty: {product.quantity}
+                              </span>
+                              <span className="bg-slate-200/80 text-slate-700 px-2 py-0.5 rounded border border-slate-300 font-bold">
+                                Scheduled: {schedQty}/{product.quantity} (100%)
+                              </span>
+                              <span className="text-slate-400 italic">Excluded from future challans</span>
+                            </div>
                           ) : (
                             <>
-                              <span className="font-semibold">Qty: {product.quantity}</span>
+                              <span className="font-semibold">Total Qty: {product.quantity}</span>
+                              {schedQty > 0 && (
+                                <span className="bg-amber-100 text-amber-950 px-2 py-0.5 rounded font-bold text-xs border border-amber-200">
+                                  Already Scheduled: {schedQty}
+                                </span>
+                              )}
+                              {remQty !== product.quantity && (
+                                <span className="bg-emerald-50 text-emerald-800 px-2 py-0.5 rounded font-bold text-xs border border-emerald-200">
+                                  Remaining: {remQty}
+                                </span>
+                              )}
                               {product.rate && <span className="bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded font-medium border border-emerald-100">Rate: {product.rate}</span>}
                               {product.isDispatched && product.dispatchedQuantity !== undefined && (
                                 <span 
@@ -1341,11 +1619,11 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setDispatchPromptProduct(product);
-                                    setDispatchQty(product.dispatchedQuantity || 1);
+                                    setDispatchQty(product.dispatchedQuantity || remQty);
                                   }}
-                                  title="Edit dispatched quantity"
+                                  title="Edit dispatched quantity for this Challan"
                                 >
-                                  Dispatching: {product.dispatchedQuantity}
+                                  Dispatching in this Challan: {product.dispatchedQuantity}
                                   <Edit2 className="w-3 h-3 ml-1" />
                                 </span>
                               )}
@@ -1357,7 +1635,7 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
                   </div>
                   
                   <div className="flex items-center gap-2">
-                    {!isInstallationView && (
+                    {!isInstallationView && !isFullyScheduled && (
                       <>
                         {editingId === product.id ? (
                           <button onClick={() => saveEdit(product.id)} className="p-2 text-emerald-600 bg-emerald-50 rounded-lg hover:bg-emerald-100">
@@ -1391,9 +1669,13 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
                         <Badge variant={isPartial ? 'warning' : 'success'}>
                           {isPartial ? `Partial (${effectiveInstallQty}/${product.quantity})` : `Full (${effectiveInstallQty})`}
                         </Badge>
+                      ) : isFullyScheduled ? (
+                        <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-slate-200 text-slate-600 border border-slate-300">
+                          Fully Scheduled
+                        </span>
                       ) : (
-                        <Badge variant={product.isDispatched ? (product.dispatchedQuantity === product.quantity ? 'success' : 'info') : 'warning'}>
-                          {product.isDispatched ? (product.dispatchedQuantity === product.quantity ? 'Ready' : 'Partial') : 'Pending'}
+                        <Badge variant={product.isDispatched ? ((product.dispatchedQuantity || remQty) === remQty ? 'success' : 'info') : 'warning'}>
+                          {product.isDispatched ? ((product.dispatchedQuantity || remQty) === remQty ? 'Ready' : 'Partial') : 'Pending'}
                         </Badge>
                       )}
                     </div>
@@ -1415,6 +1697,74 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
                 </div>
               )}
             </div>
+
+            {/* Generated Delivery Challans History Section */}
+            {!isInstallationView && order.details?.deliveryChallans && order.details.deliveryChallans.length > 0 && (
+              <div className="p-5 border-t border-slate-200 bg-slate-50/70">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-indigo-600" />
+                    Delivery Challans History ({order.details.deliveryChallans.length})
+                  </h4>
+                  <span className="text-[11px] text-slate-500 font-medium">
+                    Scheduled items are excluded from future challans
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {order.details.deliveryChallans.map((ch, chIdx) => (
+                    <div key={ch.id || chIdx} className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs flex flex-col justify-between gap-2.5">
+                      <div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-extrabold text-sm text-indigo-950 font-mono">
+                            {ch.challanNumber || `Challan #${chIdx + 1}`}
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-medium">
+                            {ch.createdAt ? new Date(ch.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}
+                          </span>
+                        </div>
+                        {ch.vehicleNumber && (
+                          <p className="text-[11px] text-slate-500 mt-0.5">
+                            Vehicle: <strong className="text-slate-700">{ch.vehicleNumber}</strong> {ch.driverName ? `• Driver: ${ch.driverName}` : ''}
+                          </p>
+                        )}
+                        <div className="mt-2 space-y-1">
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Items Dispatched:</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {ch.items?.map((it, itIdx) => (
+                              <span key={itIdx} className="inline-flex items-center gap-1 text-[11px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded border border-slate-200">
+                                <span>{it.name}</span>
+                                <span className="font-bold text-indigo-700">({it.quantity} qty)</span>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="pt-2 border-t border-slate-100 flex justify-end">
+                        <button
+                          onClick={async () => {
+                            const replayOrder = {
+                              ...order,
+                              challanNumber: ch.challanNumber,
+                              vehicleNumber: ch.vehicleNumber || order.vehicleNumber,
+                              driverName: ch.driverName || order.driverName,
+                              driverMobile: ch.driverMobile || order.driverMobile,
+                              logisticCharges: ch.logisticCharges || order.details?.logisticCharges,
+                              reasonForTransport: ch.reasonForTransport || order.details?.reasonForTransport,
+                              challanItems: ch.items
+                            };
+                            await generateDispatchPDF(replayOrder, false, 'Challan');
+                          }}
+                          className="flex items-center gap-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg border border-indigo-200 transition-colors"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          Download {ch.challanNumber || 'Challan'}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Installation Details Section */}
             {(order.status.includes('Installation') || products.some(p => p.requiresInstallation)) && (
@@ -1812,55 +2162,69 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
               exit={{ scale: 0.95, opacity: 0 }}
               className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden"
             >
-              <div className="p-5">
-                <h3 className="text-lg font-bold text-slate-800 mb-2">Dispatch Quantity</h3>
-                <p className="text-sm text-slate-500 mb-4">How many units of <span className="font-semibold text-slate-700">{dispatchPromptProduct.name || 'this product'}</span> are you dispatching?</p>
-                
-                <div className="space-y-3">
-                  <button
-                    onClick={() => confirmDispatchQty(dispatchPromptProduct.quantity)}
-                    className="w-full flex items-center justify-between px-4 py-3 border-2 border-slate-200 rounded-lg hover:border-indigo-500 hover:bg-indigo-50 transition-colors"
-                  >
-                    <span className="font-semibold text-slate-700">Full Quantity</span>
-                    <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-sm font-bold">{dispatchPromptProduct.quantity} units</span>
-                  </button>
+              {(() => {
+                const sched = Number(dispatchPromptProduct.scheduledQuantity) || 0;
+                const remainingAllowed = Math.max(1, dispatchPromptProduct.quantity - sched);
 
-                  {dispatchPromptProduct.quantity > 1 && (
-                    <button
-                      onClick={() => confirmDispatchQty(Math.floor(dispatchPromptProduct.quantity / 2))}
-                      className="w-full flex items-center justify-between px-4 py-3 border-2 border-amber-200 bg-amber-50/60 rounded-lg hover:border-amber-500 hover:bg-amber-100/70 transition-colors"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-amber-900">Half Quantity (50%)</span>
-                        <span className="text-[10px] font-bold bg-amber-200/90 text-amber-950 px-1.5 py-0.5 rounded">Partial Dispatch</span>
-                      </div>
-                      <span className="bg-white text-amber-900 border border-amber-300 px-2 py-1 rounded text-sm font-bold shadow-2xs">
-                        {Math.floor(dispatchPromptProduct.quantity / 2)} units
-                      </span>
-                    </button>
-                  )}
-                  
-                  <div className="pt-2">
-                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Custom Quantity</label>
-                    <div className="flex gap-2">
-                      <input
-                        type="number"
-                        min="1"
-                        max={dispatchPromptProduct.quantity}
-                        value={dispatchQty}
-                        onChange={(e) => setDispatchQty(Math.min(dispatchPromptProduct.quantity, Math.max(1, parseInt(e.target.value) || 1)))}
-                        className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-                      />
+                return (
+                  <div className="p-5">
+                    <h3 className="text-lg font-bold text-slate-800 mb-2">Dispatch Quantity</h3>
+                    <p className="text-sm text-slate-500 mb-1">
+                      How many units of <span className="font-semibold text-slate-700">{dispatchPromptProduct.name || 'this product'}</span> are you dispatching in this Challan?
+                    </p>
+                    <p className="text-xs text-slate-400 mb-4">
+                      Total Ordered: {dispatchPromptProduct.quantity} {sched > 0 ? `• Already Scheduled: ${sched} units` : ''} • Remaining: <strong className="text-emerald-700">{remainingAllowed} units</strong>
+                    </p>
+                    
+                    <div className="space-y-3">
                       <button
-                        onClick={() => confirmDispatchQty(dispatchQty)}
-                        className="px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors"
+                        onClick={() => confirmDispatchQty(remainingAllowed)}
+                        className="w-full flex items-center justify-between px-4 py-3 border-2 border-slate-200 rounded-lg hover:border-indigo-500 hover:bg-indigo-50 transition-colors"
                       >
-                        Confirm
+                        <span className="font-semibold text-slate-700">All Remaining Quantity</span>
+                        <span className="bg-slate-100 text-slate-700 px-2 py-1 rounded text-sm font-bold">{remainingAllowed} units</span>
                       </button>
+
+                      {remainingAllowed > 1 && (
+                        <button
+                          onClick={() => confirmDispatchQty(Math.floor(remainingAllowed / 2))}
+                          className="w-full flex items-center justify-between px-4 py-3 border-2 border-amber-200 bg-amber-50/60 rounded-lg hover:border-amber-500 hover:bg-amber-100/70 transition-colors"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-amber-900">Half Remaining (50%)</span>
+                            <span className="text-[10px] font-bold bg-amber-200/90 text-amber-950 px-1.5 py-0.5 rounded">Partial Dispatch</span>
+                          </div>
+                          <span className="bg-white text-amber-900 border border-amber-300 px-2 py-1 rounded text-sm font-bold shadow-2xs">
+                            {Math.floor(remainingAllowed / 2)} units
+                          </span>
+                        </button>
+                      )}
+                      
+                      <div className="pt-2">
+                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                          Custom Quantity (Max {remainingAllowed})
+                        </label>
+                        <div className="flex gap-2">
+                          <input
+                            type="number"
+                            min="1"
+                            max={remainingAllowed}
+                            value={dispatchQty}
+                            onChange={(e) => setDispatchQty(Math.min(remainingAllowed, Math.max(1, parseInt(e.target.value) || 1)))}
+                            className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                          />
+                          <button
+                            onClick={() => confirmDispatchQty(dispatchQty)}
+                            className="px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors"
+                          >
+                            Confirm
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              </div>
+                );
+              })()}
               <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 flex justify-end">
                 <button
                   onClick={() => setDispatchPromptProduct(null)}
@@ -2000,41 +2364,43 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
                   </select>
                 </div>
 
-                <div className="sm:col-span-2 bg-amber-50/90 p-4 rounded-xl border-2 border-amber-300 shadow-xs space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="block text-sm font-black text-amber-950 flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                      Reason Order is Scheduled *
-                    </label>
-                    <span className="text-[10px] font-black uppercase text-amber-900 bg-amber-200/80 px-2 py-0.5 rounded border border-amber-300">
-                      Mandatory for Scheduled Orders
-                    </span>
-                  </div>
-                  <p className="text-xs text-amber-800 font-semibold">
-                    Select why this order is scheduled and NOT yet confirmed dispatched:
-                  </p>
-                  <select
-                    value={scheduledReason}
-                    onChange={(e) => setScheduledReason(e.target.value)}
-                    required
-                    className={`w-full px-3.5 py-2.5 border-2 rounded-xl text-xs sm:text-sm font-extrabold outline-none cursor-pointer transition-all ${
-                      !scheduledReason 
-                        ? 'border-rose-400 bg-rose-50/80 text-rose-900 focus:ring-2 focus:ring-rose-500 ring-2 ring-rose-200' 
-                        : 'border-amber-400 bg-white text-slate-900 focus:ring-2 focus:ring-amber-500'
-                    }`}
-                  >
-                    <option value="">-- Select Scheduled Reason (Mandatory) --</option>
-                    <option value="CUSTOMER ISSUE">1. CUSTOMER ISSUE</option>
-                    <option value="LOGISTIC ISSUE">2. LOGISTIC ISSUE</option>
-                    <option value="PAYMENT DELAY">3. PAYMENT DELAY</option>
-                    <option value="UNSATISFACTION">4. UNSATISFACTION</option>
-                  </select>
-                  {!scheduledReason && (
-                    <p className="text-[11px] font-bold text-rose-600">
-                      ⚠️ Selection required before saving scheduled dispatch.
+                {isOrderScheduledOverdue && (
+                  <div className="sm:col-span-2 bg-amber-50/90 p-4 rounded-xl border-2 border-amber-300 shadow-xs space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-sm font-black text-amber-950 flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                        Reason Order Delayed in Scheduled (&gt; 2 Days Unconfirmed) *
+                      </label>
+                      <span className="text-[10px] font-black uppercase text-amber-900 bg-amber-200/80 px-2 py-0.5 rounded border border-amber-300">
+                        Overdue &gt; 2 Days
+                      </span>
+                    </div>
+                    <p className="text-xs text-amber-800 font-semibold">
+                      This order was scheduled for dispatch over 2 days ago and has not moved to History. Select reason:
                     </p>
-                  )}
-                </div>
+                    <select
+                      value={scheduledReason}
+                      onChange={(e) => setScheduledReason(e.target.value)}
+                      required
+                      className={`w-full px-3.5 py-2.5 border-2 rounded-xl text-xs sm:text-sm font-extrabold outline-none cursor-pointer transition-all ${
+                        !scheduledReason 
+                          ? 'border-rose-400 bg-rose-50/80 text-rose-900 focus:ring-2 focus:ring-rose-500 ring-2 ring-rose-200' 
+                          : 'border-amber-400 bg-white text-slate-900 focus:ring-2 focus:ring-amber-500'
+                      }`}
+                    >
+                      <option value="">-- Select Scheduled Delay Reason --</option>
+                      <option value="CUSTOMER ISSUE">1. CUSTOMER ISSUE</option>
+                      <option value="LOGISTIC ISSUE">2. LOGISTIC ISSUE</option>
+                      <option value="PAYMENT DELAY">3. PAYMENT DELAY</option>
+                      <option value="UNSATISFACTION">4. UNSATISFACTION</option>
+                    </select>
+                    {!scheduledReason && (
+                      <p className="text-[11px] font-bold text-rose-600">
+                        ⚠️ Reason required because this order has been scheduled for over 2 days without moving to history.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
               
               <div className="px-5 py-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">

@@ -496,6 +496,19 @@ export function PurchaseTab({ searchQuery = '' }: { searchQuery?: string }) {
         onClose={() => setSelectedProductDetails(null)}
         product={selectedProductDetails}
         vendor={selectedProductDetails ? (vendors.find(v => v.id === selectedProductDetails.vendorId) || null) : null}
+        onAddToCart={(product, qty) => {
+          if (!selectedProjectId && projects.length > 0) {
+            setSelectedProjectId(projects[0].id);
+          }
+          setCart(prev => {
+            const pId = product.id || product.docId;
+            const existing = prev.find(item => (item.product.id || item.product.docId) === pId);
+            if (existing) {
+              return prev.map(item => (item.product.id || item.product.docId) === pId ? { ...item, quantity: item.quantity + qty } : item);
+            }
+            return [...prev, { product, quantity: qty }];
+          });
+        }}
       />
 
       {/* Stats Grid */}

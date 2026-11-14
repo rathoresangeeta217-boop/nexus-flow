@@ -20,7 +20,7 @@ import {
   Palette
 } from 'lucide-react';
 import React, { useState, useRef, useEffect } from 'react';
-import { isCategoryMatch, ProductVariant } from '../lib/products';
+import { isCategoryMatch, ProductVariant, ProductSpecification, parsePriceNumber, resolveVariantPriceMode } from '../lib/products';
 import { getVariantFile, compressImageFile, getProductImages } from '../lib/fileStorage';
 
 interface NewProductModalProps {
@@ -124,6 +124,9 @@ export function NewProductModal({
 
   const [selectedMainCategory, setSelectedMainCategory] = useState('Workstation');
   const [variants, setVariants] = useState<ProductVariant[]>([]);
+  const [specifications, setSpecifications] = useState<ProductSpecification[]>([
+    { label: '', value: '' }
+  ]);
 
   // 5 Product Angles state
   const [productImages, setProductImages] = useState<string[]>([]);
@@ -189,6 +192,7 @@ export function NewProductModal({
       sideStorage: type === 'side_storage' ? name : undefined,
       electricOption: type === 'electric' ? name : undefined,
       price: defaultPrice || '0',
+      priceMode: type === 'side_storage' || type === 'electric' ? 'addon' : 'total',
       imageData: ''
     };
 
@@ -197,13 +201,17 @@ export function NewProductModal({
 
   const [customGroupName, setCustomGroupName] = useState('');
 
-  const handleAddCustomVariantGroup = (groupTitle?: string, initialSubOptions?: { name: string; price?: string; colorCode?: string }[]) => {
+  const handleAddCustomVariantGroup = (
+    groupTitle?: string,
+    initialSubOptions?: { name: string; price?: string; colorCode?: string; priceMode?: 'total' | 'addon' }[]
+  ) => {
     const title = (groupTitle || customGroupName).trim() || 'Custom Option Group';
+    const defaultVal = (formData.price || formData.totalUnitPrice || '').toString();
     const subOptions = initialSubOptions && initialSubOptions.length > 0 
       ? initialSubOptions 
       : [
-          { name: 'Variant One / Sub-Option 1', price: '0' },
-          { name: 'Variant Two / Sub-Option 2', price: '0' }
+          { name: 'Variant One / Sub-Option 1', price: defaultVal || '0', priceMode: 'total' as const },
+          { name: 'Variant Two / Sub-Option 2', price: defaultVal || '0', priceMode: 'total' as const }
         ];
 
     const newVars: ProductVariant[] = subOptions.map((opt, i) => ({
@@ -212,6 +220,7 @@ export function NewProductModal({
       groupName: title,
       name: opt.name,
       price: opt.price || '0',
+      priceMode: opt.priceMode || 'total',
       colorCode: opt.colorCode,
       imageData: ''
     }));
@@ -226,13 +235,19 @@ export function NewProductModal({
     );
     const count = existingInGroup.length + 1;
     const oName = name || `Sub-Option ${count}`;
+    const baseNum = parsePriceNumber(formData.price || formData.totalUnitPrice);
+    const inheritedMode = existingInGroup[0]
+      ? resolveVariantPriceMode(existingInGroup[0], baseNum)
+      : 'total';
+    const defaultOptPrice = price ?? (inheritedMode === 'total' && baseNum > 0 ? String(baseNum) : '0');
 
     const newVar: ProductVariant = {
       id: `var_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       variantType: 'custom',
       groupName: groupName,
       name: oName,
-      price: price || '0',
+      price: defaultOptPrice,
+      priceMode: inheritedMode,
       imageData: ''
     };
 
@@ -418,6 +433,12 @@ export function NewProductModal({
         vendorId: initialData.vendorId || '',
         details: typedDesc
       });
+      const existingSpecs = initialData.specifications || initialData.details?.specifications || [];
+      setSpecifications(
+        Array.isArray(existingSpecs) && existingSpecs.length > 0
+          ? existingSpecs.map((s: any) => ({ label: s.label || '', value: s.value || '' }))
+          : [{ label: '', value: '' }]
+      );
     } else if (isOpen) {
       setFormData({
         productName: '',
@@ -430,6 +451,7 @@ export function NewProductModal({
         vendorId: '',
         details: ''
       });
+      setSpecifications([{ label: '', value: '' }]);
     }
   }, [isOpen, initialData, defaultCategory, mode]);
 
@@ -484,6 +506,7 @@ export function NewProductModal({
       color: colorName,
       colorCode: colorHex,
       price: variantPrice,
+      priceMode: 'total',
       imageData: productImages[0] || undefined
     };
 
@@ -580,6 +603,13 @@ export function NewProductModal({
       const validImages = productImages.filter(img => typeof img === 'string' && img.trim().length > 0);
       const primaryImage = validImages[0] || undefined;
       const typedDescription = formData.details.trim();
+      const cleanSpecs = specifications
+        .filter(s => s.label.trim() || s.value.trim())
+        .map(s => ({ label: s.label.trim(), value: s.value.trim() }));
+      const formattedSpecSummary = cleanSpecs
+        .filter(s => s.label && s.value)
+        .map(s => `${s.label}: ${s.value}`)
+        .join(' | ');
 
       if (onAddProduct) {
         await onAddProduct({
@@ -592,13 +622,15 @@ export function NewProductModal({
           productImageData: primaryImage,
           images: validImages,
           description: typedDescription,
-          specification: typedDescription,
+          specification: typedDescription || formattedSpecSummary,
+          specifications: cleanSpecs,
           variants: variants,
           hasVariants: variants.length > 0,
           details: {
             details: typedDescription,
             description: typedDescription,
-            specification: typedDescription,
+            specification: typedDescription || formattedSpecSummary,
+            specifications: cleanSpecs,
             productName: formData.productName.trim(),
             category: finalCategory,
             totalUnitPrice: formData.totalUnitPrice,
@@ -621,6 +653,7 @@ export function NewProductModal({
         vendorId: '',
         details: ''
       });
+      setSpecifications([{ label: '', value: '' }]);
       setProductImages([]);
       setVariants([]);
       setCustomCategoryMode(false);
@@ -641,25 +674,25 @@ export function NewProductModal({
       label: 'Armrest Types',
       title: 'Armrest Options',
       options: [
-        { name: '3D Adjustable Armrests', price: '800' },
-        { name: '2D Height Adjustable Armrests', price: '400' },
-        { name: 'Fixed Ergonomic Armrests', price: '0' }
+        { name: '3D Adjustable Armrests', price: '800', priceMode: 'addon' as const },
+        { name: '2D Height Adjustable Armrests', price: '400', priceMode: 'addon' as const },
+        { name: 'Fixed Ergonomic Armrests', price: '0', priceMode: 'addon' as const }
       ]
     },
     {
       label: 'Lumbar & Headrest',
       title: 'Support Options',
       options: [
-        { name: '2D Adjustable Lumbar + Headrest', price: '1200' },
-        { name: 'Standard Lumbar Support', price: '0' }
+        { name: '2D Adjustable Lumbar + Headrest', price: '1200', priceMode: 'addon' as const },
+        { name: 'Standard Lumbar Support', price: '0', priceMode: 'addon' as const }
       ]
     },
     {
       label: 'Chair Base',
       title: 'Base & Castors',
       options: [
-        { name: 'Heavy Duty Chrome Steel Base', price: '1500' },
-        { name: 'High Tensile Nylon Base', price: '0' }
+        { name: 'Heavy Duty Chrome Steel Base', price: '1500', priceMode: 'addon' as const },
+        { name: 'High Tensile Nylon Base', price: '0', priceMode: 'addon' as const }
       ]
     }
   ];
@@ -669,17 +702,17 @@ export function NewProductModal({
       label: 'Leg Finishes',
       title: 'Leg Finish',
       options: [
-        { name: 'Black Powder Coated Metal', price: '0' },
-        { name: 'White Powder Coated Metal', price: '0' },
-        { name: 'Chrome Stainless Steel Base', price: '1200' }
+        { name: 'Black Powder Coated Metal', price: '0', priceMode: 'addon' as const },
+        { name: 'White Powder Coated Metal', price: '0', priceMode: 'addon' as const },
+        { name: 'Chrome Stainless Steel Base', price: '1200', priceMode: 'addon' as const }
       ]
     },
     {
       label: 'Board Materials',
       title: 'Table Top Material',
       options: [
-        { name: '18mm Action TESA HDHMR', price: '0' },
-        { name: '25mm Pre-Laminated Board', price: '1500' }
+        { name: '18mm Action TESA HDHMR', price: '0', priceMode: 'addon' as const },
+        { name: '25mm Pre-Laminated Board', price: '1500', priceMode: 'addon' as const }
       ]
     }
   ];
@@ -689,34 +722,34 @@ export function NewProductModal({
       label: 'Storage Options',
       title: 'Side Storage Options',
       options: [
-        { name: 'Left Hand Side Storage (LHS)', price: '2500' },
-        { name: 'Right Hand Side Storage (RHS)', price: '2500' },
-        { name: 'Both Sides Storage (LHS + RHS)', price: '4800' },
-        { name: 'Without Side Storage', price: '0' }
+        { name: 'Left Hand Side Storage (LHS)', price: '2500', priceMode: 'addon' as const },
+        { name: 'Right Hand Side Storage (RHS)', price: '2500', priceMode: 'addon' as const },
+        { name: 'Both Sides Storage (LHS + RHS)', price: '4800', priceMode: 'addon' as const },
+        { name: 'Without Side Storage', price: '0', priceMode: 'addon' as const }
       ]
     },
     {
       label: 'Wood Shades',
       title: 'Table Top Finish',
       options: [
-        { name: 'Classic Walnut', price: '0', colorCode: '#4E342E' },
-        { name: 'Natural Teak', price: '0', colorCode: '#8D6E63' },
-        { name: 'Frosty White', price: '0', colorCode: '#F8FAFC' },
-        { name: 'Gothic Grey', price: '0', colorCode: '#78909C' }
+        { name: 'Classic Walnut', price: '0', colorCode: '#4E342E', priceMode: 'addon' as const },
+        { name: 'Natural Teak', price: '0', colorCode: '#8D6E63', priceMode: 'addon' as const },
+        { name: 'Frosty White', price: '0', colorCode: '#F8FAFC', priceMode: 'addon' as const },
+        { name: 'Gothic Grey', price: '0', colorCode: '#78909C', priceMode: 'addon' as const }
       ]
     },
     {
       label: 'Power Outlets',
       title: 'Electric & Power Socket',
       options: [
-        { name: 'Dual Pop-up Power Box', price: '1800' },
-        { name: 'Wire Pass-Through Grommet', price: '350' },
-        { name: 'Under-Desk Wire Tray', price: '650' }
+        { name: 'Dual Pop-up Power Box', price: '1800', priceMode: 'addon' as const },
+        { name: 'Wire Pass-Through Grommet', price: '350', priceMode: 'addon' as const },
+        { name: 'Under-Desk Wire Tray', price: '650', priceMode: 'addon' as const }
       ]
     }
   ];
 
-  const renderCustomVariantBuilder = (extraPresets?: { label: string; title: string; options: { name: string; price?: string; colorCode?: string }[] }[]) => {
+  const renderCustomVariantBuilder = (extraPresets?: { label: string; title: string; options: { name: string; price?: string; colorCode?: string; priceMode?: 'total' | 'addon' }[] }[]) => {
     const customGroups: Record<string, ProductVariant[]> = {};
     variants.forEach(v => {
       if (v.variantType === 'custom' || (v.groupName && v.variantType !== 'color' && v.variantType !== 'size' && v.variantType !== 'side_storage' && v.variantType !== 'electric')) {
@@ -727,6 +760,7 @@ export function NewProductModal({
     });
 
     const groupEntries = Object.entries(customGroups);
+    const baseProductPriceNum = parsePriceNumber(formData.price || formData.totalUnitPrice);
 
     return (
       <div className="mt-6 bg-slate-50 border border-slate-200 p-4.5 rounded-2xl space-y-4 shadow-2xs">
@@ -737,7 +771,7 @@ export function NewProductModal({
               Custom Variant Categories & Sub-Options Builder
             </h5>
             <p className="text-[11px] text-slate-500 mt-0.5">
-              Create custom variant groups (e.g. "Table Top Finish", "Storage Drawer Position", "Leg Structure", "Armrest Type", "Upholstery") and add sub-options with custom prices & photos.
+              Create custom variant groups (e.g. &quot;Base&quot;, &quot;Armrest Type&quot;, &quot;Table Top Finish&quot;) and choose whether each option sets the <strong>Total Price</strong> or adds an <strong>+ Add-on</strong>.
             </p>
           </div>
 
@@ -757,10 +791,10 @@ export function NewProductModal({
             <button
               type="button"
               onClick={() => handleAddCustomVariantGroup('Side Storage Options', [
-                { name: 'Left Hand Side Storage (LHS)', price: '2500' },
-                { name: 'Right Hand Side Storage (RHS)', price: '2500' },
-                { name: 'Both Sides Storage (LHS + RHS)', price: '4800' },
-                { name: 'Without Side Storage', price: '0' }
+                { name: 'Left Hand Side Storage (LHS)', price: '2500', priceMode: 'addon' },
+                { name: 'Right Hand Side Storage (RHS)', price: '2500', priceMode: 'addon' },
+                { name: 'Both Sides Storage (LHS + RHS)', price: '4800', priceMode: 'addon' },
+                { name: 'Without Side Storage', price: '0', priceMode: 'addon' }
               ])}
               className="px-2 py-1 bg-white hover:bg-indigo-50 hover:border-indigo-300 border border-slate-200 rounded-md text-[10px] font-semibold text-slate-700 transition-colors cursor-pointer"
             >
@@ -769,10 +803,10 @@ export function NewProductModal({
             <button
               type="button"
               onClick={() => handleAddCustomVariantGroup('Table Top Finish', [
-                { name: 'Classic Walnut', price: '0', colorCode: '#4E342E' },
-                { name: 'Natural Teak', price: '0', colorCode: '#8D6E63' },
-                { name: 'Frosty White', price: '0', colorCode: '#F8FAFC' },
-                { name: 'Gothic Grey', price: '0', colorCode: '#78909C' }
+                { name: 'Classic Walnut', price: '0', colorCode: '#4E342E', priceMode: 'addon' },
+                { name: 'Natural Teak', price: '0', colorCode: '#8D6E63', priceMode: 'addon' },
+                { name: 'Frosty White', price: '0', colorCode: '#F8FAFC', priceMode: 'addon' },
+                { name: 'Gothic Grey', price: '0', colorCode: '#78909C', priceMode: 'addon' }
               ])}
               className="px-2 py-1 bg-white hover:bg-indigo-50 hover:border-indigo-300 border border-slate-200 rounded-md text-[10px] font-semibold text-slate-700 transition-colors cursor-pointer"
             >
@@ -867,21 +901,58 @@ export function NewProductModal({
                         />
                       </div>
 
-                      {/* Price (₹) */}
-                      <div className="sm:w-32 relative">
-                        <label className="block text-[10px] font-extrabold text-slate-500 uppercase mb-1">
-                          Add-on Price (₹)
-                        </label>
-                        <div className="relative">
-                          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">₹</span>
-                          <input 
-                            type="number" 
-                            value={v.price || ''} 
-                            onChange={(e) => handleUpdateVariant(v.id, { price: e.target.value })} 
-                            placeholder="0" 
-                            className="w-full pl-6 pr-2 py-1.5 border border-slate-300 rounded-lg text-xs font-bold text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                          />
-                        </div>
+                      {/* Price (₹) with Total vs +Add-on toggle */}
+                      <div className="sm:w-44 relative">
+                        {(() => {
+                          const activeMode = resolveVariantPriceMode(v, baseProductPriceNum);
+                          return (
+                            <>
+                              <div className="flex items-center justify-between gap-1 mb-1">
+                                <label className="text-[10px] font-extrabold text-slate-500 uppercase">
+                                  {activeMode === 'total' ? 'Total Price (₹)' : '+ Add-on (₹)'}
+                                </label>
+                                <div className="inline-flex rounded border border-slate-200 bg-slate-100 p-0.5 text-[9px] font-bold">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUpdateVariant(v.id, { priceMode: 'total' })}
+                                    className={`px-1.5 py-0.5 rounded transition-colors cursor-pointer ${
+                                      activeMode === 'total'
+                                        ? 'bg-slate-900 text-white'
+                                        : 'text-slate-600 hover:text-slate-900'
+                                    }`}
+                                    title="This price IS the complete product selling price for this option"
+                                  >
+                                    Total
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUpdateVariant(v.id, { priceMode: 'addon' })}
+                                    className={`px-1.5 py-0.5 rounded transition-colors cursor-pointer ${
+                                      activeMode === 'addon'
+                                        ? 'bg-slate-900 text-white'
+                                        : 'text-slate-600 hover:text-slate-900'
+                                    }`}
+                                    title="Add this amount on top of the base product price"
+                                  >
+                                    +Add
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="relative">
+                                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                                  {activeMode === 'addon' ? '+₹' : '₹'}
+                                </span>
+                                <input 
+                                  type="number" 
+                                  value={v.price || ''} 
+                                  onChange={(e) => handleUpdateVariant(v.id, { price: e.target.value, priceMode: activeMode })} 
+                                  placeholder={activeMode === 'total' ? '8500' : '0'} 
+                                  className="w-full pl-7 pr-2 py-1.5 border border-slate-300 rounded-lg text-xs font-bold text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                />
+                              </div>
+                            </>
+                          );
+                        })()}
                       </div>
 
                       {/* Sub-Option Photo */}
@@ -1091,27 +1162,119 @@ export function NewProductModal({
                     </div>
                   </div>
 
-                  {/* 2. PRODUCT DESCRIPTION (REQUIREMENT #1: Only the typed description will be visible) */}
-                  <div className="space-y-1.5 md:col-span-2">
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                        Product Description
-                      </label>
-                      <span className="text-[11px] text-indigo-600 font-semibold bg-indigo-50 px-2 py-0.5 rounded-md">
-                        Displayed verbatim in quotations & catalog
-                      </span>
+                  {/* 2. PRODUCT SPECIFICATIONS (Field first, then Spec Value) */}
+                  <div className="space-y-3 md:col-span-2 bg-slate-50/70 border border-slate-200 rounded-xl p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <label className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                          Product Specifications
+                        </label>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          Enter the field first (e.g. Base), then enter its specification (e.g. Nylon). Shown cleanly on the storefront page.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSpecifications(prev => [...prev, { label: '', value: '' }])}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-black text-white rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Add Field</span>
+                      </button>
                     </div>
-                    <textarea 
-                      name="details"
-                      value={formData.details}
-                      onChange={handleChange}
-                      rows={4}
-                      className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm leading-relaxed text-slate-800 resize-y"
-                      placeholder="Type the exact description for this product here (materials, warranty, ergonomic details, usage, etc.). Only what you type here will be displayed."
-                    />
-                    <p className="text-[11px] text-slate-500">
-                      Note: Only what you type in this description box will be visible when viewing the product and adding it to quotations.
-                    </p>
+
+                    {/* Quick Field Chips */}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[11px] font-medium text-slate-500 mr-1">Quick add:</span>
+                      {['Base', 'Net Quantity', 'Material', 'Backrest', 'Armrest', 'Mechanism', 'Wheel / Castor', 'Dimensions', 'Warranty'].map((presetLabel) => (
+                        <button
+                          key={presetLabel}
+                          type="button"
+                          onClick={() => {
+                            setSpecifications(prev => {
+                              const alreadyExists = prev.some(s => s.label.trim().toLowerCase() === presetLabel.toLowerCase());
+                              if (alreadyExists) return prev;
+                              const emptyIdx = prev.findIndex(s => !s.label.trim() && !s.value.trim());
+                              if (emptyIdx !== -1) {
+                                const updated = [...prev];
+                                updated[emptyIdx] = { label: presetLabel, value: '' };
+                                return updated;
+                              }
+                              return [...prev, { label: presetLabel, value: '' }];
+                            });
+                          }}
+                          className="px-2 py-1 text-[11px] font-medium bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-md transition-colors cursor-pointer"
+                        >
+                          + {presetLabel}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Specification Key -> Value Rows */}
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-12 gap-2 text-[11px] font-semibold text-slate-500 px-1">
+                        <div className="col-span-5">Field Name</div>
+                        <div className="col-span-6">Specification Value</div>
+                        <div className="col-span-1"></div>
+                      </div>
+                      {specifications.map((spec, sIdx) => (
+                        <div key={sIdx} className="grid grid-cols-12 gap-2 items-center">
+                          <div className="col-span-5">
+                            <input
+                              type="text"
+                              value={spec.label}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setSpecifications(prev => prev.map((item, idx) => idx === sIdx ? { ...item, label: val } : item));
+                              }}
+                              placeholder="e.g. Base"
+                              className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs sm:text-sm font-medium text-slate-800"
+                            />
+                          </div>
+                          <div className="col-span-6">
+                            <input
+                              type="text"
+                              value={spec.value}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setSpecifications(prev => prev.map((item, idx) => idx === sIdx ? { ...item, value: val } : item));
+                              }}
+                              placeholder="e.g. Nylon"
+                              className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs sm:text-sm font-semibold text-slate-900"
+                            />
+                          </div>
+                          <div className="col-span-1 flex justify-end">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSpecifications(prev =>
+                                  prev.length <= 1 ? [{ label: '', value: '' }] : prev.filter((_, idx) => idx !== sIdx)
+                                );
+                              }}
+                              title="Remove specification row"
+                              className="p-2 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Optional 1-line Subtitle under title */}
+                    <div className="pt-2 border-t border-slate-200/80">
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                        Short Highlight Line (Optional)
+                      </label>
+                      <input
+                        type="text"
+                        name="details"
+                        value={formData.details}
+                        onChange={handleChange}
+                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs sm:text-sm text-slate-800"
+                        placeholder="Optional 1-line highlight shown right under product name (leave blank if only showing specifications)"
+                      />
+                    </div>
                   </div>
                 </div>
 
