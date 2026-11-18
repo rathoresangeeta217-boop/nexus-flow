@@ -20,6 +20,7 @@ export interface RawMaterialItem {
   id: string;
   docId?: string;
   name: string;
+  identificationName?: string;
   sku?: string;
   category: string;
   specs: string;
@@ -39,6 +40,7 @@ export interface RawMaterialItem {
   boardThickness?: string; // e.g. '18 mm'
   boardSize?: string; // e.g. '8 x 4'
   colorCode?: string; // e.g. 'SF 101'
+  colorName?: string; // e.g. 'Frosty White'
   // Custom fields for Chair / Chairs & Seating category
   chairType?: string; // 'Executive Chair' | 'Ergonomic Mesh Chair' | 'Visitor Chair' | 'Task Chair' | 'Conference Chair'
   chairArmrest?: string; // '3D / 4D Adjustable' | '2D Adjustable' | 'Fixed T-Armrest' | 'No Armrest'
@@ -61,6 +63,7 @@ export interface InventoryHistoryEntry {
   docId?: string;
   materialId: string;
   materialName: string;
+  identificationName?: string;
   materialUnit?: string;
   materialImage?: string;
   type: InventoryTransactionType;
@@ -104,36 +107,51 @@ const STORAGE_INVENTORY_HISTORY = 'srk_inventory_history_cache';
 const STORAGE_DELETED_MATERIALS = 'srk_deleted_materials_cache';
 const STORAGE_DELETED_HISTORY = 'srk_deleted_history_cache';
 
+let memoryDeletedMaterials: string[] | null = null;
+let memoryDeletedHistory: string[] | null = null;
+
 export function getDeletedMaterialIds(): string[] {
+  if (memoryDeletedMaterials !== null) return memoryDeletedMaterials;
   try {
     const raw = localStorage.getItem(STORAGE_DELETED_MATERIALS);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      memoryDeletedMaterials = JSON.parse(raw);
+      return memoryDeletedMaterials!;
+    }
   } catch (e) {}
-  return [];
+  memoryDeletedMaterials = [];
+  return memoryDeletedMaterials;
 }
 
 export function addDeletedMaterialId(id: string, docId?: string) {
+  const current = [...getDeletedMaterialIds()];
+  if (id && !current.includes(id)) current.push(id);
+  if (docId && !current.includes(docId)) current.push(docId);
+  memoryDeletedMaterials = current;
   try {
-    const current = getDeletedMaterialIds();
-    if (id && !current.includes(id)) current.push(id);
-    if (docId && !current.includes(docId)) current.push(docId);
     localStorage.setItem(STORAGE_DELETED_MATERIALS, JSON.stringify(current));
   } catch (e) {}
 }
 
 export function getDeletedHistoryIds(): string[] {
+  if (memoryDeletedHistory !== null) return memoryDeletedHistory;
   try {
     const raw = localStorage.getItem(STORAGE_DELETED_HISTORY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      memoryDeletedHistory = JSON.parse(raw);
+      return memoryDeletedHistory!;
+    }
   } catch (e) {}
-  return [];
+  memoryDeletedHistory = [];
+  return memoryDeletedHistory;
 }
 
 export function addDeletedHistoryId(id: string, docId?: string) {
+  const current = [...getDeletedHistoryIds()];
+  if (id && !current.includes(id)) current.push(id);
+  if (docId && !current.includes(docId)) current.push(docId);
+  memoryDeletedHistory = current;
   try {
-    const current = getDeletedHistoryIds();
-    if (id && !current.includes(id)) current.push(id);
-    if (docId && !current.includes(docId)) current.push(docId);
     localStorage.setItem(STORAGE_DELETED_HISTORY, JSON.stringify(current));
   } catch (e) {}
 }
@@ -212,31 +230,56 @@ export function findExistingInvoice(invoiceNo?: string): { isDuplicate: boolean;
   return { isDuplicate: false };
 }
 
+// In-memory primary mirrors prevent data loss/staleness when localStorage hits 5MB QuotaExceededError
+let memoryRawMaterials: RawMaterialItem[] | null = null;
+let memoryHistory: InventoryHistoryEntry[] | null = null;
+
+function stripLargeImagesForStorage<T extends Record<string, any>>(items: T[]): T[] {
+  return items.map((item) => {
+    const copy: any = { ...item };
+    if (typeof copy.imageUrl === 'string' && copy.imageUrl.startsWith('data:') && copy.imageUrl.length > 2048) {
+      copy.imageUrl = '';
+    }
+    if (typeof copy.materialImage === 'string' && copy.materialImage.startsWith('data:') && copy.materialImage.length > 2048) {
+      copy.materialImage = '';
+    }
+    return copy;
+  });
+}
+
 export function getLocalRawMaterials(): RawMaterialItem[] {
+  const deleted = getDeletedMaterialIds();
+  const sanitizeList = (items: RawMaterialItem[]) =>
+    items
+      .filter(item => !deleted.includes(item.id) && (!item.docId || !deleted.includes(item.docId)))
+      .map(item => {
+        const cat = (item.category || '').toLowerCase();
+        const name = (item.name || '').toLowerCase();
+        const isBoardCat = cat.includes('board') || cat.includes('plywood') || name.includes('board') || name.includes('plywood') || name.includes('mdf') || name.includes('hdhmr') || name.includes('plpb');
+        if (!isBoardCat) {
+          return {
+            ...item,
+            boardClassification: undefined,
+            boardType: undefined,
+            boardCompany: undefined,
+            boardThickness: undefined,
+            boardSize: undefined,
+            colorCode: undefined,
+            colorName: undefined
+          };
+        }
+        return item;
+      });
+
+  if (memoryRawMaterials !== null) {
+    return sanitizeList(memoryRawMaterials);
+  }
+
   try {
     const raw = localStorage.getItem(STORAGE_RAW_MATERIALS);
-    const deleted = getDeletedMaterialIds();
     if (raw !== null) {
       const items: RawMaterialItem[] = JSON.parse(raw);
-      return items
-        .filter(item => !deleted.includes(item.id) && (!item.docId || !deleted.includes(item.docId)))
-        .map(item => {
-          const cat = (item.category || '').toLowerCase();
-          const name = (item.name || '').toLowerCase();
-          const isBoardCat = cat.includes('board') || cat.includes('plywood') || name.includes('board') || name.includes('plywood') || name.includes('mdf') || name.includes('hdhmr') || name.includes('plpb');
-          if (!isBoardCat) {
-            return {
-              ...item,
-              boardClassification: undefined,
-              boardType: undefined,
-              boardCompany: undefined,
-              boardThickness: undefined,
-              boardSize: undefined,
-              colorCode: undefined
-            };
-          }
-          return item;
-        });
+      return sanitizeList(items);
     }
   } catch (e) {
     console.error('Failed to read local raw materials', e);
@@ -245,19 +288,28 @@ export function getLocalRawMaterials(): RawMaterialItem[] {
 }
 
 export function setLocalRawMaterials(items: RawMaterialItem[]) {
+  const deleted = getDeletedMaterialIds();
+  const cleanItems = items.filter(i => !deleted.includes(i.id) && (!i.docId || !deleted.includes(i.docId)));
+  memoryRawMaterials = cleanItems;
   try {
-    const deleted = getDeletedMaterialIds();
-    const cleanItems = items.filter(i => !deleted.includes(i.id) && (!i.docId || !deleted.includes(i.docId)));
     localStorage.setItem(STORAGE_RAW_MATERIALS, JSON.stringify(cleanItems));
   } catch (e) {
-    console.error('Failed to save local raw materials', e);
+    try {
+      localStorage.setItem(STORAGE_RAW_MATERIALS, JSON.stringify(stripLargeImagesForStorage(cleanItems)));
+    } catch (err) {
+      console.warn('localStorage quota exceeded for raw materials (using in-memory cache):', err);
+    }
   }
 }
 
 export function getLocalHistory(): InventoryHistoryEntry[] {
+  const deleted = getDeletedHistoryIds();
+  if (memoryHistory !== null) {
+    return memoryHistory.filter(h => !deleted.includes(h.id) && (!h.docId || !deleted.includes(h.docId)));
+  }
+
   try {
     const raw = localStorage.getItem(STORAGE_INVENTORY_HISTORY);
-    const deleted = getDeletedHistoryIds();
     if (raw !== null) {
       const history: InventoryHistoryEntry[] = JSON.parse(raw);
       return history.filter(h => !deleted.includes(h.id) && (!h.docId || !deleted.includes(h.docId)));
@@ -269,12 +321,17 @@ export function getLocalHistory(): InventoryHistoryEntry[] {
 }
 
 export function setLocalHistory(history: InventoryHistoryEntry[]) {
+  const deleted = getDeletedHistoryIds();
+  const cleanHistory = history.filter(h => !deleted.includes(h.id) && (!h.docId || !deleted.includes(h.docId)));
+  memoryHistory = cleanHistory;
   try {
-    const deleted = getDeletedHistoryIds();
-    const cleanHistory = history.filter(h => !deleted.includes(h.id) && (!h.docId || !deleted.includes(h.docId)));
     localStorage.setItem(STORAGE_INVENTORY_HISTORY, JSON.stringify(cleanHistory));
   } catch (e) {
-    console.error('Failed to save local history', e);
+    try {
+      localStorage.setItem(STORAGE_INVENTORY_HISTORY, JSON.stringify(stripLargeImagesForStorage(cleanHistory)));
+    } catch (err) {
+      console.warn('localStorage quota exceeded for inventory history (using in-memory cache):', err);
+    }
   }
 }
 
@@ -305,6 +362,10 @@ export function subscribeToRawMaterials(callback: (items: RawMaterialItem[]) => 
   callback(cached);
 
   const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+    if (unsubscribeSnapshot) {
+      unsubscribeSnapshot();
+      unsubscribeSnapshot = null;
+    }
     if (user) {
       try {
         const q = query(getRawMaterialsCol(), orderBy('name', 'asc'));
@@ -316,7 +377,13 @@ export function subscribeToRawMaterials(callback: (items: RawMaterialItem[]) => 
           }
 
           const deleted = getDeletedMaterialIds();
+          const seenDocIds = new Set<string>();
           const items = snapshot.docs
+            .filter(d => {
+              if (seenDocIds.has(d.id)) return false;
+              seenDocIds.add(d.id);
+              return true;
+            })
             .map(d => ({
               ...d.data(),
               id: d.data().id || d.id,
@@ -336,7 +403,6 @@ export function subscribeToRawMaterials(callback: (items: RawMaterialItem[]) => 
         callback(getLocalRawMaterials());
       }
     } else {
-      if (unsubscribeSnapshot) unsubscribeSnapshot();
       callback(getLocalRawMaterials());
     }
   });
@@ -355,6 +421,10 @@ export function subscribeToInventoryHistory(callback: (history: InventoryHistory
   callback(cached);
 
   const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+    if (unsubscribeSnapshot) {
+      unsubscribeSnapshot();
+      unsubscribeSnapshot = null;
+    }
     if (user) {
       try {
         const q = query(getInventoryHistoryCol(), orderBy('rawDate', 'desc'));
@@ -366,7 +436,13 @@ export function subscribeToInventoryHistory(callback: (history: InventoryHistory
           }
 
           const deleted = getDeletedHistoryIds();
+          const seenDocIds = new Set<string>();
           const history = snapshot.docs
+            .filter(d => {
+              if (seenDocIds.has(d.id)) return false;
+              seenDocIds.add(d.id);
+              return true;
+            })
             .map(d => ({
               ...d.data(),
               id: d.data().id || d.id,
@@ -386,7 +462,6 @@ export function subscribeToInventoryHistory(callback: (history: InventoryHistory
         callback(getLocalHistory());
       }
     } else {
-      if (unsubscribeSnapshot) unsubscribeSnapshot();
       callback(getLocalHistory());
     }
   });
@@ -421,7 +496,7 @@ export function findMatchingItemIndex(
   const inputCost = inputMaterial.unitCost !== undefined && !isNaN(Number(inputMaterial.unitCost)) ? Number(inputMaterial.unitCost) : undefined;
   const inputSpecs = (inputMaterial.specs || '').trim();
 
-  // Helper: do not match if unitCost (Rate) or board specs conflict
+  // Helper: do not match if unitCost (Rate), identificationName, or board specs conflict
   const isCompatibleMatch = (x: RawMaterialItem) => {
     // 1. Rate Check: If both items have unit rates specified and they differ by > ₹0.01, do NOT match!
     if (inputCost !== undefined && inputCost > 0 && x.unitCost !== undefined && x.unitCost > 0) {
@@ -429,7 +504,11 @@ export function findMatchingItemIndex(
         return false;
       }
     }
-    // 2. Board Attributes Check: If boardType, boardThickness, boardCompany, or boardSize differ, do NOT match!
+    // 2. Identification Name check: keep different project/lot identification tags separate
+    if (inputMaterial.identificationName && x.identificationName) {
+      if (normalizeName(inputMaterial.identificationName) !== normalizeName(x.identificationName)) return false;
+    }
+    // 3. Board Attributes Check: If boardType, boardThickness, boardCompany, or boardSize differ, do NOT match!
     if (inputMaterial.boardThickness && x.boardThickness) {
       if (normalizeName(inputMaterial.boardThickness) !== normalizeName(x.boardThickness)) return false;
     }
@@ -442,6 +521,12 @@ export function findMatchingItemIndex(
     if (inputMaterial.boardSize && x.boardSize) {
       if (normalizeName(inputMaterial.boardSize) !== normalizeName(x.boardSize)) return false;
     }
+    if (inputMaterial.colorCode && x.colorCode) {
+      if (normalizeName(inputMaterial.colorCode) !== normalizeName(x.colorCode)) return false;
+    }
+    if (inputMaterial.colorName && x.colorName) {
+      if (normalizeName(inputMaterial.colorName) !== normalizeName(x.colorName)) return false;
+    }
     return true;
   };
 
@@ -453,10 +538,11 @@ export function findMatchingItemIndex(
     if (idx >= 0) return idx;
   }
 
-  // 2. Exact case-insensitive name match
+  // 2. Exact case-insensitive (whitespace-normalized) name match
   if (inputName) {
+    const targetNameNorm = inputName.replace(/\s+/g, ' ').toLowerCase();
     const exactIdx = currentList.findIndex(
-      x => x.name.trim().toLowerCase() === inputName.toLowerCase() && isCompatibleMatch(x)
+      x => x.name.trim().replace(/\s+/g, ' ').toLowerCase() === targetNameNorm && isCompatibleMatch(x)
     );
     if (exactIdx >= 0) return exactIdx;
   }
@@ -518,10 +604,16 @@ export async function saveRawMaterialItem(material: Partial<RawMaterialItem>): P
     const newQty = prevQty + qtyToAdd;
     const newTotalReceived = Number(existingItem.totalReceived || 0) + qtyToAdd;
 
+    const effectiveIdentificationName =
+      material.identificationName !== undefined && material.identificationName.trim() !== ''
+        ? material.identificationName.trim()
+        : existingItem.identificationName;
+
     const updatedItem: RawMaterialItem = {
       ...existingItem,
       availableQuantity: newQty,
       totalReceived: newTotalReceived,
+      ...(effectiveIdentificationName !== undefined ? { identificationName: effectiveIdentificationName } : {}),
       ...(material.specs ? { specs: material.specs } : {}),
       ...(material.boardClassification ? { boardClassification: material.boardClassification } : {}),
       ...(material.boardType ? { boardType: material.boardType } : {}),
@@ -529,9 +621,12 @@ export async function saveRawMaterialItem(material: Partial<RawMaterialItem>): P
       ...(material.boardThickness ? { boardThickness: material.boardThickness } : {}),
       ...(material.boardSize ? { boardSize: material.boardSize } : {}),
       ...(material.colorCode ? { colorCode: material.colorCode } : {}),
+      ...(material.colorName ? { colorName: material.colorName } : {}),
       ...(material.unitCost ? { unitCost: Number(material.unitCost) } : {}),
       ...(material.imageUrl ? { imageUrl: material.imageUrl } : {}),
       ...(material.invoiceDate ? { invoiceDate: material.invoiceDate } : {}),
+      ...(invoiceNo ? { challanOrPoNo: invoiceNo } : {}),
+      ...(vendorName ? { receivedFrom: vendorName } : {}),
       notes: material.notes || existingItem.notes,
       updatedAt: new Date().toISOString()
     };
@@ -545,6 +640,7 @@ export async function saveRawMaterialItem(material: Partial<RawMaterialItem>): P
       id: `hist-rec-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       materialId: existingItem.id,
       materialName: existingItem.name,
+      identificationName: effectiveIdentificationName || '',
       materialUnit: existingItem.unit,
       materialImage: existingItem.imageUrl || material.imageUrl,
       type: 'RECEIVED',
@@ -568,9 +664,10 @@ export async function saveRawMaterialItem(material: Partial<RawMaterialItem>): P
 
     // Background Firestore Sync
     if (existingItem.docId) {
-      updateDoc(doc(db, 'raw_materials', existingItem.docId), {
+      updateDoc(doc(db, 'raw_materials', existingItem.docId), removeUndefined({
         availableQuantity: newQty,
         totalReceived: newTotalReceived,
+        ...(effectiveIdentificationName !== undefined ? { identificationName: effectiveIdentificationName } : {}),
         ...(material.specs ? { specs: material.specs } : {}),
         ...(material.boardClassification ? { boardClassification: material.boardClassification } : {}),
         ...(material.boardType ? { boardType: material.boardType } : {}),
@@ -578,15 +675,20 @@ export async function saveRawMaterialItem(material: Partial<RawMaterialItem>): P
         ...(material.boardThickness ? { boardThickness: material.boardThickness } : {}),
         ...(material.boardSize ? { boardSize: material.boardSize } : {}),
         ...(material.colorCode ? { colorCode: material.colorCode } : {}),
+        ...(material.colorName ? { colorName: material.colorName } : {}),
+        ...(material.unitCost ? { unitCost: Number(material.unitCost) } : {}),
+        ...(material.invoiceDate ? { invoiceDate: material.invoiceDate } : {}),
+        ...(invoiceNo ? { challanOrPoNo: invoiceNo } : {}),
+        ...(vendorName ? { receivedFrom: vendorName } : {}),
         updatedAt: serverTimestamp()
-      }).catch(() => {});
+      })).catch(() => {});
     }
 
     const cleanHistory = removeUndefined({
       ...historyEntry,
       createdAt: serverTimestamp()
     });
-    addDoc(getInventoryHistoryCol(), cleanHistory).catch(() => {});
+    setDoc(doc(db, 'inventory_history', historyEntry.id), cleanHistory).catch(() => {});
 
     return existingItem.docId || existingItem.id;
 
@@ -596,6 +698,7 @@ export async function saveRawMaterialItem(material: Partial<RawMaterialItem>): P
     const updatedItem: RawMaterialItem = {
       ...existingItem,
       name: material.name || existingItem.name,
+      identificationName: material.identificationName !== undefined ? material.identificationName : existingItem.identificationName,
       sku: material.sku || existingItem.sku,
       category: material.category || existingItem.category,
       specs: material.specs !== undefined ? material.specs : existingItem.specs,
@@ -605,15 +708,19 @@ export async function saveRawMaterialItem(material: Partial<RawMaterialItem>): P
       imageUrl: material.imageUrl !== undefined ? material.imageUrl : existingItem.imageUrl,
       imageName: material.imageName !== undefined ? material.imageName : existingItem.imageName,
       notes: material.notes !== undefined ? material.notes : existingItem.notes,
-      unitCost: material.unitCost !== undefined ? Number(material.unitCost) : existingItem.unitCost,
+      unitCost: material.unitCost !== undefined ? (Number(material.unitCost) || 0) : existingItem.unitCost,
       totalReceived: material.totalReceived !== undefined ? Number(material.totalReceived) : existingItem.totalReceived,
       totalDispatched: material.totalDispatched !== undefined ? Number(material.totalDispatched) : existingItem.totalDispatched,
+      challanOrPoNo: material.challanOrPoNo !== undefined ? material.challanOrPoNo : existingItem.challanOrPoNo,
+      receivedFrom: material.receivedFrom !== undefined ? material.receivedFrom : existingItem.receivedFrom,
+      invoiceDate: material.invoiceDate !== undefined ? material.invoiceDate : existingItem.invoiceDate,
       boardClassification: material.boardClassification !== undefined ? material.boardClassification : existingItem.boardClassification,
       boardType: material.boardType !== undefined ? material.boardType : existingItem.boardType,
       boardCompany: material.boardCompany !== undefined ? material.boardCompany : existingItem.boardCompany,
       boardThickness: material.boardThickness !== undefined ? material.boardThickness : existingItem.boardThickness,
       boardSize: material.boardSize !== undefined ? material.boardSize : existingItem.boardSize,
       colorCode: material.colorCode !== undefined ? material.colorCode : existingItem.colorCode,
+      colorName: material.colorName !== undefined ? material.colorName : existingItem.colorName,
       chairType: material.chairType !== undefined ? material.chairType : existingItem.chairType,
       chairArmrest: material.chairArmrest !== undefined ? material.chairArmrest : existingItem.chairArmrest,
       chairMechanism: material.chairMechanism !== undefined ? material.chairMechanism : existingItem.chairMechanism,
@@ -627,12 +734,27 @@ export async function saveRawMaterialItem(material: Partial<RawMaterialItem>): P
     currentList[existingIdx] = updatedItem;
     setLocalRawMaterials(currentList);
 
-    if (updatedItem.docId) {
-      const cleanData = removeUndefined({
-        ...updatedItem,
-        updatedAt: serverTimestamp()
-      });
-      updateDoc(doc(db, 'raw_materials', updatedItem.docId), cleanData).catch(() => {});
+    const cleanData = removeUndefined({
+      ...updatedItem,
+      updatedAt: serverTimestamp()
+    });
+
+    try {
+      if (updatedItem.docId) {
+        await updateDoc(doc(db, 'raw_materials', updatedItem.docId), cleanData);
+      } else if (updatedItem.id) {
+        const q = query(getRawMaterialsCol(), where('id', '==', updatedItem.id));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          const targetRef = snap.docs[0].ref;
+          updatedItem.docId = targetRef.id;
+          currentList[existingIdx] = updatedItem;
+          setLocalRawMaterials(currentList);
+          await updateDoc(targetRef, cleanData);
+        }
+      }
+    } catch (err) {
+      console.warn('Firestore update raw_materials warning:', err);
     }
 
     return updatedItem.docId || updatedItem.id;
@@ -645,6 +767,7 @@ export async function saveRawMaterialItem(material: Partial<RawMaterialItem>): P
     const newItem: RawMaterialItem = {
       id,
       name: inputName || 'Unnamed Raw Material',
+      identificationName: (material.identificationName || '').trim(),
       sku: material.sku || `RM-${Math.floor(1000 + Math.random() * 9000)}`,
       category: material.category || 'General Consumables',
       specs: material.specs || '',
@@ -663,6 +786,7 @@ export async function saveRawMaterialItem(material: Partial<RawMaterialItem>): P
       boardThickness: material.boardThickness || '',
       boardSize: material.boardSize || '',
       colorCode: material.colorCode || '',
+      colorName: material.colorName || '',
       chairType: material.chairType || '',
       chairArmrest: material.chairArmrest || '',
       chairMechanism: material.chairMechanism || '',
@@ -670,11 +794,14 @@ export async function saveRawMaterialItem(material: Partial<RawMaterialItem>): P
       chairUpholstery: material.chairUpholstery || '',
       chairColor: material.chairColor || '',
       chairBrand: material.chairBrand || '',
+      challanOrPoNo: invoiceNo || '',
+      receivedFrom: vendorName || '',
       invoiceDate: material.invoiceDate || (material as any).billDate || '',
       createdAt: material.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
 
+    newItem.docId = id;
     currentList.unshift(newItem);
     setLocalRawMaterials(currentList);
 
@@ -684,6 +811,7 @@ export async function saveRawMaterialItem(material: Partial<RawMaterialItem>): P
       id: `hist-rec-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       materialId: newItem.id,
       materialName: newItem.name,
+      identificationName: newItem.identificationName || '',
       materialUnit: newItem.unit,
       materialImage: newItem.imageUrl,
       type: 'RECEIVED',
@@ -705,27 +833,22 @@ export async function saveRawMaterialItem(material: Partial<RawMaterialItem>): P
     history.unshift(historyEntry);
     setLocalHistory(history);
 
-    // Sync to Firestore in background
+    // Idempotent Firestore write using deterministic doc ID (prevents race/double creation)
     const cleanData = removeUndefined({
       ...newItem,
       createdAt: serverTimestamp()
     });
-
-    addDoc(getRawMaterialsCol(), cleanData).then(docRef => {
-      newItem.docId = docRef.id;
-      const updatedList = getLocalRawMaterials();
-      const idx = updatedList.findIndex(x => x.id === newItem.id);
-      if (idx >= 0) {
-        updatedList[idx].docId = docRef.id;
-        setLocalRawMaterials(updatedList);
-      }
-    }).catch(() => {});
+    setDoc(doc(db, 'raw_materials', id), cleanData).catch((err) => {
+      console.warn('Firestore save raw_material warning:', err);
+    });
 
     const cleanHistory = removeUndefined({
       ...historyEntry,
       createdAt: serverTimestamp()
     });
-    addDoc(getInventoryHistoryCol(), cleanHistory).catch(() => {});
+    setDoc(doc(db, 'inventory_history', historyEntry.id), cleanHistory).catch((err) => {
+      console.warn('Firestore save inventory_history warning:', err);
+    });
 
     return id;
   }
@@ -810,6 +933,7 @@ export async function clearAllInventoryHistory(): Promise<void> {
 export interface ReceiveMaterialParams {
   materialId: string;
   quantity: number;
+  identificationName?: string;
   receivedFrom?: string;
   challanOrPoNo?: string;
   unitCost?: number;
@@ -819,7 +943,7 @@ export interface ReceiveMaterialParams {
 }
 
 export async function receiveRawMaterialStock(params: ReceiveMaterialParams): Promise<{ updatedItem: RawMaterialItem; historyEntry: InventoryHistoryEntry }> {
-  const { materialId, quantity, receivedFrom, challanOrPoNo, unitCost, billDate, notes, performedBy } = params;
+  const { materialId, quantity, identificationName, receivedFrom, challanOrPoNo, unitCost, billDate, notes, performedBy } = params;
 
   if (quantity <= 0) {
     throw new Error('Received quantity must be greater than 0.');
@@ -835,13 +959,18 @@ export async function receiveRawMaterialStock(params: ReceiveMaterialParams): Pr
   const prevQty = Number(item.availableQuantity || 0);
   const newQty = prevQty + Number(quantity);
   const totalReceived = Number(item.totalReceived || 0) + Number(quantity);
+  const trimmedIdName = identificationName?.trim();
+  const effectiveIdName = trimmedIdName || item.identificationName || '';
 
   const updatedItem: RawMaterialItem = {
     ...item,
     availableQuantity: newQty,
     totalReceived,
+    ...(trimmedIdName ? { identificationName: trimmedIdName } : {}),
     ...(unitCost !== undefined && Number(unitCost) > 0 ? { unitCost: Number(unitCost) } : {}),
     ...(billDate ? { invoiceDate: billDate } : {}),
+    ...(challanOrPoNo ? { challanOrPoNo } : {}),
+    ...(receivedFrom ? { receivedFrom } : {}),
     updatedAt: new Date().toISOString()
   };
 
@@ -849,12 +978,14 @@ export async function receiveRawMaterialStock(params: ReceiveMaterialParams): Pr
   setLocalRawMaterials(materials);
 
   // Create History Record
-  const historyId = `hist-rec-${Date.now()}`;
+  const historyId = `hist-rec-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
   const now = new Date();
   const historyEntry: InventoryHistoryEntry = {
     id: historyId,
+    docId: historyId,
     materialId: item.id,
     materialName: item.name,
+    identificationName: effectiveIdName,
     materialUnit: item.unit,
     materialImage: item.imageUrl,
     type: 'RECEIVED',
@@ -879,18 +1010,23 @@ export async function receiveRawMaterialStock(params: ReceiveMaterialParams): Pr
   // Sync with Firestore
   try {
     if (item.docId) {
-      await updateDoc(doc(db, 'raw_materials', item.docId), {
+      await updateDoc(doc(db, 'raw_materials', item.docId), removeUndefined({
         availableQuantity: newQty,
         totalReceived,
+        ...(trimmedIdName ? { identificationName: trimmedIdName } : {}),
+        ...(unitCost !== undefined && Number(unitCost) > 0 ? { unitCost: Number(unitCost) } : {}),
+        ...(billDate ? { invoiceDate: billDate } : {}),
+        ...(challanOrPoNo ? { challanOrPoNo } : {}),
+        ...(receivedFrom ? { receivedFrom } : {}),
         updatedAt: serverTimestamp()
-      });
+      }));
     }
 
     const cleanHistory = removeUndefined({
       ...historyEntry,
       createdAt: serverTimestamp()
     });
-    await addDoc(getInventoryHistoryCol(), cleanHistory);
+    await setDoc(doc(db, 'inventory_history', historyId), cleanHistory);
   } catch (err) {
     console.warn('Firestore receive raw material offline sync:', err);
   }
@@ -953,12 +1089,14 @@ export async function dispatchRawMaterialStock(params: {
   setLocalRawMaterials(materials);
 
   // Create History Record with Project Name
-  const historyId = `hist-disp-${Date.now()}`;
+  const historyId = `hist-disp-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
   const now = new Date();
   const historyEntry: InventoryHistoryEntry = {
     id: historyId,
+    docId: historyId,
     materialId: item.id,
     materialName: item.name,
+    identificationName: item.identificationName || '',
     materialUnit: item.unit,
     materialImage: item.imageUrl,
     type: 'DISPATCHED',
@@ -992,7 +1130,7 @@ export async function dispatchRawMaterialStock(params: {
       ...historyEntry,
       createdAt: serverTimestamp()
     });
-    await addDoc(getInventoryHistoryCol(), cleanHistory);
+    await setDoc(doc(db, 'inventory_history', historyId), cleanHistory);
   } catch (err) {
     console.warn('Firestore dispatch raw material offline sync:', err);
   }
@@ -1000,99 +1138,440 @@ export async function dispatchRawMaterialStock(params: {
   return { updatedItem, historyEntry };
 }
 
-// 4. UNMERGE SCANNED ITEMS helper function
+// 4. UNMERGE SCANNED ITEMS helper function (concurrency-safe & Firestore history-synced)
+let isSeparatingMergedItems = false;
+
 export async function separateMergedScannedItems(): Promise<boolean> {
-  const materials = getLocalRawMaterials();
-  const history = getLocalHistory();
+  if (isSeparatingMergedItems) return false;
+  isSeparatingMergedItems = true;
 
-  let modified = false;
-  const newMaterialsList: RawMaterialItem[] = [];
+  try {
+    const materials = getLocalRawMaterials();
+    const history = getLocalHistory();
 
-  for (const mat of materials) {
-    // Find all RECEIVED history entries for this material with rates specified
-    const matLogs = history.filter(h => h.type === 'RECEIVED' && h.materialId === mat.id && h.unitCost && h.unitCost > 0);
-    
-    // Group logs by unitCost (Rate)
-    const ratesMap = new Map<number, InventoryHistoryEntry[]>();
-    matLogs.forEach(log => {
-      const rate = Number(log.unitCost);
-      if (!ratesMap.has(rate)) ratesMap.set(rate, []);
-      ratesMap.get(rate)!.push(log);
-    });
+    let modified = false;
+    const newMaterialsList: RawMaterialItem[] = [];
+    const updatedHistoryEntries: InventoryHistoryEntry[] = [];
 
-    if (ratesMap.size > 1) {
-      // Multiple rates were merged into this single item! Split them into distinct product items!
-      modified = true;
-      let isFirst = true;
-
-      ratesMap.forEach((logs, rate) => {
-        const totalQtyForRate = logs.reduce((sum, l) => sum + l.quantity, 0);
-        const refInvoice = logs[0].challanOrPoNo || mat.challanOrPoNo;
-        const refVendor = logs[0].receivedFrom || mat.receivedFrom;
-        const refBillDate = logs[0].billDate || mat.invoiceDate;
-
-        if (isFirst) {
-          // Keep the existing item for the first rate group
-          newMaterialsList.push({
-            ...mat,
-            unitCost: rate,
-            availableQuantity: totalQtyForRate,
-            totalReceived: totalQtyForRate,
-            challanOrPoNo: refInvoice,
-            receivedFrom: refVendor,
-            invoiceDate: refBillDate
-          });
-          isFirst = false;
-        } else {
-          // Create a new distinct item for this rate group
-          const newId = `rm-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-          const newItem: RawMaterialItem = {
-            ...mat,
-            id: newId,
-            docId: undefined,
-            sku: mat.sku ? `${mat.sku}-${rate}` : `RM-${Math.floor(1000 + Math.random() * 9000)}`,
-            unitCost: rate,
-            availableQuantity: totalQtyForRate,
-            totalReceived: totalQtyForRate,
-            totalDispatched: 0,
-            challanOrPoNo: refInvoice,
-            receivedFrom: refVendor,
-            invoiceDate: refBillDate,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          };
-          newMaterialsList.push(newItem);
-
-          // Update the history entries for this group to point to newId
-          logs.forEach(l => {
-            l.materialId = newId;
-          });
-        }
+    for (const mat of materials) {
+      // Find all RECEIVED history entries for this material with rates specified
+      const matLogs = history.filter(h => h.type === 'RECEIVED' && h.materialId === mat.id && h.unitCost && h.unitCost > 0);
+      
+      // Group logs by unitCost (Rate)
+      const ratesMap = new Map<number, InventoryHistoryEntry[]>();
+      matLogs.forEach(log => {
+        const rate = Number(log.unitCost);
+        if (!ratesMap.has(rate)) ratesMap.set(rate, []);
+        ratesMap.get(rate)!.push(log);
       });
-    } else {
-      newMaterialsList.push(mat);
+
+      if (ratesMap.size > 1) {
+        modified = true;
+        let isFirst = true;
+
+        ratesMap.forEach((logs, rate) => {
+          const totalQtyForRate = logs.reduce((sum, l) => sum + l.quantity, 0);
+          const refInvoice = logs[0].challanOrPoNo || mat.challanOrPoNo;
+          const refVendor = logs[0].receivedFrom || mat.receivedFrom;
+          const refBillDate = logs[0].billDate || mat.invoiceDate;
+
+          if (isFirst) {
+            newMaterialsList.push({
+              ...mat,
+              unitCost: rate,
+              availableQuantity: totalQtyForRate,
+              totalReceived: totalQtyForRate,
+              challanOrPoNo: refInvoice,
+              receivedFrom: refVendor,
+              invoiceDate: refBillDate
+            });
+            isFirst = false;
+          } else {
+            const newId = `rm-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+            const newItem: RawMaterialItem = {
+              ...mat,
+              id: newId,
+              docId: newId,
+              sku: mat.sku ? `${mat.sku}-${rate}` : `RM-${Math.floor(1000 + Math.random() * 9000)}`,
+              unitCost: rate,
+              availableQuantity: totalQtyForRate,
+              totalReceived: totalQtyForRate,
+              totalDispatched: 0,
+              challanOrPoNo: refInvoice,
+              receivedFrom: refVendor,
+              invoiceDate: refBillDate,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+            };
+            newMaterialsList.push(newItem);
+
+            logs.forEach(l => {
+              l.materialId = newId;
+              updatedHistoryEntries.push(l);
+            });
+          }
+        });
+      } else {
+        newMaterialsList.push(mat);
+      }
+    }
+
+    if (modified) {
+      setLocalRawMaterials(newMaterialsList);
+      setLocalHistory(history);
+
+      try {
+        for (const item of newMaterialsList) {
+          const targetId = item.docId || item.id;
+          await setDoc(doc(db, 'raw_materials', targetId), removeUndefined({ ...item, docId: targetId }), { merge: true });
+        }
+        for (const h of updatedHistoryEntries) {
+          if (h.docId) {
+            await updateDoc(doc(db, 'inventory_history', h.docId), { materialId: h.materialId });
+          }
+        }
+      } catch (err) {
+        console.warn('Firestore unmerge sync warning:', err);
+      }
+    }
+
+    return modified;
+  } finally {
+    isSeparatingMergedItems = false;
+  }
+}
+
+// 5. DUPLICATE DETECTION & CLEANUP HELPERS
+export interface MaterialDuplicateGroup {
+  key: string;
+  primary: RawMaterialItem;
+  duplicates: RawMaterialItem[];
+  allItems: RawMaterialItem[];
+  hasIdenticalStock: boolean;
+}
+
+const normalizeSpaceLower = (val?: string): string =>
+  (val || '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+function getMaterialSignature(m: RawMaterialItem): string {
+  const rateKey = m.unitCost && Number(m.unitCost) > 0 ? Number(m.unitCost).toFixed(2) : '0';
+  return [
+    normalizeName(m.name || ''),
+    normalizeSpaceLower(m.category),
+    normalizeSpaceLower(m.unit),
+    rateKey,
+    normalizeSpaceLower(m.identificationName),
+    normalizeName(m.boardCompany || ''),
+    normalizeName(m.boardType || ''),
+    normalizeName(m.boardThickness || ''),
+    normalizeName(m.boardSize || ''),
+    normalizeName(m.colorCode || ''),
+    normalizeName(m.colorName || ''),
+    normalizeName(m.chairType || ''),
+    normalizeName(m.chairColor || '')
+  ].join('::');
+}
+
+function scoreMaterialCompleteness(m: RawMaterialItem): number {
+  let score = 0;
+  if (m.docId) score += 5;
+  if (m.imageUrl) score += 3;
+  if (m.specs) score += 2;
+  if (m.identificationName) score += 2;
+  if (m.challanOrPoNo) score += 1;
+  if (m.invoiceDate) score += 1;
+  if ((m.totalDispatched || 0) > 0) score += 4;
+  return score;
+}
+
+export function findDuplicateMaterialGroups(materials: RawMaterialItem[]): MaterialDuplicateGroup[] {
+  if (!materials || materials.length < 2) return [];
+
+  // Group by signature OR matching explicit non-empty item id
+  const sigMap = new Map<string, RawMaterialItem[]>();
+  const idToSig = new Map<string, string>();
+
+  for (const item of materials) {
+    let key = getMaterialSignature(item);
+    if (item.id && idToSig.has(item.id)) {
+      key = idToSig.get(item.id)!;
+    } else if (item.id) {
+      idToSig.set(item.id, key);
+    }
+    if (!sigMap.has(key)) sigMap.set(key, []);
+    sigMap.get(key)!.push(item);
+  }
+
+  const groups: MaterialDuplicateGroup[] = [];
+
+  sigMap.forEach((groupItems, key) => {
+    if (groupItems.length <= 1) return;
+
+    const sorted = [...groupItems].sort((a, b) => scoreMaterialCompleteness(b) - scoreMaterialCompleteness(a));
+    const primary = sorted[0];
+    const duplicates = sorted.slice(1);
+
+    const uniqueQtys = new Set(groupItems.map(i => Number(i.availableQuantity || 0)));
+    const sameIdCount = new Set(groupItems.map(i => i.id)).size < groupItems.length;
+    const sameInv = Boolean(
+      primary.challanOrPoNo &&
+      duplicates.some(d => d.challanOrPoNo && normalizeName(d.challanOrPoNo) === normalizeName(primary.challanOrPoNo || ''))
+    );
+
+    const hasIdenticalStock = uniqueQtys.size === 1 || sameIdCount || sameInv;
+
+    groups.push({
+      key,
+      primary,
+      duplicates,
+      allItems: sorted,
+      hasIdenticalStock
+    });
+  });
+
+  return groups;
+}
+
+export function findDuplicateHistoryGroups(history: InventoryHistoryEntry[]): InventoryHistoryEntry[][] {
+  if (!history || history.length < 2) return [];
+
+  const groupsMap = new Map<string, InventoryHistoryEntry[]>();
+  const seenIds = new Map<string, string>();
+
+  for (const entry of history) {
+    const timeKey = entry.timestamp || (entry.rawDate ? entry.rawDate.slice(0, 16) : '');
+    let key = [
+      entry.type,
+      normalizeName(entry.materialName || ''),
+      Number(entry.quantity || 0),
+      Number(entry.unitCost || 0).toFixed(2),
+      normalizeSpaceLower(entry.challanOrPoNo),
+      normalizeSpaceLower(entry.billDate),
+      normalizeSpaceLower(entry.projectName),
+      timeKey
+    ].join('::');
+
+    if (entry.id && seenIds.has(entry.id)) {
+      key = seenIds.get(entry.id)!;
+    } else if (entry.id) {
+      seenIds.set(entry.id, key);
+    }
+
+    if (!groupsMap.has(key)) groupsMap.set(key, []);
+    groupsMap.get(key)!.push(entry);
+  }
+
+  const dupes: InventoryHistoryEntry[][] = [];
+  groupsMap.forEach((list) => {
+    if (list.length > 1) dupes.push(list);
+  });
+  return dupes;
+}
+
+export async function resolveInventoryDuplicates(options: {
+  mergeQuantities: boolean;
+  cleanHistory: boolean;
+  currentMaterials?: RawMaterialItem[];
+  currentHistory?: InventoryHistoryEntry[];
+}): Promise<{
+  removedMaterialsCount: number;
+  removedHistoryCount: number;
+  updatedMaterials: RawMaterialItem[];
+  updatedHistory: InventoryHistoryEntry[];
+}> {
+  const { mergeQuantities, cleanHistory, currentMaterials, currentHistory } = options;
+
+  let materials: RawMaterialItem[] =
+    currentMaterials && currentMaterials.length > 0
+      ? currentMaterials.map(m => ({ ...m }))
+      : [...getLocalRawMaterials()];
+
+  let history: InventoryHistoryEntry[] =
+    currentHistory && currentHistory.length > 0
+      ? currentHistory.map(h => ({ ...h }))
+      : [...getLocalHistory()];
+
+  // If still empty and user is authenticated, fetch directly from Firestore
+  if (auth.currentUser) {
+    try {
+      if (materials.length === 0) {
+        const snap = await getDocs(getRawMaterialsCol());
+        const deleted = getDeletedMaterialIds();
+        materials = snap.docs
+          .map(d => ({ ...d.data(), id: d.data().id || d.id, docId: d.id }) as RawMaterialItem)
+          .filter(m => !deleted.includes(m.id) && (!m.docId || !deleted.includes(m.docId)));
+      }
+      if (history.length === 0) {
+        const snap = await getDocs(getInventoryHistoryCol());
+        const deletedH = getDeletedHistoryIds();
+        history = snap.docs
+          .map(d => ({ ...d.data(), id: d.data().id || d.id, docId: d.id }) as InventoryHistoryEntry)
+          .filter(h => !deletedH.includes(h.id) && (!h.docId || !deletedH.includes(h.docId)));
+      }
+    } catch (err) {
+      console.warn('Firestore fetch fallback in resolveInventoryDuplicates:', err);
     }
   }
 
-  if (modified) {
-    setLocalRawMaterials(newMaterialsList);
-    setLocalHistory(history);
+  const matGroups = findDuplicateMaterialGroups(materials);
+  let removedMaterialsCount = 0;
+  let removedHistoryCount = 0;
 
-    // Sync changes to Firestore
-    try {
-      for (const item of newMaterialsList) {
-        if (item.docId) {
-          await updateDoc(doc(db, 'raw_materials', item.docId), removeUndefined(item));
-        } else {
-          const docRef = await addDoc(getRawMaterialsCol(), removeUndefined(item));
-          item.docId = docRef.id;
+  const removedMaterialRefs = new Set<RawMaterialItem>();
+  const removedDocIds = new Set<string>();
+  const idRemap = new Map<string, string>();
+
+  for (const group of matGroups) {
+    const { primary, duplicates, allItems } = group;
+
+    let finalAvail = Number(primary.availableQuantity || 0);
+    let finalRec = Number(primary.totalReceived || 0);
+    let finalDisp = Number(primary.totalDispatched || 0);
+
+    if (mergeQuantities) {
+      finalAvail = allItems.reduce((s, x) => s + Number(x.availableQuantity || 0), 0);
+      finalRec = allItems.reduce((s, x) => s + Number(x.totalReceived || 0), 0);
+      finalDisp = allItems.reduce((s, x) => s + Number(x.totalDispatched || 0), 0);
+    } else if (finalAvail === 0) {
+      const withStock = duplicates.find(d => (d.availableQuantity || 0) > 0);
+      if (withStock) {
+        finalAvail = Number(withStock.availableQuantity || 0);
+        finalRec = Math.max(finalRec, Number(withStock.totalReceived || 0));
+      }
+    }
+
+    const mergedPrimary: RawMaterialItem = {
+      ...primary,
+      availableQuantity: finalAvail,
+      totalReceived: finalRec,
+      totalDispatched: finalDisp,
+      identificationName: primary.identificationName || duplicates.find(d => d.identificationName)?.identificationName || '',
+      specs: primary.specs || duplicates.find(d => d.specs)?.specs || '',
+      imageUrl: primary.imageUrl || duplicates.find(d => d.imageUrl)?.imageUrl || '',
+      challanOrPoNo: primary.challanOrPoNo || duplicates.find(d => d.challanOrPoNo)?.challanOrPoNo || '',
+      receivedFrom: primary.receivedFrom || duplicates.find(d => d.receivedFrom)?.receivedFrom || '',
+      invoiceDate: primary.invoiceDate || duplicates.find(d => d.invoiceDate)?.invoiceDate || '',
+      notes: primary.notes || duplicates.find(d => d.notes)?.notes || '',
+      updatedAt: new Date().toISOString()
+    };
+
+    const pIdx = materials.indexOf(primary);
+    if (pIdx >= 0) {
+      materials[pIdx] = mergedPrimary;
+    }
+
+    if (mergedPrimary.docId) {
+      try {
+        await setDoc(doc(db, 'raw_materials', mergedPrimary.docId), removeUndefined({
+          ...mergedPrimary,
+          updatedAt: serverTimestamp()
+        }), { merge: true });
+      } catch (err) {
+        console.warn('Firestore primary duplicate merge update error:', err);
+      }
+    }
+
+    for (const dupe of duplicates) {
+      removedMaterialsCount++;
+      removedMaterialRefs.add(dupe);
+
+      if (dupe.id && dupe.id !== mergedPrimary.id) {
+        idRemap.set(dupe.id, mergedPrimary.id);
+      }
+      if (dupe.docId && dupe.docId !== mergedPrimary.docId) {
+        removedDocIds.add(dupe.docId);
+        addDeletedMaterialId(dupe.id !== mergedPrimary.id ? dupe.id : '', dupe.docId);
+        try {
+          await deleteDoc(doc(db, 'raw_materials', dupe.docId));
+        } catch (err) {
+          console.warn('Firestore duplicate material delete error:', err);
+        }
+      } else if (dupe.id && dupe.id !== mergedPrimary.id) {
+        addDeletedMaterialId(dupe.id);
+        try {
+          const q = query(getRawMaterialsCol(), where('id', '==', dupe.id));
+          const snap = await getDocs(q);
+          for (const d of snap.docs) {
+            if (d.id !== mergedPrimary.docId) {
+              await deleteDoc(d.ref);
+            }
+          }
+        } catch (_) {}
+      }
+    }
+  }
+
+  materials = materials.filter(m => {
+    if (removedMaterialRefs.has(m)) return false;
+    if (m.docId && removedDocIds.has(m.docId)) return false;
+    return true;
+  });
+
+  // Remap history entries pointing to removed duplicate material IDs
+  if (idRemap.size > 0) {
+    for (const h of history) {
+      const remapped = idRemap.get(h.materialId);
+      if (remapped) {
+        h.materialId = remapped;
+        if (h.docId) {
+          updateDoc(doc(db, 'inventory_history', h.docId), { materialId: remapped }).catch(() => {});
         }
       }
-      setLocalRawMaterials(newMaterialsList);
-    } catch (err) {
-      console.warn('Firestore unmerge sync warning:', err);
     }
   }
 
-  return modified;
+  // Clean duplicate history entries if enabled
+  if (cleanHistory) {
+    const histGroups = findDuplicateHistoryGroups(history);
+    const removedHistoryRefs = new Set<InventoryHistoryEntry>();
+    const removedHistDocIds = new Set<string>();
+
+    for (const hGroup of histGroups) {
+      const sortedH = [...hGroup].sort((a, b) => (b.docId ? 1 : 0) - (a.docId ? 1 : 0));
+      const keepH = sortedH[0];
+      const dupeHs = sortedH.slice(1);
+
+      for (const dh of dupeHs) {
+        removedHistoryCount++;
+        removedHistoryRefs.add(dh);
+
+        if (dh.docId && dh.docId !== keepH.docId) {
+          removedHistDocIds.add(dh.docId);
+          addDeletedHistoryId(dh.id !== keepH.id ? dh.id : '', dh.docId);
+          try {
+            await deleteDoc(doc(db, 'inventory_history', dh.docId));
+          } catch (err) {
+            console.warn('Firestore duplicate history delete error:', err);
+          }
+        } else if (dh.id && dh.id !== keepH.id) {
+          addDeletedHistoryId(dh.id);
+          try {
+            const q = query(getInventoryHistoryCol(), where('id', '==', dh.id));
+            const snap = await getDocs(q);
+            for (const d of snap.docs) {
+              if (d.id !== keepH.docId) {
+                await deleteDoc(d.ref);
+              }
+            }
+          } catch (_) {}
+        }
+      }
+    }
+
+    history = history.filter(h => {
+      if (removedHistoryRefs.has(h)) return false;
+      if (h.docId && removedHistDocIds.has(h.docId)) return false;
+      return true;
+    });
+  }
+
+  setLocalRawMaterials(materials);
+  setLocalHistory(history);
+
+  return {
+    removedMaterialsCount,
+    removedHistoryCount,
+    updatedMaterials: materials,
+    updatedHistory: history
+  };
 }

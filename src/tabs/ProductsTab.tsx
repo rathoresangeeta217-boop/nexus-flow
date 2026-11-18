@@ -37,6 +37,7 @@ export function ProductsTab({ searchQuery = '' }: { searchQuery?: string }) {
       setSelectedProduct(null);
     } catch (error) {
       console.error("Error saving product:", error);
+      throw error;
     }
   };
 
@@ -105,8 +106,8 @@ export function ProductsTab({ searchQuery = '' }: { searchQuery?: string }) {
                       className="flex items-center cursor-pointer group"
                     >
                       <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center mr-3 overflow-hidden shrink-0 group-hover:ring-2 group-hover:ring-indigo-500/30 transition-all">
-                         {product.details?.productImageData ? (
-                           <img src={product.details.productImageData} alt={product.name} className="w-full h-full object-cover" />
+                         {(product.productImageData || product.details?.productImageData || product.images?.[0] || product.thumbnailData) ? (
+                           <img src={product.productImageData || product.details?.productImageData || product.images?.[0] || product.thumbnailData} alt={product.name} className="w-full h-full object-cover" />
                          ) : (
                            <Package className="w-5 h-5 text-slate-400" />
                          )}

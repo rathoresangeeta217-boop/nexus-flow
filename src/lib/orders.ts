@@ -207,6 +207,89 @@ export const saveOrder = async (orderData: Partial<Order>) => {
   }
 };
 
+export const resetOrderToPendingDispatch = async (order: Order): Promise<string> => {
+  let targetDocId = order.docId;
+
+  // Verify targetDocId exists in Firestore; if not, look up by order.id
+  if (targetDocId) {
+    try {
+      const snap = await getDoc(doc(db, 'orders', targetDocId));
+      if (!snap.exists()) {
+        targetDocId = undefined;
+      }
+    } catch {
+      // Keep targetDocId if offline/transient error
+    }
+  }
+
+  if (!targetDocId && order.id) {
+    try {
+      const qs = await getDocs(query(getOrdersCollection(), where('id', '==', order.id)));
+      if (!qs.empty) {
+        targetDocId = qs.docs[0].id;
+      }
+    } catch (lookupErr) {
+      console.warn('Could not query order by id:', lookupErr);
+    }
+  }
+
+  const currentDetails = (order.details || {}) as OrderDetails;
+  const {
+    scheduledReason: _sr,
+    challanApprovalStatus: _cas,
+    challanPendingReason: _cpr,
+    challanApprovalType: _cat,
+    challanPartialSummary: _cps,
+    challanApprovedBy: _cab,
+    challanApprovedAt: _caa,
+    installerName: _in,
+    installationHelpers: _ih,
+    installationDate: _id,
+    ...restDetails
+  } = currentDetails;
+
+  const resetProducts = (currentDetails.products || []).map((p) => ({
+    ...p,
+    scheduledQuantity: 0,
+    dispatchedQuantity: 0,
+    isDispatched: false,
+  }));
+
+  const cleanedDetails = removeUndefined({
+    ...restDetails,
+    products: resetProducts,
+    deliveryChallans: [],
+  });
+
+  // Update persistent local cache immediately
+  try {
+    const cached = await getCachedOrders();
+    const updatedCache = cached.map((o) =>
+      o.id === order.id || (targetDocId && o.docId === targetDocId)
+        ? { ...o, status: 'New Order', details: cleanedDetails }
+        : o
+    );
+    await setCachedOrders(updatedCache);
+  } catch (cacheErr) {
+    console.warn('Local orders cache reset warning:', cacheErr);
+  }
+
+  if (targetDocId) {
+    await updateDoc(doc(db, 'orders', targetDocId), {
+      status: 'New Order',
+      details: cleanedDetails,
+      updatedAt: serverTimestamp(),
+    });
+    return targetDocId;
+  }
+
+  return saveOrder({
+    ...order,
+    status: 'New Order',
+    details: cleanedDetails,
+  });
+};
+
 export const getOrder = async (docId: string): Promise<Order | null> => {
   try {
     const docRef = doc(db, 'orders', docId);

@@ -24,7 +24,7 @@ import {
   Edit3,
   ShieldCheck
 } from 'lucide-react';
-import { Product, ProductVariant, parsePriceNumber, resolveVariantPriceMode } from '../lib/products';
+import { Product, ProductVariant, parsePriceNumber, resolveVariantPriceMode, loadProductMediaFromFirestore } from '../lib/products';
 import { generateQuotationPDF, QuotationData } from '../lib/pdfHelper';
 import { getProductFile, getVariantFile } from '../lib/fileStorage';
 import { useAuth } from '../contexts/AuthContext';
@@ -291,11 +291,24 @@ export function CreateQuotationModal({
         if (vImg) return vImg;
       }
     }
+    if (prod?.productImageData) return prod.productImageData;
     if (prod?.details?.productImageData) return prod.details.productImageData;
-    if (prod && (prod.docId || prod.id)) {
-      const pImg = await getProductFile(prod.docId || prod.id);
+    const prodLookupId = prod?.docId || prod?.id;
+    if (prodLookupId) {
+      const pImg = await getProductFile(prodLookupId);
       if (pImg) return pImg;
+      const cloud = await loadProductMediaFromFirestore(prodLookupId);
+      if (variant?.id && cloud.variantImages[variant.id]) return cloud.variantImages[variant.id];
+      if (Array.isArray(variantIds)) {
+        for (let k = variantIds.length - 1; k >= 0; k--) {
+          const vid = variantIds[k];
+          if (vid && cloud.variantImages[vid]) return cloud.variantImages[vid];
+        }
+      }
+      if (cloud.primaryImage) return cloud.primaryImage;
+      if (cloud.images[0]) return cloud.images[0];
     }
+    if (prod?.thumbnailData) return prod.thumbnailData;
     return undefined;
   };
 

@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { subscribeToProducts, Product, isCategoryMatch, saveProduct, ProductVariant, deduplicateCategories, parsePriceNumber, resolveVariantPriceMode } from '../lib/products';
+import { subscribeToProducts, Product, isCategoryMatch, saveProduct, updateProductData, ProductVariant, deduplicateCategories, parsePriceNumber, resolveVariantPriceMode, loadProductMediaFromFirestore, LoadedProductMedia } from '../lib/products';
 import { subscribeToVendors, Vendor } from '../lib/vendors';
 import { NewProductModal } from '../components/NewProductModal';
-import { ShoppingCart, Search, Menu, Star, Zap, ChevronLeft, ChevronRight, CheckCircle2, Truck, Share2, X, Upload, ImagePlus, Plus, Layers, Check, ImageIcon, RotateCw, Boxes, Maximize2, Minimize2, ZoomIn, ZoomOut, FileText, Sparkles, Loader2, Camera } from 'lucide-react';
+import { ShoppingCart, Search, Menu, Star, Zap, ChevronLeft, ChevronRight, CheckCircle2, Truck, Share2, X, Upload, ImagePlus, Plus, Layers, Check, ImageIcon, RotateCw, Boxes, Maximize2, Minimize2, ZoomIn, ZoomOut, FileText, Sparkles, Loader2, Camera, Edit } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 // custom image component defined at bottom of file
-import { getProductFile, getVariantFile } from '../lib/fileStorage';
+import { getProductFile, getVariantFile, compressImageFile } from '../lib/fileStorage';
 import { useAuth } from '../contexts/AuthContext';
 import { set, get } from 'idb-keyval';
 import { getTableTopHex, getScreenHex, getLegHex } from '../components/WorkstationLiveRenderer';
@@ -29,6 +29,10 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
   const [products, setProducts] = useState<Product[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [isNewProductModalOpen, setIsNewProductModalOpen] = useState(false);
+  const [editingStorefrontProduct, setEditingStorefrontProduct] = useState<Product | null>(null);
+  const [isQuickUploadingPhoto, setIsQuickUploadingPhoto] = useState(false);
+  const quickPhotoInputRef = React.useRef<HTMLInputElement | null>(null);
+  const prevSelectedProductIdRef = React.useRef<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [cart, setCart] = useState<StorefrontCartItem[]>([]);
@@ -45,6 +49,7 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
   const [lastSelectedVariantId, setLastSelectedVariantId] = useState<string | null>(null);
   const [lastImageVariantId, setLastImageVariantId] = useState<string | null>(null);
   const [activeImageSrc, setActiveImageSrc] = useState<string | null>(null);
+  const [selectedProductCloudMedia, setSelectedProductCloudMedia] = useState<LoadedProductMedia | null>(null);
   const [currentWorkstationSetup, setCurrentWorkstationSetup] = useState<any>(null);
   const [visualizerView, setVisualizerView] = useState<'3d' | 'photo'>('3d');
   const [isPhotoFullscreen, setIsPhotoFullscreen] = useState(false);
@@ -68,6 +73,7 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
   const [deliveryPincode, setDeliveryPincode] = useState('122008');
   const [checkedPincode, setCheckedPincode] = useState('122008');
   const { profile } = useAuth();
+  const isStaffOrAdmin = profile?.role === 'admin' || profile?.role === 'super_admin' || profile?.role === 'sales_executive' || profile?.role === 'employee';
 
   const handleCaptureSnapshotPicture = () => {
     // If in 3D mode, export current WebGL canvas as a crisp high-resolution PNG
@@ -129,6 +135,68 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
     };
   }, []);
 
+  // Keep selectedProduct synced with live Firestore updates (e.g., after uploading/editing photos)
+  useEffect(() => {
+    if (!selectedProduct) return;
+    const targetId = selectedProduct.docId || selectedProduct.id;
+    if (!targetId || targetId === 'alfa_workstation_default') return;
+    const fresh = products.find(p => (p.docId || p.id) === targetId);
+    if (fresh) {
+      setSelectedProduct(prev => {
+        if (!prev) return prev;
+        if (
+          prev.mediaSyncedAt === fresh.mediaSyncedAt &&
+          prev.productImageData === fresh.productImageData &&
+          prev.thumbnailData === fresh.thumbnailData &&
+          prev.variants?.length === fresh.variants?.length &&
+          prev.name === fresh.name &&
+          prev.price === fresh.price
+        ) {
+          return prev;
+        }
+        return fresh;
+      });
+    }
+  }, [products, selectedProduct]);
+
+  const handleQuickUploadProductPhotos = async (files: FileList | null) => {
+    if (!files || files.length === 0 || !selectedProduct) return;
+    const targetId = selectedProduct.docId || selectedProduct.id;
+    if (!targetId || targetId === 'alfa_workstation_default') return;
+    setIsQuickUploadingPhoto(true);
+    try {
+      const compressed: string[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const dataUrl = await compressImageFile(files[i]);
+        if (dataUrl) compressed.push(dataUrl);
+      }
+      if (compressed.length === 0) return;
+
+      const existing = [
+        ...(selectedProductCloudMedia?.images || []),
+        ...(selectedProduct.images || []),
+        ...(selectedProduct.productImageData ? [selectedProduct.productImageData] : [])
+      ].filter(Boolean);
+      const merged = Array.from(new Set([...compressed, ...existing]));
+
+      await updateProductData(targetId, {
+        productImageData: merged[0],
+        images: merged
+      });
+
+      const refreshedCloud = await loadProductMediaFromFirestore(targetId, true);
+      setSelectedProductCloudMedia(refreshedCloud);
+      setActiveImageSrc(merged[0]);
+      setVisualizerView('photo');
+    } catch (error: any) {
+      console.error('Quick photo upload failed:', error);
+      alert(`Failed to upload product photo: ${error?.message || 'Unexpected error'}`);
+    } finally {
+      setIsQuickUploadingPhoto(false);
+      if (quickPhotoInputRef.current) quickPhotoInputRef.current.value = '';
+    }
+  };
+
   const handleAddProduct = async (productData: any) => {
     try {
       const normalizedData = {
@@ -137,10 +205,21 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
         productName: productData.name || productData.productName || 'Untitled Product',
         category: productData.category || (selectedCategory !== 'All' ? selectedCategory : "Workstation's")
       };
-      await saveProduct(normalizedData);
+      if (editingStorefrontProduct?.docId) {
+        await updateProductData(editingStorefrontProduct.docId, normalizedData);
+        const refreshedCloud = await loadProductMediaFromFirestore(editingStorefrontProduct.docId, true);
+        setSelectedProductCloudMedia(refreshedCloud);
+        if (normalizedData.productImageData || refreshedCloud.primaryImage) {
+          setActiveImageSrc(normalizedData.productImageData || refreshedCloud.primaryImage || null);
+        }
+        setEditingStorefrontProduct(null);
+      } else {
+        await saveProduct(normalizedData);
+      }
       setIsNewProductModalOpen(false);
     } catch (error) {
       console.error("Error saving product from storefront:", error);
+      throw error;
     }
   };
 
@@ -233,14 +312,32 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
   // Synchronize active variants and preselect 1 default option in each section when product changes
   useEffect(() => {
     let cancelled = false;
-    setLastTotalSelectionKey(null);
-    setLastSelectedVariantId(null);
-    setLastImageVariantId(null);
+    const nextProdId = selectedProduct ? (selectedProduct.docId || selectedProduct.id) : null;
+    const isDifferentProduct = prevSelectedProductIdRef.current !== nextProdId;
+    prevSelectedProductIdRef.current = nextProdId;
+
+    if (isDifferentProduct) {
+      setLastTotalSelectionKey(null);
+      setLastSelectedVariantId(null);
+      setLastImageVariantId(null);
+      setSelectedProductCloudMedia(null);
+    }
 
     if (selectedProduct) {
-      setVisualizerView('3d');
-      if (selectedProduct.variants && selectedProduct.variants.length > 0) {
-        const all = selectedProduct.variants.filter(Boolean);
+      if (isDifferentProduct) {
+        setVisualizerView('3d');
+      }
+      const prodDocId = selectedProduct.docId || selectedProduct.id;
+      const immediateProductFallback =
+        selectedProduct.productImageData ||
+        selectedProduct.details?.productImageData ||
+        selectedProduct.images?.[0] ||
+        selectedProduct.details?.images?.[0] ||
+        selectedProduct.thumbnailData ||
+        null;
+
+      const all = (selectedProduct.variants || []).filter(Boolean);
+      if (all.length > 0) {
         const sizeVars = all.filter(v => v.variantType === 'size' || Boolean(v.size));
         const sideStorageVars = all.filter(v => v.variantType === 'side_storage' || Boolean(v.sideStorage));
         const electricVars = all.filter(v => v.variantType === 'electric' || Boolean(v.electricOption));
@@ -248,16 +345,9 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
         const customVars = all.filter(v => v.variantType === 'custom' || Boolean(v.groupName && v.variantType !== 'color' && v.variantType !== 'size' && v.variantType !== 'side_storage' && v.variantType !== 'electric'));
 
         const firstSize = sizeVars[0];
-        setSelectedSizeVariantId(firstSize ? firstSize.id : null);
-
         const firstStorage = sideStorageVars[0];
-        setSelectedSideStorageVariantId(firstStorage ? firstStorage.id : null);
-
         const firstElectric = electricVars[0];
-        setSelectedElectricVariantId(firstElectric ? firstElectric.id : null);
-
         const firstColor = colorVars[0];
-        setSelectedColorVariantId(firstColor ? firstColor.id : null);
 
         const initialCustomMap: Record<string, string> = {};
         const groupNames = Array.from(new Set(customVars.map(v => v.groupName || 'Additional Options')));
@@ -269,10 +359,17 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
             defaultCustomVars.push(gItem);
           }
         }
-        setSelectedCustomVariantIds(initialCustomMap);
 
         const firstVar = firstSize || firstStorage || firstElectric || firstColor || defaultCustomVars[0] || all[0];
-        setSelectedVariantId(firstVar ? firstVar.id : null);
+
+        if (isDifferentProduct) {
+          setSelectedSizeVariantId(firstSize ? firstSize.id : null);
+          setSelectedSideStorageVariantId(firstStorage ? firstStorage.id : null);
+          setSelectedElectricVariantId(firstElectric ? firstElectric.id : null);
+          setSelectedColorVariantId(firstColor ? firstColor.id : null);
+          setSelectedCustomVariantIds(initialCustomMap);
+          setSelectedVariantId(firstVar ? firstVar.id : null);
+        }
 
         const initCandidates = [
           firstVar,
@@ -285,30 +382,79 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
         ].filter((v): v is ProductVariant => Boolean(v));
 
         (async () => {
+          let resolvedImg: string | null = null;
+          let resolvedVarId: string | null = null;
+
           for (const candidate of initCandidates) {
             if (cancelled) return;
             if (candidate.imageData) {
-              setLastImageVariantId(candidate.id);
-              setActiveImageSrc(candidate.imageData);
-              return;
+              resolvedImg = candidate.imageData;
+              resolvedVarId = candidate.id;
+              break;
             }
             const data = await getVariantFile(candidate.id);
             if (!cancelled && data) {
-              setLastImageVariantId(candidate.id);
-              setActiveImageSrc(data);
-              return;
+              resolvedImg = data;
+              resolvedVarId = candidate.id;
+              break;
             }
           }
-          if (!cancelled) setActiveImageSrc(null);
+
+          if (!resolvedImg && immediateProductFallback) {
+            resolvedImg = immediateProductFallback;
+          }
+          if (!resolvedImg && prodDocId) {
+            const pFile = await getProductFile(prodDocId);
+            if (!cancelled && pFile) resolvedImg = pFile;
+          }
+
+          if (!cancelled && resolvedImg) {
+            if (resolvedVarId) setLastImageVariantId(resolvedVarId);
+            setActiveImageSrc(resolvedImg);
+          } else if (!cancelled) {
+            setActiveImageSrc(null);
+          }
+
+          // Hydrate full gallery & variant images from Firestore subcollection (works across all origins/devices)
+          if (prodDocId) {
+            const cloud = await loadProductMediaFromFirestore(prodDocId, !isDifferentProduct);
+            if (cancelled) return;
+            setSelectedProductCloudMedia(cloud);
+            const cloudVarMatch = initCandidates.find(c => cloud.variantImages[c.id]);
+            const bestCloudImg =
+              (cloudVarMatch ? cloud.variantImages[cloudVarMatch.id] : undefined) ||
+              cloud.primaryImage ||
+              cloud.images[0];
+            if (bestCloudImg && (!resolvedImg || resolvedImg === selectedProduct.thumbnailData || cloudVarMatch)) {
+              if (cloudVarMatch) setLastImageVariantId(cloudVarMatch.id);
+              setActiveImageSrc(bestCloudImg);
+            }
+          }
         })();
       } else {
-        setSelectedVariantId(null);
-        setSelectedSizeVariantId(null);
-        setSelectedSideStorageVariantId(null);
-        setSelectedElectricVariantId(null);
-        setSelectedColorVariantId(null);
-        setSelectedCustomVariantIds({});
-        setActiveImageSrc(null);
+        if (isDifferentProduct) {
+          setSelectedVariantId(null);
+          setSelectedSizeVariantId(null);
+          setSelectedSideStorageVariantId(null);
+          setSelectedElectricVariantId(null);
+          setSelectedColorVariantId(null);
+          setSelectedCustomVariantIds({});
+        }
+        setActiveImageSrc(immediateProductFallback);
+
+        (async () => {
+          if (!immediateProductFallback && prodDocId) {
+            const localFile = await getProductFile(prodDocId);
+            if (!cancelled && localFile) setActiveImageSrc(localFile);
+          }
+          if (prodDocId) {
+            const cloud = await loadProductMediaFromFirestore(prodDocId, !isDifferentProduct);
+            if (cancelled) return;
+            setSelectedProductCloudMedia(cloud);
+            const cloudBest = cloud.primaryImage || cloud.images[0];
+            if (cloudBest) setActiveImageSrc(cloudBest);
+          }
+        })();
       }
     } else {
       setSelectedVariantId(null);
@@ -333,11 +479,28 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
       setActiveImageSrc(variant.imageData);
       return;
     }
+    const cloudVarImg = selectedProductCloudMedia?.variantImages?.[variant.id];
+    if (cloudVarImg) {
+      setLastImageVariantId(variant.id);
+      setActiveImageSrc(cloudVarImg);
+      return;
+    }
     try {
       const storedImage = await getVariantFile(variant.id);
       if (storedImage) {
         setLastImageVariantId(variant.id);
         setActiveImageSrc(storedImage);
+        return;
+      }
+      const prodDocId = selectedProduct?.docId || selectedProduct?.id;
+      if (prodDocId) {
+        const cloud = await loadProductMediaFromFirestore(prodDocId);
+        setSelectedProductCloudMedia(cloud);
+        if (cloud.variantImages[variant.id]) {
+          setLastImageVariantId(variant.id);
+          setActiveImageSrc(cloud.variantImages[variant.id]);
+          return;
+        }
       }
     } catch (e) {
       console.warn('Could not load variant image', e);
@@ -819,7 +982,15 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                   allSelectedVariants.find(v => v.id === lastSelectedVariantId) ||
                   allSelectedVariants.find(v => Boolean(v.imageData)) ||
                   activeVariant;
-                const resolvedCurrentImageSrc = activeImageSrc || imageVariant?.imageData || undefined;
+                const resolvedCurrentImageSrc =
+                  activeImageSrc ||
+                  imageVariant?.imageData ||
+                  (imageVariant?.id ? selectedProductCloudMedia?.variantImages?.[imageVariant.id] : undefined) ||
+                  selectedProductCloudMedia?.primaryImage ||
+                  selectedProduct.productImageData ||
+                  selectedProduct.images?.[0] ||
+                  selectedProduct.thumbnailData ||
+                  undefined;
                 const quotationResolvedVariant: ProductVariant | null = imageVariant
                   ? {
                       ...imageVariant,
@@ -865,15 +1036,22 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                       {/* Left Vertical Thumbnails Sidebar */}
                       {(() => {
                         const angleImages: string[] = [];
+                        if (selectedProductCloudMedia?.primaryImage) angleImages.push(selectedProductCloudMedia.primaryImage);
+                        if (selectedProduct.productImageData) angleImages.push(selectedProduct.productImageData);
                         if (selectedProduct.details?.productImageData) angleImages.push(selectedProduct.details.productImageData);
+                        if (Array.isArray(selectedProductCloudMedia?.images)) angleImages.push(...selectedProductCloudMedia.images);
                         if (Array.isArray(selectedProduct.images)) angleImages.push(...selectedProduct.images);
                         if (Array.isArray(selectedProduct.details?.images)) angleImages.push(...selectedProduct.details.images);
                         if (Array.isArray(selectedProduct.variants)) {
                           selectedProduct.variants.forEach(v => {
-                            if (v.imageData && !angleImages.includes(v.imageData)) {
-                              angleImages.push(v.imageData);
+                            const vImg = v.imageData || selectedProductCloudMedia?.variantImages?.[v.id];
+                            if (vImg && !angleImages.includes(vImg)) {
+                              angleImages.push(vImg);
                             }
                           });
+                        }
+                        if (angleImages.length === 0 && selectedProduct.thumbnailData) {
+                          angleImages.push(selectedProduct.thumbnailData);
                         }
                         const uniqueAngles = Array.from(new Set(angleImages.filter(Boolean)));
                         const currentImgIdx = uniqueAngles.indexOf(activeImageSrc || '');
@@ -924,7 +1102,12 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                                   }`}
                                   title="Product Photo"
                                 >
-                                  <StorefrontProductImage productId={selectedProduct.id} productName={selectedProduct.name} />
+                                  <StorefrontProductImage
+                                    productId={selectedProduct.docId || selectedProduct.id}
+                                    docId={selectedProduct.docId}
+                                    customSrc={selectedProduct.productImageData || selectedProduct.thumbnailData}
+                                    productName={selectedProduct.name}
+                                  />
                                 </button>
                               ) : (
                                 uniqueAngles.map((src, aIdx) => {
@@ -1046,9 +1229,48 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                                   ) : (
                                     <StorefrontProductImage 
                                       variantId={activeVariant?.id} 
-                                      productId={selectedProduct.id} 
-                                      productName={activeVariant?.name || selectedProduct.name} 
+                                      productId={selectedProduct.docId || selectedProduct.id}
+                                      docId={selectedProduct.docId}
+                                      customSrc={resolvedCurrentImageSrc}
+                                      productName={selectedProduct.name}
+                                      className="max-w-full max-h-full object-contain"
                                     />
+                                  )}
+
+                                  {isStaffOrAdmin && selectedProduct.docId && selectedProduct.docId !== 'alfa_workstation_default' && !activeImageSrc && !activeVariant?.imageData && !resolvedCurrentImageSrc && (
+                                    <div
+                                      className="absolute bottom-14 left-1/2 -translate-x-1/2 z-20 flex flex-wrap items-center justify-center gap-2 bg-white/95 backdrop-blur-xs border border-slate-200 rounded-xl px-3.5 py-2 shadow-md"
+                                      onClick={e => e.stopPropagation()}
+                                    >
+                                      <input
+                                        ref={quickPhotoInputRef}
+                                        type="file"
+                                        accept="image/*"
+                                        multiple
+                                        className="hidden"
+                                        onChange={e => void handleQuickUploadProductPhotos(e.target.files)}
+                                      />
+                                      <button
+                                        type="button"
+                                        disabled={isQuickUploadingPhoto}
+                                        onClick={() => quickPhotoInputRef.current?.click()}
+                                        className="px-3 py-1.5 bg-slate-900 hover:bg-black text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-60"
+                                      >
+                                        {isQuickUploadingPhoto ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                                        <span>{isQuickUploadingPhoto ? 'Uploading...' : 'Upload Photo'}</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setEditingStorefrontProduct(selectedProduct);
+                                          setIsNewProductModalOpen(true);
+                                        }}
+                                        className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                                      >
+                                        <Edit className="w-3.5 h-3.5" />
+                                        <span>Add Color / Angle Photos</span>
+                                      </button>
+                                    </div>
                                   )}
                                 </div>
                               )}
@@ -1113,8 +1335,11 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                                     ) : (
                                       <StorefrontProductImage 
                                         variantId={activeVariant?.id} 
-                                        productId={selectedProduct.id} 
-                                        productName={activeVariant?.name || selectedProduct.name} 
+                                        productId={selectedProduct.docId || selectedProduct.id}
+                                        docId={selectedProduct.docId}
+                                        customSrc={resolvedCurrentImageSrc}
+                                        productName={selectedProduct.name}
+                                        className="max-w-full max-h-full object-contain rounded-xl shadow-2xl"
                                       />
                                     )}
                                   </div>
@@ -1157,20 +1382,36 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                         <h1 className="text-2xl sm:text-3xl lg:text-[32px] font-bold text-slate-900 tracking-tight leading-snug mb-1.5" style={{ textWrap: 'balance' }}>
                           {selectedProduct.name}
                         </h1>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (navigator.clipboard) {
-                              navigator.clipboard.writeText(window.location.href).catch(() => {});
-                            }
-                            setCopiedShareToast(true);
-                            setTimeout(() => setCopiedShareToast(false), 2000);
-                          }}
-                          title="Copy product link"
-                          className="p-2 text-slate-500 hover:text-slate-900 transition-colors cursor-pointer shrink-0 relative"
-                        >
-                          {copiedShareToast ? <Check className="w-4.5 h-4.5 text-emerald-600" /> : <Share2 className="w-4.5 h-4.5" />}
-                        </button>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {isStaffOrAdmin && selectedProduct.docId && selectedProduct.docId !== 'alfa_workstation_default' && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingStorefrontProduct(selectedProduct);
+                                setIsNewProductModalOpen(true);
+                              }}
+                              title="Edit product details & upload photos"
+                              className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                              <span className="hidden sm:inline">Edit / Photos</span>
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (navigator.clipboard) {
+                                navigator.clipboard.writeText(window.location.href).catch(() => {});
+                              }
+                              setCopiedShareToast(true);
+                              setTimeout(() => setCopiedShareToast(false), 2000);
+                            }}
+                            title="Copy product link"
+                            className="p-2 text-slate-500 hover:text-slate-900 transition-colors cursor-pointer shrink-0 relative"
+                          >
+                            {copiedShareToast ? <Check className="w-4.5 h-4.5 text-emerald-600" /> : <Share2 className="w-4.5 h-4.5" />}
+                          </button>
+                        </div>
                       </div>
 
                       {/* Clean Subtitle / Description */}
@@ -1230,7 +1471,8 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                         <>
                           {/* Color Swatch Selector (Dedicated Color Variants) */}
                           {colorVariants.length > 0 && (() => {
-                            const distinctImgs = new Set(colorVariants.map(v => v.imageData).filter(Boolean));
+                            const getVarImg = (v: ProductVariant) => v.imageData || selectedProductCloudMedia?.variantImages?.[v.id];
+                            const distinctImgs = new Set(colorVariants.map(getVarImg).filter(Boolean));
                             const usePhotoSwatches = distinctImgs.size > 1;
                             return (
                               <div className="mb-5">
@@ -1243,7 +1485,8 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                                     const colorLabel = v.color || v.name;
                                     const isSelected = selectedColorVariantId === v.id;
                                     const swatchHex = resolveColorSwatchHex(colorLabel, v.colorCode);
-                                    if (usePhotoSwatches && v.imageData) {
+                                    const swatchImg = getVarImg(v);
+                                    if (usePhotoSwatches && swatchImg) {
                                       return (
                                         <button
                                           key={v.id}
@@ -1260,7 +1503,7 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                                             isSelected ? 'border-2 border-slate-900' : 'border border-slate-200 hover:border-slate-400'
                                           }`}
                                         >
-                                          <img src={v.imageData} alt={colorLabel} className="w-11 h-11 lg:w-12 lg:h-12 object-contain rounded" />
+                                          <img src={swatchImg} alt={colorLabel} className="w-11 h-11 lg:w-12 lg:h-12 object-contain rounded" />
                                           <span className="flex items-center gap-1 text-[11px] font-medium text-slate-700 capitalize">
                                             <span className="w-2.5 h-2.5 rounded-full border border-slate-300" style={{ backgroundColor: swatchHex }} />
                                             {colorLabel}
@@ -1313,7 +1556,8 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                               const isColorGroup = /colou?r|finish|shade/i.test(gName);
 
                               if (isColorGroup) {
-                                const distinctImgs = new Set(vList.map(v => v.imageData).filter(Boolean));
+                                const getCustomImg = (v: ProductVariant) => v.imageData || selectedProductCloudMedia?.variantImages?.[v.id];
+                                const distinctImgs = new Set(vList.map(getCustomImg).filter(Boolean));
                                 const usePhotoSwatches = distinctImgs.size > 1;
                                 return (
                                   <div key={gName} className="mb-5">
@@ -1328,7 +1572,8 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                                         const vPrice = parsePriceNumber(v.price);
                                         const vMode = resolveVariantPriceMode(v, baseProductPrice);
                                         const pricePrefix = vMode === 'addon' ? '+₹' : '₹';
-                                        if (usePhotoSwatches && v.imageData) {
+                                        const customSwatchImg = getCustomImg(v);
+                                        if (usePhotoSwatches && customSwatchImg) {
                                           return (
                                             <button
                                               key={v.id}
@@ -1345,7 +1590,7 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                                                 isSel ? 'border-2 border-slate-900' : 'border border-slate-200 hover:border-slate-400'
                                               }`}
                                             >
-                                              <img src={v.imageData} alt={v.name} className="w-11 h-11 lg:w-12 lg:h-12 object-contain rounded" />
+                                              <img src={customSwatchImg} alt={v.name} className="w-11 h-11 lg:w-12 lg:h-12 object-contain rounded" />
                                               <span className="flex items-center gap-1 text-[11px] font-medium text-slate-700 capitalize">
                                                 <span className="w-2.5 h-2.5 rounded-full border border-slate-300" style={{ backgroundColor: swatchHex }} />
                                                 {v.name}
@@ -1916,7 +2161,12 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
                         >
                           <div className="aspect-square bg-slate-100 relative overflow-hidden flex items-center justify-center p-6">
                             <div className="w-full h-full relative flex items-center justify-center transition-transform duration-500 group-hover:scale-105">
-                              <StorefrontProductImage productId={product.id} productName={product.name} />
+                              <StorefrontProductImage
+                                productId={product.docId || product.id}
+                                docId={product.docId}
+                                customSrc={product.productImageData || product.images?.[0] || product.thumbnailData || product.variants?.find(v => v?.imageData)?.imageData}
+                                productName={product.name}
+                              />
                             </div>
                             {hasVariants && (
                               <span className="absolute top-2 right-2 bg-indigo-600/90 backdrop-blur-xs text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-xs">
@@ -2206,7 +2456,11 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
       <NewProductModal 
         mode="catalog"
         isOpen={isNewProductModalOpen}
-        onClose={() => setIsNewProductModalOpen(false)}
+        onClose={() => {
+          setIsNewProductModalOpen(false);
+          setEditingStorefrontProduct(null);
+        }}
+        initialData={editingStorefrontProduct}
         vendors={vendors}
         onAddProduct={handleAddProduct}
         defaultCategory={selectedCategory !== 'All' ? selectedCategory : "Workstation's"}
@@ -2256,60 +2510,94 @@ export function StorefrontTab({ setActiveTab }: { setActiveTab?: (tab: any) => v
   );
 }
 
-// Image component supporting products, variants, and custom data URLs
+// Image component supporting products, variants, IndexedDB cache, and Firestore media fallback
 function StorefrontProductImage({ 
   productId, 
+  docId,
   variantId, 
   customSrc, 
   productName, 
   className = "w-full h-full object-cover object-center" 
 }: { 
   productId?: string; 
+  docId?: string;
   variantId?: string; 
   customSrc?: string; 
   productName: string; 
   className?: string; 
 }) {
   const [src, setSrc] = useState<string | null>(customSrc || null);
-  
+  const [loadFailed, setLoadFailed] = useState(false);
+  const lookupId = docId || productId;
+
   useEffect(() => {
+    let cancelled = false;
+    setLoadFailed(false);
+
     if (customSrc) {
       setSrc(customSrc);
       return;
     }
-    if (variantId) {
-      getVariantFile(variantId).then(url => {
-        if (url) {
-          setSrc(url);
-        } else if (productId) {
-          getProductFile(productId).then(pUrl => {
-            if (pUrl) setSrc(pUrl);
-            else setSrc(null);
-          });
-        } else {
-          setSrc(null);
-        }
-      });
-      return;
-    }
-    if (!productId) {
-      setSrc(null);
-      return;
-    }
-    getProductFile(productId).then(url => {
-      if (url) setSrc(url);
-      else setSrc(null);
-    });
-  }, [productId, variantId, customSrc]);
 
-  if (src) {
-    return <img src={src} alt={productName} className={className} />;
+    const resolveImage = async () => {
+      if (variantId) {
+        try {
+          const vUrl = await getVariantFile(variantId);
+          if (!cancelled && vUrl) {
+            setSrc(vUrl);
+            return;
+          }
+        } catch {}
+      }
+
+      if (lookupId) {
+        try {
+          const pUrl = await getProductFile(lookupId);
+          if (!cancelled && pUrl) {
+            setSrc(pUrl);
+            return;
+          }
+        } catch {}
+
+        try {
+          const cloud = await loadProductMediaFromFirestore(lookupId);
+          const cloudBest =
+            (variantId ? cloud.variantImages[variantId] : undefined) ||
+            cloud.primaryImage ||
+            cloud.images[0];
+          if (!cancelled && cloudBest) {
+            setSrc(cloudBest);
+            return;
+          }
+        } catch {}
+      }
+
+      if (!cancelled) setSrc(null);
+    };
+
+    void resolveImage();
+    return () => {
+      cancelled = true;
+    };
+  }, [lookupId, variantId, customSrc]);
+
+  if (src && !loadFailed) {
+    return (
+      <img
+        src={src}
+        alt={productName}
+        className={className}
+        referrerPolicy="no-referrer"
+        onError={() => setLoadFailed(true)}
+      />
+    );
   }
   
   return (
-    <div className="w-full h-full bg-slate-200/50 flex items-center justify-center rounded-xl">
-      <span className="text-4xl font-black text-slate-300 uppercase select-none opacity-50">
-        {productName ? productName.substring(0, 2) : 'PR'}
+    <div className="w-full h-full bg-slate-100 flex flex-col items-center justify-center rounded-xl text-slate-300 gap-1.5">
+      <ImageIcon className="w-8 h-8 opacity-60" />
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+        No Photo
       </span>
     </div>
   );

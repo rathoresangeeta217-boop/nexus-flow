@@ -1,17 +1,47 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Truck, MapPin, PackageCheck, AlertCircle, MoreHorizontal, Filter, Package, AlertTriangle, FileText, Check, X } from 'lucide-react';
+import { Truck, MapPin, PackageCheck, AlertCircle, MoreHorizontal, Filter, Package, AlertTriangle, FileText, Check, X, RotateCcw } from 'lucide-react';
 import { StatCard } from '../components/StatCard';
 import { Badge } from '../components/Badge';
-import { subscribeToOrders, saveOrder, Order } from '../lib/orders';
+import { subscribeToOrders, saveOrder, resetOrderToPendingDispatch, Order } from '../lib/orders';
 import { DispatchView } from '../components/DispatchView';
+import { useAuth } from '../contexts/AuthContext';
 
 export function DispatchedTab({ searchQuery = '' }: { searchQuery?: string }) {
+  const { profile } = useAuth();
+  const canResetOrder = !profile || profile.role !== 'sales_executive';
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [activeSection, setActiveSection] = useState<'pending' | 'scheduled' | 'history'>('pending');
   const [activeMenuOrderId, setActiveMenuOrderId] = useState<string | null>(null);
+  const [orderPendingReset, setOrderPendingReset] = useState<Order | null>(null);
+  const [isResettingOrder, setIsResettingOrder] = useState(false);
+
+  const confirmResetToPendingDispatch = async () => {
+    if (!orderPendingReset) return;
+    const targetOrder = orderPendingReset;
+    setIsResettingOrder(true);
+    try {
+      await resetOrderToPendingDispatch(targetOrder);
+      setOrderPendingReset(null);
+      setActiveSection('pending');
+      const toast = document.createElement('div');
+      toast.textContent = `Order #${targetOrder.id} reset to Pending Dispatch`;
+      toast.className = 'fixed bottom-5 right-5 z-[200] bg-slate-900 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-xl transition-all border border-slate-700';
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 3500);
+    } catch (err: any) {
+      console.error('Failed to reset order to pending dispatch:', err);
+      const toast = document.createElement('div');
+      toast.textContent = `Could not reset Order #${targetOrder.id}: ${err?.message || 'Permission or network error'}`;
+      toast.className = 'fixed bottom-5 right-5 z-[200] bg-rose-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-xl transition-all border border-rose-500';
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 4500);
+    } finally {
+      setIsResettingOrder(false);
+    }
+  };
 
   const handleSelectScheduledReason = async (order: Order, reason: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -191,7 +221,7 @@ export function DispatchedTab({ searchQuery = '' }: { searchQuery?: string }) {
               </div>
             </div>
 
-            <div className="flex-1 bg-white border-x border-b border-slate-200 overflow-hidden rounded-b-xl">
+            <div className="flex-1 bg-white border-x border-b border-slate-200 overflow-visible rounded-b-xl">
               {/* MOBILE DISPATCH CARDS (< md) */}
               <div className="md:hidden">
                 {isLoading ? (
@@ -251,6 +281,20 @@ export function DispatchedTab({ searchQuery = '' }: { searchQuery?: string }) {
                             <Truck className="w-3.5 h-3.5" />
                             <span>Dispatch / Details</span>
                           </button>
+                          {canResetOrder && activeSection !== 'pending' && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOrderPendingReset(order);
+                              }}
+                              className="py-2 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1"
+                              title="Reset to Pending Dispatch"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" />
+                              <span>Reset</span>
+                            </button>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -259,7 +303,7 @@ export function DispatchedTab({ searchQuery = '' }: { searchQuery?: string }) {
               </div>
 
               {/* DESKTOP DISPATCH TABLE (md+) */}
-              <div className="hidden md:block overflow-x-auto">
+              <div className="hidden md:block overflow-x-auto overflow-y-visible">
                 <table className="w-full text-left border-collapse">
                   <thead className="bg-slate-50 text-[11px] font-bold text-slate-500 uppercase">
                     <tr>
@@ -314,16 +358,33 @@ export function DispatchedTab({ searchQuery = '' }: { searchQuery?: string }) {
                             </div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium relative" onClick={(e) => e.stopPropagation()}>
-                            <button 
-                              onClick={() => setActiveMenuOrderId(activeMenuOrderId === (order.docId || order.id) ? null : (order.docId || order.id))}
-                              className="text-slate-500 hover:text-indigo-600 p-1.5 rounded-md hover:bg-indigo-50 transition-colors cursor-pointer"
-                              title="Actions & Scheduled Reason"
-                            >
-                              <MoreHorizontal className="w-5 h-5" />
-                            </button>
+                            <div className="inline-flex items-center justify-end gap-2">
+                              {canResetOrder && activeSection !== 'pending' && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setActiveMenuOrderId(null);
+                                    setOrderPendingReset(order);
+                                  }}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold transition-colors cursor-pointer"
+                                  title="Reset order to Pending Dispatch"
+                                >
+                                  <RotateCcw className="w-3 h-3" />
+                                  <span>Reset to Pending</span>
+                                </button>
+                              )}
+                              <button 
+                                onClick={() => setActiveMenuOrderId(activeMenuOrderId === (order.docId || order.id) ? null : (order.docId || order.id))}
+                                className="text-slate-500 hover:text-indigo-600 p-1.5 rounded-md hover:bg-indigo-50 transition-colors cursor-pointer"
+                                title="Actions & Scheduled Reason"
+                              >
+                                <MoreHorizontal className="w-5 h-5" />
+                              </button>
+                            </div>
 
                             {activeMenuOrderId === (order.docId || order.id) && (
-                              <div className="absolute right-6 top-12 z-50 w-64 bg-white rounded-xl shadow-2xl border border-slate-200 py-2 text-left text-xs space-y-1 animate-fadeIn">
+                              <div className="fixed sm:absolute right-6 top-12 z-50 w-64 bg-white rounded-xl shadow-2xl border border-slate-200 py-2 text-left text-xs space-y-1 animate-fadeIn">
                                 <div className="px-3 py-1.5 border-b border-slate-100 font-bold text-slate-800 flex items-center justify-between">
                                   <span>Order Actions #{order.id}</span>
                                   <button onClick={() => setActiveMenuOrderId(null)} className="text-slate-400 hover:text-slate-600 p-0.5 rounded">
@@ -337,6 +398,19 @@ export function DispatchedTab({ searchQuery = '' }: { searchQuery?: string }) {
                                 >
                                   <Truck className="w-3.5 h-3.5 text-indigo-600" /> Dispatch / Order Details
                                 </button>
+
+                                {canResetOrder && activeSection !== 'pending' && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setActiveMenuOrderId(null);
+                                      setOrderPendingReset(order);
+                                    }}
+                                    className="w-full px-3 py-1.5 hover:bg-rose-50 flex items-center gap-2 text-rose-700 font-bold cursor-pointer transition-colors"
+                                  >
+                                    <RotateCcw className="w-3.5 h-3.5 text-rose-600" /> Reset to Pending Dispatch
+                                  </button>
+                                )}
 
                                 {activeSection === 'scheduled' && (
                                   <div className="border-t border-slate-100 my-1 pt-1.5 px-3">
@@ -385,6 +459,44 @@ export function DispatchedTab({ searchQuery = '' }: { searchQuery?: string }) {
               </div>
             </div>
           </motion.div>
+
+          {/* In-App Confirmation Modal for Reset to Pending Dispatch */}
+          {orderPendingReset && (
+            <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+              <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-6 space-y-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-rose-50 border border-rose-200 flex items-center justify-center text-rose-600 shrink-0">
+                    <RotateCcw className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">Reset Order to Pending Dispatch?</h3>
+                    <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                      This will move <strong>#{orderPendingReset.id}</strong> ({orderPendingReset.customer}) back to <strong>Pending Dispatch</strong> and clear its scheduled/dispatched quantities, delivery challans, and approval flags.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center justify-end gap-2.5 pt-2">
+                  <button
+                    type="button"
+                    disabled={isResettingOrder}
+                    onClick={() => setOrderPendingReset(null)}
+                    className="px-4 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isResettingOrder}
+                    onClick={() => void confirmResetToPendingDispatch()}
+                    className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold cursor-pointer disabled:opacity-60 flex items-center gap-1.5"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>{isResettingOrder ? 'Resetting...' : 'Yes, Reset to Pending'}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </motion.div>
       )}
     </AnimatePresence>

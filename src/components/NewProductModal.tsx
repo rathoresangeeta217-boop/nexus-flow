@@ -20,8 +20,8 @@ import {
   Palette
 } from 'lucide-react';
 import React, { useState, useRef, useEffect } from 'react';
-import { isCategoryMatch, ProductVariant, ProductSpecification, parsePriceNumber, resolveVariantPriceMode } from '../lib/products';
-import { getVariantFile, compressImageFile, getProductImages } from '../lib/fileStorage';
+import { isCategoryMatch, ProductVariant, ProductSpecification, parsePriceNumber, resolveVariantPriceMode, loadProductMediaFromFirestore } from '../lib/products';
+import { getVariantFile, compressImageFile, getProductImages, getProductFile } from '../lib/fileStorage';
 
 interface NewProductModalProps {
   initialData?: any;
@@ -360,11 +360,16 @@ export function NewProductModal({
   // Load existing variants, images, and 360 data if editing
   useEffect(() => {
     if (isOpen && initialData) {
+      const targetId = initialData.docId || initialData.id;
+
       // Load variants
       if (initialData.variants && initialData.variants.length > 0) {
         const loadVariantImages = async () => {
+          const cloudMedia = targetId ? await loadProductMediaFromFirestore(targetId) : null;
           const loaded = await Promise.all(initialData.variants.map(async (v: ProductVariant) => {
             if (!v.imageData && v.id) {
+              const cloudVImg = cloudMedia?.variantImages?.[v.id];
+              if (cloudVImg) return { ...v, imageData: cloudVImg };
               const data = await getVariantFile(v.id);
               if (data) return { ...v, imageData: data };
             }
@@ -379,16 +384,33 @@ export function NewProductModal({
 
       // Load product images
       const initialImgs: string[] = [];
+      if (initialData.productImageData) initialImgs.push(initialData.productImageData);
       if (initialData.details?.productImageData) initialImgs.push(initialData.details.productImageData);
       if (Array.isArray(initialData.images)) initialImgs.push(...initialData.images);
       else if (Array.isArray(initialData.details?.images)) initialImgs.push(...initialData.details.images);
 
-      if (initialImgs.length === 0 && (initialData.docId || initialData.id)) {
-        getProductImages(initialData.docId || initialData.id).then(imgs => {
-          if (imgs && imgs.length > 0) setProductImages(imgs);
-        }).catch(console.error);
-      } else {
-        setProductImages(Array.from(new Set(initialImgs)));
+      const dedupedInitial = Array.from(new Set(initialImgs.filter(Boolean)));
+      setProductImages(dedupedInitial);
+
+      if (targetId) {
+        Promise.all([
+          getProductImages(targetId).catch(() => [] as string[]),
+          getProductFile(targetId).catch(() => undefined),
+          loadProductMediaFromFirestore(targetId).catch(() => ({ images: [], spin360Images: [], variantImages: {} } as any))
+        ]).then(([idbImgs, idbPrimary, cloud]) => {
+          const merged = Array.from(new Set([
+            ...dedupedInitial,
+            ...(cloud?.primaryImage ? [cloud.primaryImage] : []),
+            ...(Array.isArray(cloud?.images) ? cloud.images : []),
+            ...(idbPrimary ? [idbPrimary] : []),
+            ...(Array.isArray(idbImgs) ? idbImgs : [])
+          ].filter(Boolean)));
+          if (merged.length > 0) {
+            setProductImages(merged);
+          } else if (initialData.thumbnailData) {
+            setProductImages([initialData.thumbnailData]);
+          }
+        });
       }
     } else if (isOpen && !initialData) {
       setVariants([]);
@@ -502,12 +524,13 @@ export function NewProductModal({
 
     const newVariant: ProductVariant = {
       id: `var_seat_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      variantType: 'color',
       name: `${pName} (${colorName})`,
       color: colorName,
       colorCode: colorHex,
       price: variantPrice,
       priceMode: 'total',
-      imageData: productImages[0] || undefined
+      imageData: undefined
     };
 
     setVariants(prev => [...prev, newVariant]);
@@ -1844,8 +1867,120 @@ export function NewProductModal({
                         {renderCustomVariantBuilder(tablePresets)}
                       </div>
                     ) : isSittingSeries ? (
-                    /* SITTING SERIES: CUSTOM VARIANTS */
-                    <div>
+                    /* SITTING SERIES: COLOR OPTIONS + CUSTOM VARIANTS */
+                    <div className="space-y-6">
+                      {/* Color Variants with per-color Photo Upload */}
+                      <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl space-y-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div>
+                            <h5 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                              <Palette className="w-4 h-4 text-amber-600" />
+                              Color Options (Upload Photo per Color)
+                            </h5>
+                            <p className="text-[11px] text-slate-500 mt-0.5">
+                              Attach a separate photo for each chair color so customers see the matching photo when switching colors.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleAddSittingColorVariant()}
+                            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shadow-2xs transition-colors cursor-pointer shrink-0"
+                          >
+                            + Add Color Option
+                          </button>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[11px] font-bold text-slate-500 mr-1">Quick Add:</span>
+                          {[
+                            { name: 'Gray', hex: '#71717a', priceOffset: 0 },
+                            { name: 'Black', hex: '#18181b', priceOffset: 0 },
+                            { name: 'Pink', hex: '#ec4899', priceOffset: 0 },
+                            ...SITTING_SERIES_POPULAR_COLORS.slice(0, 5)
+                          ].map(c => (
+                            <button
+                              key={c.name}
+                              type="button"
+                              onClick={() => handleAddSittingColorVariant(c)}
+                              className="px-2 py-0.5 bg-white border border-slate-200 rounded text-[11px] font-semibold text-slate-700 hover:bg-amber-50 flex items-center gap-1 cursor-pointer"
+                            >
+                              <span className="w-2.5 h-2.5 rounded-full border border-slate-300" style={{ backgroundColor: c.hex }} />
+                              {c.name}
+                            </button>
+                          ))}
+                        </div>
+
+                        {(() => {
+                          const seatColorVars = variants.filter(v =>
+                            v.variantType === 'color' ||
+                            Boolean((v.color || v.colorCode) && !v.sideStorage && !v.electricOption && v.variantType !== 'custom' && !v.groupName)
+                          );
+                          if (seatColorVars.length === 0) {
+                            return (
+                              <div className="p-3 border border-dashed border-slate-200 rounded-xl bg-white/70 text-center text-xs text-slate-500">
+                                No color options added yet. Click &quot;+ Add Color Option&quot; or a color chip above.
+                              </div>
+                            );
+                          }
+                          return seatColorVars.map((v) => (
+                            <div key={v.id} className="p-3 bg-white rounded-xl border border-slate-200 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                              <input
+                                type="color"
+                                value={v.colorCode || '#475569'}
+                                onChange={(e) => handleUpdateVariant(v.id, { colorCode: e.target.value })}
+                                className="w-8 h-8 rounded-lg border border-slate-300 p-0.5 cursor-pointer shrink-0"
+                                title="Choose color swatch"
+                              />
+                              <input
+                                type="text"
+                                value={v.color || v.name || ''}
+                                onChange={(e) => handleUpdateVariant(v.id, { color: e.target.value, name: e.target.value })}
+                                placeholder="Color Name (e.g. Gray, Black, Pink)"
+                                className="flex-1 px-3 py-1.5 border border-slate-300 rounded-lg text-xs font-bold text-slate-800 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                              />
+                              <div className="sm:w-32 relative">
+                                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">₹</span>
+                                <input
+                                  type="number"
+                                  value={v.price || ''}
+                                  onChange={(e) => handleUpdateVariant(v.id, { price: e.target.value, priceMode: 'total' })}
+                                  placeholder="Price (₹)"
+                                  className="w-full pl-6 pr-2 py-1.5 border border-slate-300 rounded-lg text-xs font-bold text-slate-900 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                                />
+                              </div>
+                              <div className="sm:w-52">
+                                <input
+                                  type="file"
+                                  id={`seat-col-${v.id}`}
+                                  className="hidden"
+                                  accept="image/*"
+                                  onChange={(e) => e.target.files?.[0] && handleVariantImageChange(v.id, e.target.files[0])}
+                                />
+                                {v.imageData ? (
+                                  <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 p-1 rounded-lg">
+                                    <img src={v.imageData} alt={v.color || v.name} className="w-7 h-7 object-cover rounded bg-white shrink-0 border border-slate-200" />
+                                    <span className="text-[10px] font-bold text-emerald-800 flex-1 truncate">Photo Uploaded</span>
+                                    <button type="button" onClick={() => document.getElementById(`seat-col-${v.id}`)?.click()} className="text-[10px] text-indigo-600 font-bold hover:underline cursor-pointer">Change</button>
+                                    <button type="button" onClick={() => handleRemoveVariantImage(v.id)} className="text-[10px] text-rose-600 font-bold hover:underline cursor-pointer">Remove</button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => document.getElementById(`seat-col-${v.id}`)?.click()}
+                                    className="w-full py-1.5 border border-dashed border-slate-300 hover:border-amber-500 rounded-lg text-xs font-semibold text-slate-600 hover:text-amber-700 flex items-center justify-center gap-1.5 bg-slate-50 cursor-pointer"
+                                  >
+                                    <Upload className="w-3 h-3 text-slate-400" /> Upload Color Photo
+                                  </button>
+                                )}
+                              </div>
+                              <button type="button" onClick={() => handleDeleteVariant(v.id)} className="p-1.5 text-slate-400 hover:text-rose-600 cursor-pointer" title="Delete">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ));
+                        })()}
+                      </div>
+
                       {/* Custom Variant Builder for Seating/Sitting Series */}
                       {renderCustomVariantBuilder(seatingPresets)}
                     </div>

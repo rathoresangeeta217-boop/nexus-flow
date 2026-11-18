@@ -19,6 +19,7 @@ export const ReceiveMaterialModal: React.FC<ReceiveMaterialModalProps> = ({
 }) => {
   const [selectedProductId, setSelectedProductId] = useState<string>('');
   const [quantity, setQuantity] = useState<string>('100');
+  const [identificationName, setIdentificationName] = useState<string>('');
   const [receivedFrom, setReceivedFrom] = useState<string>('');
   const [challanOrPoNo, setChallanOrPoNo] = useState<string>('');
   const [unitCost, setUnitCost] = useState<string>('');
@@ -39,13 +40,14 @@ export const ReceiveMaterialModal: React.FC<ReceiveMaterialModalProps> = ({
   const currentProduct = products.find(p => p.id === selectedProductId || p.docId === selectedProductId);
 
   useEffect(() => {
+    setIdentificationName(currentProduct?.identificationName || '');
     if (currentProduct?.unitCost) {
       setUnitCost(String(currentProduct.unitCost));
     }
     if (currentProduct?.invoiceDate) {
       setBillDate(currentProduct.invoiceDate);
     }
-  }, [selectedProductId]);
+  }, [selectedProductId, currentProduct]);
 
   if (!isOpen) return null;
 
@@ -72,6 +74,7 @@ export const ReceiveMaterialModal: React.FC<ReceiveMaterialModalProps> = ({
       const result = await receiveRawMaterialStock({
         materialId: selectedProductId,
         quantity: numQty,
+        identificationName: identificationName.trim() || undefined,
         receivedFrom: receivedFrom.trim(),
         challanOrPoNo: challanOrPoNo.trim(),
         unitCost: parseFloat(unitCost) || undefined,
@@ -225,6 +228,20 @@ export const ReceiveMaterialModal: React.FC<ReceiveMaterialModalProps> = ({
               </div>
             </div>
           )}
+
+          {/* Identification Name */}
+          <div>
+            <label className="block text-xs font-bold text-indigo-800 uppercase tracking-wider mb-1.5">
+              Identification Name (Bill / Lot / Alias)
+            </label>
+            <input
+              type="text"
+              value={identificationName}
+              onChange={(e) => setIdentificationName(e.target.value)}
+              placeholder="e.g. Project Skyline Lot, Main Hall Boards..."
+              className="w-full px-3.5 py-2.5 rounded-xl border border-indigo-200 bg-indigo-50/40 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 text-sm font-semibold text-indigo-950"
+            />
+          </div>
 
           {/* Supplier, Reference PO, Rate and Bill Date */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

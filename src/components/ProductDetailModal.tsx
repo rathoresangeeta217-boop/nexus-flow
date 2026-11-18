@@ -25,7 +25,7 @@ import {
   Copy
 } from 'lucide-react';
 import React, { useState, useEffect } from 'react';
-import { Product, parsePriceNumber, resolveVariantPriceMode } from '../lib/products';
+import { Product, parsePriceNumber, resolveVariantPriceMode, loadProductMediaFromFirestore } from '../lib/products';
 import { Vendor } from '../lib/vendors';
 import { getProductFile, getProductImages } from '../lib/fileStorage';
 
@@ -68,9 +68,11 @@ export function ProductDetailModal({ isOpen, onClose, product, vendor, onAddToCa
       setSelectedVariant(product.variants && product.variants.length > 0 ? product.variants[0] : null);
 
       const imgs: string[] = [];
-      if (product.details?.productImageData) {
-        imgs.push(product.details.productImageData);
-        setImageSrc(product.details.productImageData);
+      const firstDirectImg = product.productImageData || product.details?.productImageData || product.thumbnailData;
+      if (product.productImageData) imgs.push(product.productImageData);
+      if (product.details?.productImageData) imgs.push(product.details.productImageData);
+      if (firstDirectImg) {
+        setImageSrc(firstDirectImg);
       }
 
       if (Array.isArray(product.images)) imgs.push(...product.images);
@@ -81,24 +83,40 @@ export function ProductDetailModal({ isOpen, onClose, product, vendor, onAddToCa
           if (v.imageData && !imgs.includes(v.imageData)) imgs.push(v.imageData);
         });
       }
+      if (imgs.length === 0 && product.thumbnailData) {
+        imgs.push(product.thumbnailData);
+      }
 
-      const uniqueList = Array.from(new Set(imgs));
+      const uniqueList = Array.from(new Set(imgs.filter(Boolean)));
       setAllImages(uniqueList);
-      if (uniqueList.length > 0 && !imageSrc) {
+      if (uniqueList.length > 0 && !firstDirectImg) {
         setImageSrc(uniqueList[0]);
       }
 
-      if (!product.details?.productImageData && (product.docId || product.id)) {
-        getProductFile(product.docId || product.id).then((data) => {
+      const lookupId = product.docId || product.id;
+      if (lookupId) {
+        getProductFile(lookupId).then((data) => {
           if (data) {
-            setImageSrc(data);
+            setImageSrc(prev => prev || data);
             setAllImages(prev => Array.from(new Set([data, ...prev])));
           }
         }).catch(console.error);
 
-        getProductImages(product.docId || product.id).then((loaded) => {
+        getProductImages(lookupId).then((loaded) => {
           if (loaded && loaded.length > 0) {
             setAllImages(prev => Array.from(new Set([...prev, ...loaded])));
+          }
+        }).catch(console.error);
+
+        loadProductMediaFromFirestore(lookupId).then((cloud) => {
+          const cloudList = [
+            ...(cloud.primaryImage ? [cloud.primaryImage] : []),
+            ...cloud.images,
+            ...Object.values(cloud.variantImages)
+          ].filter(Boolean);
+          if (cloudList.length > 0) {
+            setAllImages(prev => Array.from(new Set([...cloudList, ...prev])));
+            setImageSrc(prev => (!prev || prev === product.thumbnailData) ? (cloud.primaryImage || cloudList[0]) : prev);
           }
         }).catch(console.error);
       }

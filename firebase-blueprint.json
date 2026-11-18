@@ -50,6 +50,72 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["quotationNo", "buyerName", "mobileNumber", "grandTotal", "status"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Catalog product record with specifications, variants, and compact primary thumbnail.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 200 },
+        "category": { "type": "string", "maxLength": 120 },
+        "price": { "type": "string", "maxLength": 64 },
+        "thumbnailData": { "type": "string", "maxLength": 350000 },
+        "hasVariants": { "type": "boolean" },
+        "mediaSyncedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["name"]
+    },
+    "ProductMedia": {
+      "title": "ProductMedia",
+      "description": "Cloud-persisted product gallery, variant, or 360 image stored in subcollection under 1MB limit.",
+      "type": "object",
+      "properties": {
+        "kind": { "type": "string", "enum": ["primary", "gallery", "variant", "spin360"] },
+        "dataUrl": { "type": "string", "maxLength": 750000 },
+        "variantId": { "type": "string", "maxLength": 128 },
+        "index": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["kind", "dataUrl"]
+    },
+    "RawMaterial": {
+      "title": "RawMaterial",
+      "description": "Raw material inventory item with specifications, bill reference, and custom identification name.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 200 },
+        "identificationName": { "type": "string", "maxLength": 200 },
+        "sku": { "type": "string", "maxLength": 100 },
+        "category": { "type": "string", "maxLength": 120 },
+        "specs": { "type": "string", "maxLength": 1000 },
+        "availableQuantity": { "type": "number" },
+        "unit": { "type": "string", "maxLength": 40 },
+        "unitCost": { "type": "number" },
+        "colorCode": { "type": "string", "maxLength": 120 },
+        "colorName": { "type": "string", "maxLength": 120 },
+        "challanOrPoNo": { "type": "string", "maxLength": 120 },
+        "receivedFrom": { "type": "string", "maxLength": 200 },
+        "invoiceDate": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["id", "name", "category", "availableQuantity"]
+    },
+    "InventoryHistory": {
+      "title": "InventoryHistory",
+      "description": "Stock movement ledger entry for inward bills and project dispatches.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "materialId": { "type": "string", "maxLength": 128 },
+        "materialName": { "type": "string", "maxLength": 200 },
+        "identificationName": { "type": "string", "maxLength": 200 },
+        "type": { "type": "string", "enum": ["RECEIVED", "DISPATCHED", "ADJUSTMENT"] },
+        "quantity": { "type": "number" },
+        "challanOrPoNo": { "type": "string", "maxLength": 120 },
+        "receivedFrom": { "type": "string", "maxLength": 200 },
+        "billDate": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["id", "materialId", "materialName", "type", "quantity"]
     }
   },
   "firestore": {
@@ -60,6 +126,22 @@
     "/quotations/{quotationId}": {
       "schema": { "$ref": "#/entities/Quotation" },
       "description": "Customer commercial quotations created from Quotations or Storefront portals"
+    },
+    "/products/{productId}": {
+      "schema": { "$ref": "#/entities/Product" },
+      "description": "Catalog products displayed in Products and Storefront tabs"
+    },
+    "/products/{productId}/media/{mediaId}": {
+      "schema": { "$ref": "#/entities/ProductMedia" },
+      "description": "Subcollection storing full-resolution product, gallery, and variant images across devices"
+    },
+    "/raw_materials/{materialId}": {
+      "schema": { "$ref": "#/entities/RawMaterial" },
+      "description": "Raw material inventory items and identification tags"
+    },
+    "/inventory_history/{historyId}": {
+      "schema": { "$ref": "#/entities/InventoryHistory" },
+      "description": "Inventory inward bill and project dispatch movement ledger"
     }
   }
 }

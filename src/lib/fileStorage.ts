@@ -80,7 +80,46 @@ export async function deleteVariantFile(variantId: string) {
   await del(`variant_file_${variantId}`);
 }
 
-export async function compressImageFile(file: File, maxWidth = 1200, quality = 0.82): Promise<string> {
+export async function compressDataUrl(
+  dataUrl: string,
+  maxWidth = 800,
+  quality = 0.74
+): Promise<string> {
+  if (!dataUrl || typeof dataUrl !== 'string') return dataUrl;
+  if (!dataUrl.startsWith('data:image')) return dataUrl;
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      let width = img.width;
+      let height = img.height;
+      if (width > maxWidth || height > maxWidth) {
+        if (width >= height) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        } else {
+          width = Math.round((width * maxWidth) / height);
+          height = maxWidth;
+        }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve(dataUrl);
+        return;
+      }
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, width, height);
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
+export async function compressImageFile(file: File, maxWidth = 1000, quality = 0.78): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -110,5 +149,3 @@ export async function compressImageFile(file: File, maxWidth = 1200, quality = 0
     reader.readAsDataURL(file);
   });
 }
-
-

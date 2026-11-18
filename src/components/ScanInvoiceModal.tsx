@@ -34,6 +34,7 @@ import { convertPdfToImage, isPdfFile } from '../lib/pdfUtils';
 export interface ScannedInvoiceItem {
   id: string;
   name: string;
+  identificationName?: string;
   category: string;
   sku?: string;
   specs: string;
@@ -46,11 +47,13 @@ export interface ScannedInvoiceItem {
   boardThickness?: string;
   boardSize?: string;
   colorCode?: string;
+  colorName?: string;
   notes?: string;
   selected: boolean;
 }
 
 export interface ScannedInvoiceData {
+  identificationName?: string;
   vendorName?: string;
   invoiceNumber?: string;
   invoiceDate?: string;
@@ -61,6 +64,7 @@ export interface ScannedInvoiceData {
 interface ScanInvoiceModalProps {
   isOpen: boolean;
   onClose: () => void;
+  existingMaterials?: RawMaterialItem[];
   onApplyToSingleItem?: (item: ScannedInvoiceItem, vendorName?: string, invoiceNo?: string) => void;
   onBatchAdded?: (count: number) => void;
 }
@@ -68,6 +72,7 @@ interface ScanInvoiceModalProps {
 export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
   isOpen,
   onClose,
+  existingMaterials,
   onApplyToSingleItem,
   onBatchAdded
 }) => {
@@ -80,7 +85,7 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [scannedData, setScannedData] = useState<ScannedInvoiceData | null>(null);
   const [isSavingBatch, setIsSavingBatch] = useState(false);
-  const [forceSeparate, setForceSeparate] = useState(true);
+  const [forceSeparate, setForceSeparate] = useState(false);
   const [allowDuplicateOverride, setAllowDuplicateOverride] = useState(false);
 
   // Camera state
@@ -296,12 +301,15 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
           boardThickness: isBoardCategory ? (it.boardThickness || '') : undefined,
           boardSize: isBoardCategory ? (it.boardSize || '') : undefined,
           colorCode: isBoardCategory ? (it.colorCode || '') : undefined,
+          colorName: isBoardCategory ? (it.colorName || '') : undefined,
           notes: it.notes || '',
+          identificationName: it.identificationName || result.identificationName || '',
           selected: true
         };
       });
 
       setScannedData({
+        identificationName: result.identificationName || '',
         vendorName: result.vendorName || result.companyName || '',
         invoiceNumber: result.invoiceNumber || result.billNo || result.referenceNo || '',
         invoiceDate: result.invoiceDate || result.date || '',
@@ -342,7 +350,7 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
   };
 
   const handleSaveAllToInventory = async () => {
-    if (!scannedData) return;
+    if (!scannedData || isSavingBatch) return;
     const selectedItems = scannedData.items.filter(it => it.selected);
     if (selectedItems.length === 0) {
       setError('Please select at least one item to save to inventory.');
@@ -374,6 +382,7 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
 
         const itemPayload: Partial<RawMaterialItem> & { createNewItem?: boolean } = {
           name: item.name,
+          identificationName: (item.identificationName || scannedData.identificationName || '').trim(),
           sku: generatedSku,
           category: item.category,
           specs: item.specs,
@@ -393,6 +402,7 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
           boardThickness: isBoardCategory ? item.boardThickness : undefined,
           boardSize: isBoardCategory ? item.boardSize : undefined,
           colorCode: isBoardCategory ? item.colorCode : undefined,
+          colorName: isBoardCategory ? item.colorName : undefined,
           challanOrPoNo: scannedData.invoiceNumber || '',
           receivedFrom: scannedData.vendorName || '',
           invoiceDate: scannedData.invoiceDate || '',
@@ -652,7 +662,29 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
               )}
 
                 {/* Header Info Card */}
-                <div className="p-4 rounded-xl bg-indigo-50/70 border border-indigo-200 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                <div className="p-4 rounded-xl bg-indigo-50/70 border border-indigo-200 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                  <div>
+                    <span className="text-[10px] font-bold text-indigo-700 uppercase block">Identification Name:</span>
+                    <input
+                      type="text"
+                      value={scannedData.identificationName || ''}
+                      onChange={(e) => {
+                        const prevVal = scannedData.identificationName || '';
+                        const nextVal = e.target.value;
+                        setScannedData({
+                          ...scannedData,
+                          identificationName: nextVal,
+                          items: scannedData.items.map(it =>
+                            !it.identificationName || it.identificationName === prevVal
+                              ? { ...it, identificationName: nextVal }
+                              : it
+                          )
+                        });
+                      }}
+                      placeholder="e.g. Project Skyline / Lot-A"
+                      className="font-bold text-indigo-950 bg-white border border-indigo-300 px-2.5 py-1 rounded-lg w-full mt-0.5 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
                   <div>
                     <span className="text-[10px] font-bold text-slate-400 uppercase block">Vendor / Supplier:</span>
                     <input
@@ -744,7 +776,9 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
                       </thead>
                       <tbody className="divide-y divide-slate-200">
                         {(() => {
-                          const existingInventory = getLocalRawMaterials();
+                          const existingInventory = (existingMaterials && existingMaterials.length > 0)
+                            ? existingMaterials
+                            : getLocalRawMaterials();
                           return scannedData.items.map((item) => {
                             const matchIdx = findMatchingItemIndex(item, existingInventory);
                             const matchedItem = matchIdx >= 0 ? existingInventory[matchIdx] : null;
@@ -761,13 +795,20 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
                                   />
                                 </td>
 
-                                {/* Name & Specs */}
+                                {/* Name, Identification Name & Specs */}
                                 <td className="p-3">
                                   <input
                                     type="text"
                                     value={item.name}
                                     onChange={(e) => handleUpdateItem(item.id, 'name', e.target.value)}
                                     className="font-bold text-slate-900 border border-slate-200 rounded-lg px-2 py-1 w-full text-xs"
+                                  />
+                                  <input
+                                    type="text"
+                                    value={item.identificationName || ''}
+                                    onChange={(e) => handleUpdateItem(item.id, 'identificationName', e.target.value)}
+                                    placeholder="Identification name (e.g. Rack / Lot / Alias)..."
+                                    className="text-[11px] font-semibold text-indigo-950 border border-indigo-200 rounded-lg px-2 py-1 w-full mt-1 bg-indigo-50/50 placeholder:text-slate-400"
                                   />
                                   <input
                                     type="text"
@@ -864,7 +905,14 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => {
-                                    onApplyToSingleItem(item, scannedData.vendorName, scannedData.invoiceNumber);
+                                    onApplyToSingleItem(
+                                      {
+                                        ...item,
+                                        identificationName: (item.identificationName || scannedData.identificationName || '').trim()
+                                      },
+                                      scannedData.vendorName,
+                                      scannedData.invoiceNumber
+                                    );
                                     onClose();
                                   }}
                                   className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] cursor-pointer shadow-2xs"

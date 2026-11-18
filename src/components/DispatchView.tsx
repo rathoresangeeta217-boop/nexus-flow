@@ -8,8 +8,8 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   import.meta.url,
 ).toString();
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, X, Save, Package, CheckSquare, Image as ImageIcon, Plus, Trash2, Edit2, FileText, Check, Truck, User, MapPin, Phone, Wrench, Send, ClipboardList, ShieldAlert, AlertTriangle, Download, Loader2, CheckCircle2, Clock } from 'lucide-react';
-import { Order, OrderProduct, saveOrder, subscribeToOrders, getOverdueUnconfirmedDispatches, getProductScheduledQty, DeliveryChallanRecord } from '../lib/orders';
+import { ArrowLeft, X, Save, Package, CheckSquare, Image as ImageIcon, Plus, Trash2, Edit2, FileText, Check, Truck, User, MapPin, Phone, Wrench, Send, ClipboardList, ShieldAlert, AlertTriangle, Download, Loader2, CheckCircle2, Clock, RotateCcw } from 'lucide-react';
+import { Order, OrderProduct, saveOrder, resetOrderToPendingDispatch, subscribeToOrders, getOverdueUnconfirmedDispatches, getProductScheduledQty, DeliveryChallanRecord } from '../lib/orders';
 import { Product, subscribeToProducts } from '../lib/products';
 import { getProductFile } from '../lib/fileStorage';
 import { Badge } from './Badge';
@@ -28,6 +28,9 @@ interface DispatchViewProps {
 export function DispatchView({ order, onBack, isInstallationView = false }: DispatchViewProps) {
   const { profile } = useAuth();
   const isSuperAdmin = profile?.role === 'super_admin';
+  const canResetOrder = !profile || profile.role !== 'sales_executive';
+  const [showResetDispatchConfirm, setShowResetDispatchConfirm] = useState(false);
+  const [isResettingDispatch, setIsResettingDispatch] = useState(false);
 
   // Helpers to track scheduled and remaining quantities per product based on actual Delivery Challans
   const getProductChallanQty = (p: OrderProduct): number => {
@@ -1112,6 +1115,21 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
             >
               View Payments
             </button>
+            {!isInstallationView && canResetOrder && (
+              !['New Order', 'New', 'Pending'].includes(order.status) ||
+              products.some(p => (Number(p.scheduledQuantity) || 0) > 0) ||
+              (order.details?.deliveryChallans?.length || 0) > 0 ||
+              Boolean(order.details?.challanApprovalStatus)
+            ) && (
+              <button
+                type="button"
+                onClick={() => setShowResetDispatchConfirm(true)}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 px-2.5 py-1 rounded border border-rose-200 transition-colors cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                Reset to Pending Dispatch
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -1286,27 +1304,20 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
                   );
                 })()}
 
-                {isSuperAdmin && products.some(p => (Number(p.scheduledQuantity) || 0) > 0) && (
+                {!isInstallationView && canResetOrder && (
+                  !['New Order', 'New', 'Pending'].includes(order.status) ||
+                  products.some(p => (Number(p.scheduledQuantity) || 0) > 0) ||
+                  (order.details?.deliveryChallans?.length || 0) > 0 ||
+                  Boolean(order.details?.challanApprovalStatus)
+                ) && (
                   <button
-                    onClick={async () => {
-                      if (!window.confirm('Reset all scheduled quantities back to 0 for this order? This will un-gray all items and allow creating new challans from scratch.')) return;
-                      const reset = products.map(p => ({ ...p, scheduledQuantity: 0, isDispatched: false, dispatchedQuantity: 0 }));
-                      setProducts(reset);
-                      await saveOrder({
-                        ...order,
-                        details: {
-                          ...order.details,
-                          products: reset,
-                          deliveryChallans: [],
-                          challanApprovalStatus: undefined
-                        }
-                      });
-                      setAlertMessage('Scheduled quantities reset successfully.');
-                    }}
-                    className="text-xs font-semibold text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 px-2.5 py-1 rounded-md border border-rose-200 transition-colors"
-                    title="Super Admin: Reset scheduled quantities"
+                    type="button"
+                    onClick={() => setShowResetDispatchConfirm(true)}
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 px-2.5 py-1 rounded-md border border-rose-200 transition-colors cursor-pointer"
+                    title="Reset order to Pending Dispatch"
                   >
-                    Reset Schedule
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    Reset to Pending Dispatch
                   </button>
                 )}
 
@@ -3033,6 +3044,69 @@ Please drive safely. The Dispatch Notice PDF has been downloaded to attach.`;
                   className="px-4 py-2 text-sm font-semibold text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
                 >
                   {isSaving ? 'Saving...' : 'Confirm Installation'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {showResetDispatchConfirm && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-6 space-y-4"
+            >
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-rose-50 border border-rose-200 flex items-center justify-center text-rose-600 shrink-0">
+                  <RotateCcw className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Reset Order to Pending Dispatch?</h3>
+                  <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                    This will move <strong>#{order.id}</strong> ({order.customer}) back to <strong>Pending Dispatch</strong> and clear its scheduled/dispatched quantities, delivery challans, and approval flags.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  disabled={isResettingDispatch}
+                  onClick={() => setShowResetDispatchConfirm(false)}
+                  className="px-4 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isResettingDispatch}
+                  onClick={async () => {
+                    setIsResettingDispatch(true);
+                    try {
+                      await resetOrderToPendingDispatch(order);
+                      setProducts(prev => prev.map(p => ({
+                        ...p,
+                        scheduledQuantity: 0,
+                        dispatchedQuantity: 0,
+                        isDispatched: false
+                      })));
+                      setScheduledReason('');
+                      setShowResetDispatchConfirm(false);
+                      setAlertMessage('Order reset to Pending Dispatch successfully.');
+                    } catch (err: any) {
+                      console.error('Reset failed:', err);
+                      setShowResetDispatchConfirm(false);
+                      setAlertMessage('Failed to reset order: ' + (err?.message || 'Unknown error'));
+                    } finally {
+                      setIsResettingDispatch(false);
+                    }
+                  }}
+                  className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold cursor-pointer disabled:opacity-60 flex items-center gap-1.5"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>{isResettingDispatch ? 'Resetting...' : 'Yes, Reset to Pending'}</span>
                 </button>
               </div>
             </motion.div>

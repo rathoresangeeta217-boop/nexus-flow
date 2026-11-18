@@ -23,14 +23,15 @@ import {
   LayoutGrid,
   List,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  RotateCcw
 } from 'lucide-react';
 import { StatCard } from '../components/StatCard';
 import { Badge } from '../components/Badge';
 import { NewOrderModal } from '../components/NewOrderModal';
 import { OrderDetailsModal } from '../components/OrderDetailsModal';
 import { UploadDrawingChecklistModal } from '../components/UploadDrawingChecklistModal';
-import { subscribeToOrders, saveOrder, deleteOrder, Order, getOverdueUnconfirmedDispatches } from '../lib/orders';
+import { subscribeToOrders, saveOrder, deleteOrder, resetOrderToPendingDispatch, Order, getOverdueUnconfirmedDispatches } from '../lib/orders';
 import { BASELINE_ORDERS } from '../lib/ordersCache';
 import { useAuth } from '../contexts/AuthContext';
 import { saveOrderFiles } from '../lib/fileStorage';
@@ -39,6 +40,9 @@ import { getPaymentForOrder } from '../lib/payments';
 
 export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
   const { profile } = useAuth();
+  const canResetOrder = !profile || profile.role !== 'sales_executive';
+  const [orderPendingReset, setOrderPendingReset] = useState<Order | null>(null);
+  const [isResettingOrder, setIsResettingOrder] = useState(false);
   const [orders, setOrders] = useState<Order[]>(BASELINE_ORDERS);
   const [isLoading, setIsLoading] = useState(false);
   const [quotaExceeded, setQuotaExceeded] = useState(false);
@@ -1095,6 +1099,18 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
                           <Download className="w-3.5 h-3.5 text-amber-600" /> Payment Reminder Notice
                         </button>
 
+                        {canResetOrder && !['New Order', 'New', 'Pending'].includes(order.status) && (
+                          <button
+                            onClick={() => {
+                              setActiveMenuOrderId(null);
+                              setOrderPendingReset(order);
+                            }}
+                            className="w-full px-3 py-1.5 hover:bg-rose-50 flex items-center gap-2 text-rose-700 font-bold cursor-pointer transition-colors"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5 text-rose-600" /> Reset to Pending Dispatch
+                          </button>
+                        )}
+
                         <div className="border-t border-slate-100 pt-1">
                           <button 
                             onClick={() => { setActiveMenuOrderId(null); handleDeleteOrder(order.docId || order.id); }}
@@ -1162,6 +1178,53 @@ export function OrdersTab({ searchQuery = '' }: { searchQuery?: string }) {
           </div>
         </div>
       </motion.div>
+
+      {orderPendingReset && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-6 space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-50 border border-rose-200 flex items-center justify-center text-rose-600 shrink-0">
+                <RotateCcw className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Reset Order to Pending Dispatch?</h3>
+                <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                  This will reset <strong>#{orderPendingReset.id}</strong> ({orderPendingReset.customer}) back to <strong>New Order / Pending Dispatch</strong> and clear its scheduled quantities, challans, and installation tracking fields.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                disabled={isResettingOrder}
+                onClick={() => setOrderPendingReset(null)}
+                className="px-4 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isResettingOrder}
+                onClick={async () => {
+                  setIsResettingOrder(true);
+                  try {
+                    await resetOrderToPendingDispatch(orderPendingReset);
+                    setOrderPendingReset(null);
+                  } catch (err: any) {
+                    console.error('Reset failed:', err);
+                  } finally {
+                    setIsResettingOrder(false);
+                  }
+                }}
+                className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold cursor-pointer disabled:opacity-60 flex items-center gap-1.5"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>{isResettingOrder ? 'Resetting...' : 'Yes, Reset to Pending'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

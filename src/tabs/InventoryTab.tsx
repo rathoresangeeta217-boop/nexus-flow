@@ -42,7 +42,10 @@ import {
   deleteRawMaterialItem,
   deleteInventoryHistoryEntry,
   clearAllInventoryHistory,
-  separateMergedScannedItems
+  separateMergedScannedItems,
+  findDuplicateMaterialGroups,
+  findDuplicateHistoryGroups,
+  resolveInventoryDuplicates
 } from '../lib/inventory';
 import { AddRawMaterialModal } from '../components/AddRawMaterialModal';
 import { ReceiveMaterialModal } from '../components/ReceiveMaterialModal';
@@ -87,6 +90,12 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
   const [isClearHistoryModalOpen, setIsClearHistoryModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Duplicate Cleanup Modal state
+  const [isDuplicateModalOpen, setIsDuplicateModalOpen] = useState(false);
+  const [mergeDuplicateQty, setMergeDuplicateQty] = useState(false);
+  const [cleanDuplicateHistory, setCleanDuplicateHistory] = useState(true);
+  const [isSolvingDuplicates, setIsSolvingDuplicates] = useState(false);
+
   // Success toast notification
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
 
@@ -95,15 +104,64 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
     setTimeout(() => setNotification(null), 4000);
   };
 
-  // Subscriptions & automatic unmerge of items with different rates
+  // Live duplicate detection across inventory items & ledger entries
+  const duplicateMaterialGroups = useMemo(() => findDuplicateMaterialGroups(materials), [materials]);
+  const duplicateHistoryGroups = useMemo(() => findDuplicateHistoryGroups(historyList), [historyList]);
+  const duplicateMaterialCount = useMemo(
+    () => duplicateMaterialGroups.reduce((sum, g) => sum + g.duplicates.length, 0),
+    [duplicateMaterialGroups]
+  );
+  const duplicateHistoryCount = useMemo(
+    () => duplicateHistoryGroups.reduce((sum, g) => sum + (g.length - 1), 0),
+    [duplicateHistoryGroups]
+  );
+  const totalDuplicatesFound = duplicateMaterialCount + duplicateHistoryCount;
+
+  // Auto-select sensible default merge mode when modal opens
+  useEffect(() => {
+    if (isDuplicateModalOpen && duplicateMaterialGroups.length > 0) {
+      const mostlyIdentical = duplicateMaterialGroups.every(g => g.hasIdenticalStock);
+      setMergeDuplicateQty(!mostlyIdentical);
+    }
+  }, [isDuplicateModalOpen, duplicateMaterialGroups]);
+
+  const handleSolveDuplicates = async () => {
+    if (isSolvingDuplicates) return;
+    setIsSolvingDuplicates(true);
+    try {
+      const {
+        removedMaterialsCount,
+        removedHistoryCount,
+        updatedMaterials,
+        updatedHistory
+      } = await resolveInventoryDuplicates({
+        mergeQuantities: mergeDuplicateQty,
+        cleanHistory: cleanDuplicateHistory,
+        currentMaterials: materials,
+        currentHistory: historyList
+      });
+      setMaterials(updatedMaterials);
+      setHistoryList(updatedHistory);
+      setIsDuplicateModalOpen(false);
+      showNotification(
+        `Cleaned ${removedMaterialsCount} duplicate material(s) and ${removedHistoryCount} duplicate history entry(s)!`,
+        'success'
+      );
+    } catch (err: any) {
+      console.error('Failed to resolve duplicates:', err);
+      showNotification(err?.message || 'Failed to clean duplicate entries.', 'error');
+    } finally {
+      setIsSolvingDuplicates(false);
+    }
+  };
+
+  // Realtime Subscriptions
   useEffect(() => {
     const unsubMaterials = subscribeToRawMaterials((items) => {
       setMaterials(items);
     });
     const unsubHistory = subscribeToInventoryHistory((history) => {
       setHistoryList(history);
-      // Auto-separate any merged scanned items that have distinct rates
-      separateMergedScannedItems().catch(() => {});
     });
 
     return () => {
@@ -188,6 +246,7 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
       // Search query
       if (effectiveSearch) {
         const matchName = item.name.toLowerCase().includes(effectiveSearch);
+        const matchIdName = (item.identificationName || '').toLowerCase().includes(effectiveSearch);
         const matchSpecs = (item.specs || '').toLowerCase().includes(effectiveSearch);
         const matchSku = (item.sku || '').toLowerCase().includes(effectiveSearch);
         const matchCategory = (item.category || '').toLowerCase().includes(effectiveSearch);
@@ -196,7 +255,9 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
         const matchChairBrand = (item.chairBrand || '').toLowerCase().includes(effectiveSearch);
         const matchChairColor = (item.chairColor || '').toLowerCase().includes(effectiveSearch);
         const matchChairMaterial = (item.chairUpholstery || '').toLowerCase().includes(effectiveSearch);
-        if (!matchName && !matchSpecs && !matchSku && !matchCategory && !matchNotes && !matchChairType && !matchChairBrand && !matchChairColor && !matchChairMaterial) {
+        const matchColorCode = (item.colorCode || '').toLowerCase().includes(effectiveSearch);
+        const matchColorName = (item.colorName || '').toLowerCase().includes(effectiveSearch);
+        if (!matchName && !matchIdName && !matchSpecs && !matchSku && !matchCategory && !matchNotes && !matchChairType && !matchChairBrand && !matchChairColor && !matchChairMaterial && !matchColorCode && !matchColorName) {
           return false;
         }
       }
@@ -246,12 +307,13 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
 
       if (effectiveSearch) {
         const matchMat = entry.materialName.toLowerCase().includes(effectiveSearch);
+        const matchIdName = (entry.identificationName || '').toLowerCase().includes(effectiveSearch);
         const matchProj = (entry.projectName || '').toLowerCase().includes(effectiveSearch);
         const matchNotes = (entry.notes || '').toLowerCase().includes(effectiveSearch);
         const matchRef = (entry.challanOrPoNo || '').toLowerCase().includes(effectiveSearch);
         const matchRec = (entry.receivedFrom || '').toLowerCase().includes(effectiveSearch);
         const matchDisp = (entry.dispatchedTo || '').toLowerCase().includes(effectiveSearch);
-        if (!matchMat && !matchProj && !matchNotes && !matchRef && !matchRec && !matchDisp) {
+        if (!matchMat && !matchIdName && !matchProj && !matchNotes && !matchRef && !matchRec && !matchDisp) {
           return false;
         }
       }
@@ -268,6 +330,7 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
     }
     const data = sortedMaterials.map(m => ({
       'Raw Material Item': m.name,
+      'Identification Name': m.identificationName || '',
       'SKU': m.sku || '',
       'Category': m.category || '',
       'Specifications': m.specs || '',
@@ -281,7 +344,8 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
       'Board Company': m.boardCompany || '',
       'Board Thickness': m.boardThickness || '',
       'Chair Type': m.chairType || '',
-      'Color Code': m.colorCode || '',
+      'Colour Code': m.colorCode || '',
+      'Colour Name': m.colorName || '',
       'Bill Date': m.invoiceDate || '',
       'Notes': m.notes || ''
     }));
@@ -302,6 +366,7 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
       'Bill Date': h.billDate || '',
       'Type': h.type,
       'Raw Material': h.materialName,
+      'Identification Name': h.identificationName || '',
       'Quantity': (h.type === 'RECEIVED' ? '+' : '-') + h.quantity,
       'Unit': h.materialUnit || 'Nos',
       'Unit Rate (₹)': h.unitCost || 0,
@@ -404,6 +469,8 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
             className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-xl shadow-xl border flex items-center gap-2.5 text-sm font-bold ${
               notification.type === 'success'
                 ? 'bg-emerald-600 text-white border-emerald-500 shadow-emerald-600/20'
+                : notification.type === 'error'
+                ? 'bg-rose-600 text-white border-rose-500 shadow-rose-600/20'
                 : 'bg-indigo-600 text-white border-indigo-500 shadow-indigo-600/20'
             }`}
           >
@@ -485,6 +552,20 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
           >
             <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
             <span>Export Excel</span>
+          </button>
+
+          {/* Solve Duplicates Button */}
+          <button
+            onClick={() => setIsDuplicateModalOpen(true)}
+            className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer min-h-[42px] ${
+              totalDuplicatesFound > 0
+                ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-md shadow-rose-600/20'
+                : 'border border-slate-300 hover:bg-slate-50 text-slate-700'
+            }`}
+            title="Detect and clean duplicate entries in inventory"
+          >
+            <Layers className={`w-3.5 h-3.5 shrink-0 ${totalDuplicatesFound > 0 ? 'text-white' : 'text-rose-600'}`} />
+            <span>{totalDuplicatesFound > 0 ? `Solve Duplicates (${totalDuplicatesFound})` : 'Check Duplicates'}</span>
           </button>
 
           {/* Unmerge Scanned Items Button */}
@@ -670,6 +751,31 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
         </div>
       </div>
 
+      {/* Duplicate Entries Detected Alert Banner */}
+      {totalDuplicatesFound > 0 && (
+        <div className="p-3.5 sm:p-4 rounded-xl bg-rose-50 border-2 border-rose-300 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-rose-100 text-rose-700 shrink-0">
+              <Layers className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xs sm:text-sm font-black text-rose-950">
+                Duplicate Entries Found: {duplicateMaterialCount} duplicate material(s) &amp; {duplicateHistoryCount} duplicate history record(s)
+              </p>
+              <p className="text-[11px] sm:text-xs text-rose-800">
+                Review and remove extra cloned entries or merge stock totals in one click.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setIsDuplicateModalOpen(true)}
+            className="w-full sm:w-auto px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-colors shrink-0 cursor-pointer text-center shadow-xs"
+          >
+            Review &amp; Solve Duplicates
+          </button>
+        </div>
+      )}
+
       {/* Low Stock Warning Alert if any items are under minimum */}
       {metrics.lowStockCount > 0 && stockStatusFilter !== 'low_stock' && (
         <div className="p-3.5 sm:p-4 rounded-xl bg-amber-50 border border-amber-300 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
@@ -739,7 +845,7 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
             type="text"
             value={internalSearch}
             onChange={(e) => setInternalSearch(e.target.value)}
-            placeholder={activeSubTab === 'products' ? "Search raw materials, specs, SKU..." : "Search history, projects..."}
+            placeholder={activeSubTab === 'products' ? "Search materials, identification name, specs, SKU..." : "Search history, identification name, projects..."}
             className="w-full pl-9 pr-8 py-2 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 text-xs font-medium text-slate-900 bg-white"
           />
           {internalSearch && (
@@ -919,7 +1025,7 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
             <>
               {/* SUBVIEW A: MOBILE CARDS VIEW (ALWAYS SHOWN ON MOBILE md:hidden, OR DESKTOP WHEN viewMode === 'cards') */}
               <div className={`${viewMode === 'cards' ? 'grid' : 'grid md:hidden'} grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5`}>
-                {sortedMaterials.map((item) => {
+                {sortedMaterials.map((item, idx) => {
                   const threshold = item.minThreshold ?? 10;
                   const isLow = item.availableQuantity <= threshold && item.availableQuantity > 0;
                   const isOut = item.availableQuantity <= 0;
@@ -927,7 +1033,7 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
 
                   return (
                     <div 
-                      key={item.id}
+                      key={item.docId || `${item.id}-${idx}`}
                       className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs hover:shadow-md transition-all flex flex-col justify-between gap-3 relative group"
                     >
                       {/* Top Header: Image + Title + Category */}
@@ -962,6 +1068,11 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
                             <h3 className="font-black text-slate-900 text-sm leading-snug mt-1 truncate" title={item.name}>
                               {item.name}
                             </h3>
+                            {item.identificationName && (
+                              <span className="inline-block text-[10px] font-bold text-violet-800 bg-violet-50 border border-violet-200 px-2 py-0.5 rounded-md mt-1 truncate max-w-full" title={`Identification Name: ${item.identificationName}`}>
+                                ID: {item.identificationName}
+                              </span>
+                            )}
                             {item.specs && (
                               <p className="text-[11px] text-slate-500 line-clamp-1 mt-0.5">
                                 {item.specs}
@@ -992,9 +1103,9 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
                               {item.chairBrand}
                             </span>
                           )}
-                          {item.colorCode && (
+                          {(item.colorCode || item.colorName) && (
                             <span className="text-[10px] font-bold text-purple-800 bg-purple-50 px-1.5 py-0.5 rounded-md border border-purple-200">
-                              Color: {item.colorCode}
+                              Colour: {[item.colorCode, item.colorName].filter(Boolean).join(' - ')}
                             </span>
                           )}
                           {item.unitCost ? (
@@ -1115,14 +1226,14 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200">
-                      {sortedMaterials.map((item) => {
+                      {sortedMaterials.map((item, idx) => {
                         const threshold = item.minThreshold ?? 10;
                         const isLow = item.availableQuantity <= threshold && item.availableQuantity > 0;
                         const isOut = item.availableQuantity <= 0;
                         const lineValuation = (item.availableQuantity || 0) * (item.unitCost || 0);
 
                         return (
-                          <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
+                          <tr key={item.docId || `${item.id}-${idx}`} className="hover:bg-slate-50/80 transition-colors">
                             {/* Product Image + Name */}
                             <td className="py-3.5 px-4">
                               <div className="flex items-center gap-3">
@@ -1145,6 +1256,11 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
                                   <p className="font-bold text-slate-900 text-sm leading-snug">
                                     {item.name}
                                   </p>
+                                  {item.identificationName && (
+                                    <span className="inline-block text-[11px] font-bold text-violet-900 bg-violet-50 border border-violet-200 px-2 py-0.5 rounded-md mt-1">
+                                      ID: {item.identificationName}
+                                    </span>
+                                  )}
                                   <div className="flex items-center gap-1.5 flex-wrap mt-1">
                                     <span className="inline-block text-[10px] font-black text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md">
                                       {item.sku || 'RM'}
@@ -1169,9 +1285,9 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
                                         {item.boardThickness}
                                       </span>
                                     )}
-                                    {item.colorCode && (
+                                    {(item.colorCode || item.colorName) && (
                                       <span className="text-[10px] font-bold text-purple-800 bg-purple-50 px-1.5 py-0.5 rounded-md border border-purple-200">
-                                        Color: {item.colorCode}
+                                        Colour: {[item.colorCode, item.colorName].filter(Boolean).join(' - ')}
                                       </span>
                                     )}
                                     {item.invoiceDate ? (
@@ -1402,12 +1518,12 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
             <>
               {/* SUBVIEW A: MOBILE HISTORY CARDS (md:hidden) */}
               <div className="grid grid-cols-1 gap-3 md:hidden">
-                {filteredHistory.map((entry) => {
+                {filteredHistory.map((entry, idx) => {
                   const isReceive = entry.type === 'RECEIVED';
 
                   return (
                     <div 
-                      key={entry.id}
+                      key={entry.docId || `${entry.id}-${idx}`}
                       className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs flex flex-col gap-2.5 relative"
                     >
                       {/* Card Header: Type Badge + Timestamp + Delete */}
@@ -1445,6 +1561,11 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
                           <h4 className="font-black text-slate-900 text-sm leading-snug">
                             {entry.materialName}
                           </h4>
+                          {entry.identificationName && (
+                            <span className="text-[10px] font-bold text-violet-800 bg-violet-50 border border-violet-200 px-1.5 py-0.5 rounded-md inline-block mt-1 mr-1">
+                              ID: {entry.identificationName}
+                            </span>
+                          )}
                           {entry.unitCost ? (
                             <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-md inline-block mt-1">
                               Rate: ₹{entry.unitCost.toLocaleString('en-IN', { maximumFractionDigits: 2 })} / {entry.materialUnit || 'Nos'}
@@ -1524,11 +1645,11 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200">
-                      {filteredHistory.map((entry) => {
+                      {filteredHistory.map((entry, idx) => {
                         const isReceive = entry.type === 'RECEIVED';
 
                         return (
-                          <tr key={entry.id} className="hover:bg-slate-50/80 transition-colors">
+                          <tr key={entry.docId || `${entry.id}-${idx}`} className="hover:bg-slate-50/80 transition-colors">
                             {/* Date & Time */}
                             <td className="py-3.5 px-4 whitespace-nowrap">
                               <div className="flex items-center gap-1.5 font-bold text-slate-800">
@@ -1560,7 +1681,12 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
 
                             {/* Material */}
                             <td className="py-3.5 px-4 font-bold text-slate-900">
-                              {entry.materialName}
+                              <div>{entry.materialName}</div>
+                              {entry.identificationName && (
+                                <span className="inline-block mt-1 text-[10px] font-bold text-violet-900 bg-violet-50 border border-violet-200 px-2 py-0.5 rounded-md">
+                                  ID: {entry.identificationName}
+                                </span>
+                              )}
                             </td>
 
                             {/* Movement Quantity & Rate */}
@@ -1929,10 +2055,178 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({ searchQuery = '' }) 
       <ScanInvoiceModal
         isOpen={isScanInvoiceModalOpen}
         onClose={() => setIsScanInvoiceModalOpen(false)}
+        existingMaterials={materials}
         onBatchAdded={(count) => {
           showNotification(`Successfully extracted and added ${count} raw material item(s) to inventory!`, 'success');
         }}
       />
+
+      {/* SOLVE DUPLICATE ENTRIES MODAL */}
+      <AnimatePresence>
+        {isDuplicateModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[88vh]"
+            >
+              <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-rose-500/20 border border-rose-400/40 flex items-center justify-center text-rose-300">
+                    <Layers className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-base leading-tight">
+                      Duplicate Entries Cleanup
+                    </h3>
+                    <p className="text-xs text-slate-300">
+                      Found {duplicateMaterialGroups.length} duplicate material group(s) and {duplicateHistoryCount} duplicate history entry(s)
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsDuplicateModalOpen(false)}
+                  disabled={isSolvingDuplicates}
+                  className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 cursor-pointer disabled:opacity-50"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-6 overflow-y-auto space-y-4 flex-1">
+                {totalDuplicatesFound === 0 ? (
+                  <div className="text-center py-8 space-y-2">
+                    <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto" />
+                    <p className="font-bold text-slate-900 text-base">No Duplicate Entries Found</p>
+                    <p className="text-xs text-slate-500">
+                      All raw material items and transaction ledger entries in your inventory are clean and unique.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    {duplicateMaterialGroups.length > 0 && (
+                      <div className="space-y-2.5">
+                        <h4 className="text-xs font-black text-slate-700 uppercase tracking-wider">
+                          Duplicate Raw Materials ({duplicateMaterialGroups.length} group{duplicateMaterialGroups.length > 1 ? 's' : ''})
+                        </h4>
+                        <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                          {duplicateMaterialGroups.map((group) => (
+                            <div key={group.key} className="p-3 rounded-xl border border-slate-200 bg-slate-50 text-xs space-y-1.5">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-black text-slate-900 text-sm truncate">
+                                  {group.primary.name}
+                                </span>
+                                <span className="px-2 py-0.5 rounded-md bg-rose-100 text-rose-800 font-black text-[10px] shrink-0">
+                                  {group.allItems.length} copies ({group.duplicates.length} extra)
+                                </span>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
+                                {group.primary.identificationName && (
+                                  <span className="bg-violet-50 text-violet-800 border border-violet-200 px-1.5 py-0.5 rounded font-bold">
+                                    ID: {group.primary.identificationName}
+                                  </span>
+                                )}
+                                <span>Category: <strong>{group.primary.category}</strong></span>
+                                {group.primary.unitCost ? (
+                                  <span>Rate: <strong>₹{group.primary.unitCost}</strong></span>
+                                ) : null}
+                              </div>
+                              <div className="text-[11px] text-slate-500 flex flex-wrap gap-2 pt-1 border-t border-slate-200/70">
+                                {group.allItems.map((copy, cIdx) => (
+                                  <span key={copy.docId || `${copy.id}-${cIdx}`} className="bg-white border border-slate-200 px-2 py-0.5 rounded">
+                                    #{cIdx + 1}: <strong>{copy.availableQuantity} {copy.unit}</strong>
+                                    {copy.challanOrPoNo ? ` (${copy.challanOrPoNo})` : ''}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="p-3.5 rounded-xl bg-indigo-50/70 border border-indigo-200 space-y-2">
+                          <p className="text-xs font-black text-indigo-950 uppercase tracking-wider">
+                            How should duplicate material stock be handled?
+                          </p>
+                          <label className="flex items-start gap-2.5 cursor-pointer text-xs text-slate-800">
+                            <input
+                              type="radio"
+                              name="mergeDupMode"
+                              checked={!mergeDuplicateQty}
+                              onChange={() => setMergeDuplicateQty(false)}
+                              className="mt-0.5 text-indigo-600 focus:ring-indigo-500"
+                            />
+                            <span>
+                              <strong>Remove Extra Clones (Keep 1 copy&apos;s stock)</strong> — Best when an item was accidentally duplicated with the same stock count.
+                            </span>
+                          </label>
+                          <label className="flex items-start gap-2.5 cursor-pointer text-xs text-slate-800">
+                            <input
+                              type="radio"
+                              name="mergeDupMode"
+                              checked={mergeDuplicateQty}
+                              onChange={() => setMergeDuplicateQty(true)}
+                              className="mt-0.5 text-indigo-600 focus:ring-indigo-500"
+                            />
+                            <span>
+                              <strong>Combine Stock Totals</strong> — Add stock quantities of all duplicate copies together into 1 entry.
+                            </span>
+                          </label>
+                        </div>
+                      </div>
+                    )}
+
+                    {duplicateHistoryCount > 0 && (
+                      <label className="flex items-center gap-2.5 p-3.5 rounded-xl bg-amber-50 border border-amber-200 cursor-pointer text-xs font-bold text-amber-950">
+                        <input
+                          type="checkbox"
+                          checked={cleanDuplicateHistory}
+                          onChange={(e) => setCleanDuplicateHistory(e.target.checked)}
+                          className="rounded border-amber-400 text-amber-600 focus:ring-amber-500 w-4 h-4"
+                        />
+                        <span>
+                          Also remove {duplicateHistoryCount} duplicate transaction record(s) from Movement History / Ledger
+                        </span>
+                      </label>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <div className="bg-slate-50 px-6 py-4 flex items-center justify-end gap-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  disabled={isSolvingDuplicates}
+                  onClick={() => setIsDuplicateModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-slate-700 hover:bg-slate-200/80 font-bold text-xs transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Close
+                </button>
+                {totalDuplicatesFound > 0 && (
+                  <button
+                    type="button"
+                    disabled={isSolvingDuplicates}
+                    onClick={handleSolveDuplicates}
+                    className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs transition-colors shadow-sm flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                  >
+                    {isSolvingDuplicates ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Cleaning Duplicates...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4" />
+                        <span>Solve &amp; Remove Duplicates</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
